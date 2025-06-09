@@ -1,173 +1,137 @@
-import com.google.gson.Gson
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Paths
 import java.nio.file.StandardOpenOption
-import java.time.ZonedDateTime
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.*
+import okhttp3.*
 import org.json.JSONObject
+import org.jsoup.Jsoup
+import java.net.SocketTimeoutException
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
-data class Article(
-    val title: String,
-    val url: String,
-    val date: ZonedDateTime,
-    val source: String,
+
+val rssFeeds = listOf(
+    "https://cyprus-mail.com/feed/",
+    "https://www.sigmalive.com/rss/politics", // removed in-cyprus + cyprusnews.eu due to error
+    "https://pafos.org.cy/anakoinosis/feed/" // assuming valid
 )
 
-val client = OkHttpClient()
-val gson = Gson()
+val unwantedKeywords = listOf("war", "russia", "missile", "nato", "attack", "gaza", "ukraine", "military")
 
-fun main() {
-    println("📰 Weekly Blog Fetcher Starting...")
+data class Article(val title: String, val link: String, val date: String, val source: String, val category: String)
 
+fun fetchArticles(): List<Article> {
+    println("🔍 Fetching articles...")
     val allArticles = mutableListOf<Article>()
+    for (url in rssFeeds) {
+        try {
+            val doc = Jsoup.connect(url).timeout(10000).get()
+            val items = doc.select("item")
+            for (item in items) {
+                val title = item.selectFirst("title")?.text() ?: continue
+                val link = item.selectFirst("link")?.text() ?: continue
+                val pubDate = item.selectFirst("pubDate")?.text() ?: ""
+                val lowerTitle = title.lowercase()
 
-    println("🔍 Fetching Cyprus Mail RSS...")
-    val cyprusMailArticles = fetchRSSFeed(
-        "https://cyprus-mail.com/feed",
-        source = "Cyprus Mail"
-    )
-    println("✅ Cyprus Mail articles: ${cyprusMailArticles.size}")
-    allArticles.addAll(cyprusMailArticles)
-
-    val newArticles = allArticles.filter {
-        it.date.isAfter(ZonedDateTime.now().minusDays(7))
-    }
-
-    println("\n🆕 New articles this week: ${newArticles.size}")
-    if (newArticles.isEmpty()) {
-        println("\n📭 No new content to summarize. Exiting.")
-        return
-    }
-
-    newArticles.forEach {
-        println("\n• ${it.title}")
-        println("  🔗 ${it.url}")
-        println("  📅 ${it.date}")
-        println("  🏷 Source: ${it.source}")
-    }
-
-    println("\n✍️ Generating blog post using GPT...")
-    val blogPost = summarizeArticlesWithGPT(newArticles)
-    println("\n✅ Blog post generated successfully:\n")
-    println(blogPost)
-
-    saveToFile("weekly_blog.md", blogPost)
-    commitAndPushToGitHub()
-}
-
-fun fetchRSSFeed(feedUrl: String, source: String): List<Article> {
-    val request = Request.Builder().url(feedUrl).build()
-    client.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            println("❌ Failed to fetch $source: ${response.code}")
-            return emptyList()
-        }
-
-        val body = response.body?.string() ?: return emptyList()
-        val doc: Document = Jsoup.parse(body, "", org.jsoup.parser.Parser.xmlParser())
-        val items = doc.select("item")
-
-        return items.mapNotNull { item ->
-            try {
-                val title = item.selectFirst("title")?.text()?.trim() ?: return@mapNotNull null
-                val link = item.selectFirst("link")?.text()?.trim() ?: return@mapNotNull null
-                val pubDateText = item.selectFirst("pubDate")?.text()?.trim() ?: return@mapNotNull null
-
-                val formatter = DateTimeFormatter.RFC_1123_DATE_TIME
-                val pubDate = ZonedDateTime.parse(pubDateText, formatter)
-
-                Article(title, link, pubDate, source)
-            } catch (e: Exception) {
-                null
+                if (unwantedKeywords.none { lowerTitle.contains(it) }) {
+                    val category = when {
+                        listOf("villa", "property", "real estate", "apartment").any { lowerTitle.contains(it) } -> "Real Estate"
+                        listOf("travel", "festival", "holiday", "beach", "trip", "hotel").any { lowerTitle.contains(it) } -> "Holidays & Travel"
+                        listOf("tech", "ai", "startup", "data", "gadget", "app", "software").any { lowerTitle.contains(it) } -> "Technology"
+                        else -> "Other"
+                    }
+                    allArticles.add(Article(title, link, pubDate, sourceFromUrl(url), category))
+                }
             }
+        } catch (e: IOException) {
+            println("❌ Failed to fetch from $url: ${e.message}")
         }
+    }
+    println("✅ Total relevant articles: ${allArticles.size}")
+    return allArticles
+}
+
+fun sourceFromUrl(url: String): String {
+    return when {
+        url.contains("cyprus-mail") -> "Cyprus Mail"
+        url.contains("sigmalive") -> "SigmaLive"
+        url.contains("pafos") -> "Pafos.org.cy"
+        else -> "Other"
     }
 }
 
-fun summarizeArticlesWithGPT(articles: List<Article>): String {
-    val messages = mutableListOf<Map<String, String>>()
-    messages.add(mapOf("role" to "system", "content" to "You are a professional blog writer. Summarize the week's Cyprus tech and economic news into 3 well-written paragraphs."))
-
-    val content = buildString {
+fun summarizeWithGPT(articles: List<Article>, category: String): String {
+    println("✍️ Generating blog post for category: $category (${articles.size} articles)...")
+    val prompt = buildString {
+        append("Summarize the following news articles under the theme '$category'. Avoid using political or violent language. Group ideas where possible and keep it concise.\n\n")
         articles.forEach {
-            append("- ${it.title} (${it.source}): ${it.url}\n")
+            append("- ${it.title} (${it.source}): ${it.link}\n")
         }
     }
-    messages.add(mapOf("role" to "user", "content" to content))
 
-    val json = JSONObject()
-    json.put("model", "gpt-4o")
-    json.put("messages", messages)
-
-    val requestBody = okhttp3.RequestBody.create(
-        okhttp3.MediaType.parse("application/json"),
-        json.toString()
-    )
+    val client = OkHttpClient.Builder().callTimeout(java.time.Duration.ofSeconds(60)).build()
+    val mediaType = "application/json".toMediaTypeOrNull()
+    val requestBody = RequestBody.create(mediaType, JSONObject(mapOf(
+        "model" to "gpt-4",
+        "messages" to listOf(mapOf("role" to "user", "content" to prompt))
+    )).toString())
 
     val request = Request.Builder()
         .url("https://api.openai.com/v1/chat/completions")
         .post(requestBody)
-        .addHeader("Authorization", "Bearer ${System.getenv("OPENAI_API_KEY")}")
+        .addHeader("Authorization", "Bearer YOUR_API_KEY")
+        .addHeader("Content-Type", "application/json")
         .build()
 
     client.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            throw IOException("Unexpected code $response")
-        }
-
-        val responseBody = response.body?.string() ?: throw IOException("Empty body")
-        val jsonResponse = JSONObject(responseBody)
-        return jsonResponse
-            .getJSONArray("choices")
-            .getJSONObject(0)
-            .getJSONObject("message")
-            .getString("content")
-            .trim()
+        if (!response.isSuccessful) throw IOException("Unexpected code $response")
+        val json = JSONObject(response.body!!.string())
+        return json.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
     }
 }
 
-fun saveToFile(filename: String, content: String) {
-    val path = Paths.get(filename)
-    Files.write(path, content.toByteArray(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
-    println("💾 Blog post saved to $filename")
-}
+fun main() {
+    println("📰 Weekly Blog Fetcher Starting...")
+    val articles = fetchArticles()
 
-fun commitAndPushToGitHub() {
-    val blogFile = Paths.get("weekly_blog.md")
-
-    if (!Files.exists(blogFile)) {
-        println("❌ weekly_blog.md not found.")
+    if (articles.isEmpty()) {
+        println("📭 No new content to summarize. Exiting.")
         return
     }
 
-    val commands = listOf(
-        "git add weekly_blog.md",
-        "git commit -m \"Update blog for ${ZonedDateTime.now().toLocalDate()}\"",
-        "git push origin main"
-    )
+    val grouped = articles.groupBy { it.category }
+    val allSummaries = StringBuilder("# Weekly Cyprus Blog – ${LocalDate.now()}\n\n")
 
-    for (cmd in commands) {
+    grouped.forEach { (category, list) ->
         try {
-            val parts = cmd.split(" ")
-            val process = ProcessBuilder(parts)
-                .directory(File("."))
-                .redirectOutput(ProcessBuilder.Redirect.INHERIT)
-                .redirectError(ProcessBuilder.Redirect.INHERIT)
-                .start()
-
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                println("❌ Command failed: $cmd")
-            }
+            val summary = summarizeWithGPT(list, category)
+            allSummaries.append("## $category\n\n$summary\n\n")
+        } catch (e: SocketTimeoutException) {
+            println("⚠️ Timeout while summarizing $category")
         } catch (e: Exception) {
-            println("❌ Error running command '$cmd': ${e.message}")
+            println("❌ Error in $category summarization: ${e.message}")
         }
+    }
+
+    val today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"))
+    val outputFile = "weekly_blog_${today}.md"
+    Files.write(
+        Paths.get(outputFile),
+        allSummaries.toString().toByteArray(),
+        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
+    )
+    println("💾 Saved to $outputFile")
+
+    val commitMessage = "Weekly blog post for $today"
+    try {
+        println("🚀 Committing and pushing to GitHub...")
+        ProcessBuilder("git", "add", ".").directory(File(".")).start().waitFor()
+        ProcessBuilder("git", "commit", "-m", commitMessage).directory(File(".")).start().waitFor()
+        ProcessBuilder("git", "push", "origin", "main").directory(File(".")).inheritIO().start().waitFor()
+        println("✅ Blog pushed to GitHub.")
+    } catch (e: Exception) {
+        println("❌ Failed to push to GitHub: ${e.message}")
     }
 }
