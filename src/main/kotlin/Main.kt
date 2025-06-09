@@ -10,7 +10,7 @@ import org.json.JSONObject
 import org.jsoup.Jsoup
 import java.net.SocketTimeoutException
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-val apiKey = System.getenv("OPENAI_API_KEY") ?: "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" // <-- hardcoded for quick test
+val apiKey = "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" // <-- hardcoded for quick test
 
 
 val rssFeeds = listOf(
