@@ -15,8 +15,8 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 
 val rssFeeds = listOf(
     "https://cyprus-mail.com/feed/",
-    "https://www.sigmalive.com/rss/politics", // removed in-cyprus + cyprusnews.eu due to error
-    "https://pafos.org.cy/anakoinosis/feed/" // assuming valid
+    "https://https://www.sigmalive.com/", // removed in-cyprus + cyprusnews.eu due to error
+    "https://pafos.org.cy/anakoinosis/" // assuming valid
 )
 
 val unwantedKeywords = listOf("war", "russia", "missile", "nato", "attack", "gaza", "ukraine", "military")
