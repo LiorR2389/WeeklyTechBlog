@@ -82,7 +82,7 @@ fun summarizeWithGPT(articles: List<Article>, category: String): String {
     val request = Request.Builder()
         .url("https://api.openai.com/v1/chat/completions")
         .post(requestBody)
-        .addHeader("Authorization", "Bearer YOUR_API_KEY")
+        .addHeader("Authorization", "Bearer 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")
         .addHeader("Content-Type", "application/json")
         .build()
 
