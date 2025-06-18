@@ -80,45 +80,29 @@ class NewsAggregator {
         val articleElements = doc.select("article")
         println("Found ${articleElements.size} article elements")
 
-        // Try different selectors for Cyprus Mail
-        val selectors = listOf(
-            "article h2 a",
-            "article h3 a",
-            "article .entry-title a",
-            "article a[href*='/2025/']", // Links containing 2025
-            ".post-title a",
-            "h2 a",
-            "h3 a"
-        )
+        // For Cyprus Mail, get the title from the article's heading, not the link
+        articleElements.take(20).forEach { article ->
+            try {
+                // Try to find title in different ways
+                val titleElement = article.select("h2, h3, .entry-title, .post-title").first()
+                val linkElement = article.select("a[href*='/2025/']").first()
 
-        for (selector in selectors) {
-            val elements = doc.select(selector)
-            println("Trying selector '$selector': ${elements.size} elements")
+                val title = titleElement?.text()?.trim()
+                val url = linkElement?.absUrl("href")
 
-            if (elements.size > 0) {
-                println("First element: ${elements.first()?.text()?.take(100)}")
+                if (!title.isNullOrEmpty() && !url.isNullOrEmpty() && title.length > 10) {
+                    val summary = generateSummary(title)
+                    val category = categorizeArticle(title, summary)
+                    val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
 
-                elements.take(20).forEach { element ->
-                    try {
-                        val title = element.text()?.trim()
-                        val url = element.absUrl("href")
-
-                        if (!title.isNullOrEmpty() && url.isNotEmpty() && title.length > 10) {
-                            val summary = generateSummary(title)
-                            val category = categorizeArticle(title, summary)
-                            val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
-
-                            val article = Article(title, url, summary, category, date)
-                            if (articles.none { it.url == url }) { // Avoid duplicates
-                                articles.add(article)
-                                println("✅ Found: $title")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        println("Error processing element: ${e.message}")
+                    val newArticle = Article(title, url, summary, category, date)
+                    if (articles.none { it.url == url }) {
+                        articles.add(newArticle)
+                        println("✅ Found: $title")
                     }
                 }
-                break // Use first working selector
+            } catch (e: Exception) {
+                println("Error processing Cyprus Mail article: ${e.message}")
             }
         }
 
@@ -131,7 +115,6 @@ class NewsAggregator {
         println("\n🔍 Scraping In-Cyprus...")
         val doc = fetchPage("https://in-cyprus.philenews.com") ?: return articles
 
-        // Since we found 53 h3 a elements, let's use those
         val elements = doc.select("h3 a")
         println("Found ${elements.size} h3 a elements")
 
@@ -141,12 +124,15 @@ class NewsAggregator {
                 val url = element.absUrl("href")
 
                 if (!title.isNullOrEmpty() && url.isNotEmpty() && title.length > 10) {
-                    val summary = generateSummary(title)
-                    val category = categorizeArticle(title, summary)
-                    val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                    // Check for duplicates
+                    if (articles.none { it.url == url || it.title == title }) {
+                        val summary = generateSummary(title)
+                        val category = categorizeArticle(title, summary)
+                        val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
 
-                    articles.add(Article(title, url, summary, category, date))
-                    println("✅ Found: $title")
+                        articles.add(Article(title, url, summary, category, date))
+                        println("✅ Found: $title")
+                    }
                 }
             } catch (e: Exception) {
                 println("Error processing In-Cyprus article: ${e.message}")
@@ -162,48 +148,74 @@ class NewsAggregator {
         println("\n🔍 Scraping SigmaLive...")
         val doc = fetchPage("https://www.sigmalive.com") ?: return articles
 
-        // Try broader selectors for SigmaLive
+        // For SigmaLive, try to find complete article containers
         val selectors = listOf(
-            "a[href*='/news/']",
-            "a[href*='/sports/']",
-            "a[href*='/article']",
-            ".title a",
-            ".headline a",
-            "h1 a",
-            "h2 a",
-            "h3 a",
-            "a[title]"
+            ".article-item",
+            ".news-item",
+            ".story",
+            "article",
+            ".post"
         )
 
         for (selector in selectors) {
             val elements = doc.select(selector)
-            println("Trying selector '$selector': ${elements.size} elements")
+            println("Trying container selector '$selector': ${elements.size} elements")
 
             if (elements.size > 0) {
-                println("First element: ${elements.first()?.text()?.take(100)}")
-
-                elements.take(20).forEach { element ->
+                elements.take(20).forEach { container ->
                     try {
-                        val title = element.text()?.trim()
-                        val url = element.absUrl("href")
+                        // Look for title and link within the container
+                        val titleElement = container.select("h1, h2, h3, .title, .headline").first()
+                        val linkElement = container.select("a[href*='/news/'], a[href*='/article']").first()
 
-                        if (!title.isNullOrEmpty() && url.isNotEmpty() &&
-                            url.contains("sigmalive.com") && title.length > 10) {
+                        val title = titleElement?.text()?.trim()
+                        val url = linkElement?.absUrl("href") ?: titleElement?.parent()?.absUrl("href")
+
+                        if (!title.isNullOrEmpty() && !url.isNullOrEmpty() &&
+                            url.contains("sigmalive.com") && title.length > 5) {
                             val summary = generateSummary(title)
                             val category = categorizeArticle(title, summary)
                             val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
 
-                            val article = Article(title, url, summary, category, date)
-                            if (articles.none { it.url == url }) { // Avoid duplicates
-                                articles.add(article)
+                            val newArticle = Article(title, url, summary, category, date)
+                            if (articles.none { it.url == url }) {
+                                articles.add(newArticle)
                                 println("✅ Found: $title")
                             }
                         }
                     } catch (e: Exception) {
-                        println("Error processing element: ${e.message}")
+                        println("Error processing SigmaLive article: ${e.message}")
                     }
                 }
-                break // Use first working selector
+                break
+            }
+        }
+
+        // If no containers found, try direct link approach
+        if (articles.isEmpty()) {
+            println("Trying direct links approach...")
+            val links = doc.select("a[href*='/news/'], a[href*='/sports/']")
+            println("Found ${links.size} direct links")
+
+            links.take(20).forEach { link ->
+                try {
+                    val title = link.text()?.trim() ?: link.attr("title")?.trim()
+                    val url = link.absUrl("href")
+
+                    if (!title.isNullOrEmpty() && url.contains("sigmalive.com") && title.length > 5) {
+                        val summary = generateSummary(title)
+                        val category = categorizeArticle(title, summary)
+                        val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
+
+                        val newArticle = Article(title, url, summary, category, date)
+                        if (articles.none { it.url == url }) {
+                            articles.add(newArticle)
+                            println("✅ Found: $title")
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("Error processing SigmaLive link: ${e.message}")
+                }
             }
         }
 
@@ -378,7 +390,6 @@ class NewsAggregator {
             val responseBody = response.body?.string()
 
             println("🔍 Response code: ${response.code}")
-            println("🔍 Response body: $responseBody")
 
             if (response.isSuccessful) {
                 println("✅ Successfully pushed $filename to GitHub!")
@@ -386,7 +397,6 @@ class NewsAggregator {
                 println("🌐 Blog will be available at: https://$githubUsername.github.io/$repoName/$filename")
             } else {
                 println("❌ Failed to push to GitHub: ${response.code}")
-                println("❌ Response: $responseBody")
 
                 // Try alternative approach - create via different method
                 tryAlternativeGitHubPush(filename, htmlContent, githubToken, githubRepo, githubUsername)
@@ -402,62 +412,11 @@ class NewsAggregator {
         try {
             println("🔄 Trying alternative GitHub push method...")
 
+            val currentDate = SimpleDateFormat("yyyyMMdd").format(Date())
+
             // Create the landing page HTML
             val landingPageName = "index.html"
-            val landingPageContent = createLandingPage()
-
-            // Push both blog and landing page as Gists
-            val gistUrl = "https://api.github.com/gists"
-
-            val gistBody = JSONObject().apply {
-                put("description", "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
-                put("public", true)
-                put("files", JSONObject().apply {
-                    put(filename, JSONObject().apply {
-                        put("content", htmlContent)
-                    })
-                    put(landingPageName, JSONObject().apply {
-                        put("content", landingPageContent)
-                    })
-                })
-            }
-
-            val gistRequest = Request.Builder()
-                .url(gistUrl)
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Accept", "application/vnd.github.v3+json")
-                .addHeader("Content-Type", "application/json")
-                .post(RequestBody.create(
-                    "application/json".toMediaType(),
-                    gistBody.toString()
-                ))
-                .build()
-
-            val gistResponse = client.newCall(gistRequest).execute()
-
-            if (gistResponse.isSuccessful) {
-                val gistResponseBody = gistResponse.body?.string()
-                val gistJson = JSONObject(gistResponseBody ?: "{}")
-                val gistUrl = gistJson.optString("html_url")
-                val gistId = gistJson.optString("id")
-
-                // Store both URLs for email
-                System.setProperty("BLOG_URL", "$gistUrl#file-${filename.replace(".", "-")}")
-                System.setProperty("LANDING_URL", "https://gist.githack.com/$githubUsername/$gistId/raw/index.html")
-
-                println("✅ Created GitHub Gist: $gistUrl")
-                println("📝 Blog available as Gist until repository issue is resolved")
-            } else {
-                println("❌ Gist creation also failed: ${gistResponse.code}")
-            }
-
-        } catch (e: Exception) {
-            println("❌ Alternative method failed: ${e.message}")
-        }
-    }
-
-    private fun createLandingPage(): String {
-        return """
+            val landingPageContent = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -512,103 +471,17 @@ class NewsAggregator {
     </div>
 
     <script>
-        const blogUrl = new URLSearchParams(window.location.search).get('blog') || window.location.href.replace('index.html', 'weekly_blog_${SimpleDateFormat("yyyyMMdd").format(Date())}.html');
+        const blogUrl = new URLSearchParams(window.location.search).get('blog') || window.location.href.replace('index.html', 'weekly_blog_$currentDate.html');
 
         function openBlog() {
             window.open(blogUrl, '_blank');
         }
 
         function analyzeWithGPT() {
-            const message = `Please analyze this week's Cyprus blog: ${'
-
-            fun sendEmail(blogFilename: String) {
-                val emailPassword = System.getenv("EMAIL_PASSWORD") ?: run {
-                    println("EMAIL_PASSWORD environment variable not set")
-                    return
-                }
-
-                val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
-                val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
-                val repoName = githubRepo.split("/")[1]
-
-                val fromEmail = "liorre.work@gmail.com"
-                val toEmail = "lior.global@gmail.com"
-
-                val properties = Properties().apply {
-                    put("mail.smtp.host", "smtp.gmail.com")
-                    put("mail.smtp.port", "587")
-                    put("mail.smtp.auth", "true")
-                    put("mail.smtp.starttls.enable", "true")
-                }
-
-                val session = Session.getInstance(properties, object : Authenticator() {
-                    override fun getPasswordAuthentication(): PasswordAuthentication {
-                        return PasswordAuthentication(fromEmail, emailPassword)
-                    }
-                })
-
-                try {
-                    val blogUrl = System.getProperty("BLOG_URL") ?: "Blog URL not available"
-                    val landingUrl = System.getProperty("LANDING_URL") ?: "https://gist.github.com/$githubUsername"
-
-                    val message = MimeMessage(session).apply {
-                        setFrom(InternetAddress(fromEmail))
-                        setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
-                        subject = "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}"
-                        setText("""
-                    🗞️ Your Weekly Cyprus Blog is Ready!
-                    
-                    🚀 ONE-CLICK ACCESS: $landingUrl
-                    
-                    From the landing page you can:
-                    • 📖 Read the full blog
-                    • 🤖 Get instant AI analysis (copies message to clipboard)
-                    
-                    This week's highlights:
-                    • Fresh Cyprus news from multiple sources
-                    • Categorized by topic for easy reading
-                    • Ready for AI analysis and insights
-                    
-                    Generated automatically every Monday.
-                """.trimIndent())
-                    }
-
-                    Transport.send(message)
-                    println("📧 Email sent successfully with GitHub blog link!")
-
-                } catch (e: Exception) {
-                    println("❌ Error sending email: ${e.message}")
-                }
-            }
-        }
-
-fun main() {
-    println("Starting Weekly Tech Blog Generator...")
-    
-    val aggregator = NewsAggregator()
-    
-    try {
-        val articles = aggregator.aggregateNews()
-        
-        if (articles.isEmpty()) {
-            println("No new articles found this week.")
-            return
-        }
-        
-        val htmlContent = aggregator.generateHtmlBlog(articles)
-        val blogFilename = aggregator.saveBlog(htmlContent)
-        aggregator.sendEmail(blogFilename)
-        
-        println("Weekly blog generation completed successfully!")
-        
-    } catch (e: Exception) {
-        println("Error during blog generation: ${e.message}")
-        e.printStackTrace()
-    }
-}}{blogUrl}`;
+            const message = 'Please analyze this week Cyprus blog: ' + blogUrl;
             navigator.clipboard.writeText(message).then(() => {
                 window.open('https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog', '_blank');
-                alert('✅ Message copied! Paste it in ChatGPT.');
+                alert('Message copied! Paste it in ChatGPT.');
             }).catch(() => {
                 window.open('https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog', '_blank');
                 prompt('Copy this message:', message);
@@ -617,7 +490,56 @@ fun main() {
     </script>
 </body>
 </html>
-        """.trimIndent()
+            """.trimIndent()
+
+            // Push both blog and landing page as Gists
+            val gistUrl = "https://api.github.com/gists"
+
+            val gistBody = JSONObject().apply {
+                put("description", "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("public", true)
+                put("files", JSONObject().apply {
+                    put(filename, JSONObject().apply {
+                        put("content", htmlContent)
+                    })
+                    put(landingPageName, JSONObject().apply {
+                        put("content", landingPageContent)
+                    })
+                })
+            }
+
+            val gistRequest = Request.Builder()
+                .url(gistUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .addHeader("Content-Type", "application/json")
+                .post(RequestBody.create(
+                    "application/json".toMediaType(),
+                    gistBody.toString()
+                ))
+                .build()
+
+            val gistResponse = client.newCall(gistRequest).execute()
+
+            if (gistResponse.isSuccessful) {
+                val gistResponseBody = gistResponse.body?.string()
+                val gistJson = JSONObject(gistResponseBody ?: "{}")
+                val gistHtmlUrl = gistJson.optString("html_url")
+                val gistId = gistJson.optString("id")
+
+                // Store both URLs for email
+                System.setProperty("BLOG_URL", "$gistHtmlUrl#file-${filename.replace(".", "-")}")
+                System.setProperty("LANDING_URL", "https://gist.githack.com/$githubUsername/$gistId/raw/index.html")
+
+                println("✅ Created GitHub Gist: $gistHtmlUrl")
+                println("📝 Blog available as Gist until repository issue is resolved")
+            } else {
+                println("❌ Gist creation also failed: ${gistResponse.code}")
+            }
+
+        } catch (e: Exception) {
+            println("❌ Alternative method failed: ${e.message}")
+        }
     }
 
     fun sendEmail(blogFilename: String) {
@@ -630,7 +552,7 @@ fun main() {
         val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
         val repoName = githubRepo.split("/")[1]
 
-        val fromEmail = "liorre@work.gmail.com"
+        val fromEmail = "liorre.work@gmail.com"
         val toEmail = "lior.global@gmail.com"
 
         val properties = Properties().apply {
@@ -647,9 +569,8 @@ fun main() {
         })
 
         try {
-            val blogUrl = "https://$githubUsername.github.io/$repoName/$blogFilename"
-            val encodedMessage = URLEncoder.encode("Please analyze this week's Cyprus blog and provide me with a comprehensive summary. Here's the blog: $blogUrl", "UTF-8")
-            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?q=$encodedMessage"
+            val blogUrl = System.getProperty("BLOG_URL") ?: "Blog URL not available"
+            val landingUrl = System.getProperty("LANDING_URL") ?: "https://gist.github.com/$githubUsername"
 
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail))
@@ -658,13 +579,11 @@ fun main() {
                 setText("""
                     🗞️ Your Weekly Cyprus Blog is Ready!
                     
-                    📖 Read the full blog: $blogUrl
+                    🚀 ONE-CLICK ACCESS: $landingUrl
                     
-                    🤖 Get AI Analysis:
-                    1. Click: https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog
-                    2. Copy and paste this message:
-                    
-                    "Please analyze this week's Cyprus blog: $blogUrl"
+                    From the landing page you can:
+                    • 📖 Read the full blog
+                    • 🤖 Get instant AI analysis (copies message to clipboard)
                     
                     This week's highlights:
                     • Fresh Cyprus news from multiple sources
@@ -701,10 +620,10 @@ fun main() {
         val blogFilename = aggregator.saveBlog(htmlContent)
         aggregator.sendEmail(blogFilename)
 
-        println("Weekly blog generation completed successfully!")
+        println("✅ Weekly blog generation completed successfully!")
 
     } catch (e: Exception) {
-        println("Error during blog generation: ${e.message}")
+        println("❌ Error during blog generation: ${e.message}")
         e.printStackTrace()
     }
 }
