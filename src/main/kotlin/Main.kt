@@ -414,7 +414,7 @@ class NewsAggregator {
         val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
         val repoName = githubRepo.split("/")[1]
 
-        val fromEmail = "liorre@work.gmail.com"
+        val fromEmail = "liorre.work@gmail.com"
         val toEmail = "lior.global@gmail.com"
 
         val properties = Properties().apply {
