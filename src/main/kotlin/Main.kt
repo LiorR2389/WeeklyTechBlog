@@ -340,15 +340,36 @@ class NewsAggregator {
     private fun pushToGitHub(filename: String, htmlContent: String) {
         try {
             val githubToken = System.getenv("GITHUB_TOKEN") ?: run {
-                println("GITHUB_TOKEN environment variable not set")
+                println("❌ GITHUB_TOKEN environment variable not set")
                 return
             }
 
             val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
             val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
 
+            println("🔍 GitHub Repository: $githubRepo")
+            println("🔍 GitHub Username: $githubUsername")
+            println("🔍 Token starts with: ${githubToken.take(8)}...")
+
             // GitHub API URL for creating/updating files
             val apiUrl = "https://api.github.com/repos/$githubRepo/contents/$filename"
+            println("🔍 API URL: $apiUrl")
+
+            // First, test if we can access the repository
+            val repoTestUrl = "https://api.github.com/repos/$githubRepo"
+            val testRequest = Request.Builder()
+                .url(repoTestUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            val testResponse = client.newCall(testRequest).execute()
+            println("🔍 Repository test response: ${testResponse.code}")
+
+            if (!testResponse.isSuccessful) {
+                println("❌ Cannot access repository: ${testResponse.code} - ${testResponse.body?.string()}")
+                return
+            }
 
             // Check if file exists first
             val checkRequest = Request.Builder()
@@ -366,7 +387,10 @@ class NewsAggregator {
                 if (responseBody != null) {
                     val jsonResponse = JSONObject(responseBody)
                     sha = jsonResponse.optString("sha")
+                    println("🔍 File exists, SHA: $sha")
                 }
+            } else {
+                println("🔍 File doesn't exist yet, will create new")
             }
 
             // Create the request body
@@ -401,6 +425,7 @@ class NewsAggregator {
 
         } catch (e: Exception) {
             println("❌ Error pushing to GitHub: ${e.message}")
+            e.printStackTrace()
         }
     }
 
