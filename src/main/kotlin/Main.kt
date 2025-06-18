@@ -472,7 +472,7 @@ class NewsAggregator {
         try {
             val blogUrl = "https://$githubUsername.github.io/$repoName/$blogFilename"
             val encodedMessage = URLEncoder.encode("Please analyze this week's Cyprus blog and provide me with a comprehensive summary. Here's the blog: $blogUrl", "UTF-8")
-            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?message=$encodedMessage"
+            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?q=$encodedMessage"
 
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail))
