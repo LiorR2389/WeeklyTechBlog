@@ -348,84 +348,98 @@ class NewsAggregator {
             val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
 
             println("🔍 GitHub Repository: $githubRepo")
-            println("🔍 GitHub Username: $githubUsername")
-            println("🔍 Token starts with: ${githubToken.take(8)}...")
 
-            // GitHub API URL for creating/updating files
+            // GitHub API URL for creating files (simplified)
             val apiUrl = "https://api.github.com/repos/$githubRepo/contents/$filename"
             println("🔍 API URL: $apiUrl")
 
-            // First, test if we can access the repository
-            val repoTestUrl = "https://api.github.com/repos/$githubRepo"
-            val testRequest = Request.Builder()
-                .url(repoTestUrl)
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Accept", "application/vnd.github.v3+json")
-                .build()
-
-            val testResponse = client.newCall(testRequest).execute()
-            println("🔍 Repository test response: ${testResponse.code}")
-
-            if (!testResponse.isSuccessful) {
-                println("❌ Cannot access repository: ${testResponse.code} - ${testResponse.body?.string()}")
-                return
-            }
-
-            // Check if file exists first
-            val checkRequest = Request.Builder()
-                .url(apiUrl)
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Accept", "application/vnd.github.v3+json")
-                .build()
-
-            val checkResponse = client.newCall(checkRequest).execute()
-            var sha: String? = null
-
-            if (checkResponse.isSuccessful) {
-                // File exists, get SHA for update
-                val responseBody = checkResponse.body?.string()
-                if (responseBody != null) {
-                    val jsonResponse = JSONObject(responseBody)
-                    sha = jsonResponse.optString("sha")
-                    println("🔍 File exists, SHA: $sha")
-                }
-            } else {
-                println("🔍 File doesn't exist yet, will create new")
-            }
-
-            // Create the request body
+            // Create the request body (simplified - no SHA check for now)
             val requestBody = JSONObject().apply {
-                put("message", "Update weekly blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("message", "Add weekly blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
                 put("content", Base64.getEncoder().encodeToString(htmlContent.toByteArray()))
-                if (sha != null) {
-                    put("sha", sha) // Required for updates
-                }
             }
+
+            println("🔍 Request body created")
 
             val request = Request.Builder()
                 .url(apiUrl)
                 .addHeader("Authorization", "token $githubToken")
                 .addHeader("Accept", "application/vnd.github.v3+json")
                 .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "WeeklyTechBlog")
                 .put(RequestBody.create(
                     "application/json".toMediaType(),
                     requestBody.toString()
                 ))
                 .build()
 
+            println("🔍 Making API request...")
             val response = client.newCall(request).execute()
+            val responseBody = response.body?.string()
+
+            println("🔍 Response code: ${response.code}")
+            println("🔍 Response body: $responseBody")
 
             if (response.isSuccessful) {
                 println("✅ Successfully pushed $filename to GitHub!")
                 val repoName = githubRepo.split("/")[1]
                 println("🌐 Blog will be available at: https://$githubUsername.github.io/$repoName/$filename")
             } else {
-                println("❌ Failed to push to GitHub: ${response.code} - ${response.body?.string()}")
+                println("❌ Failed to push to GitHub: ${response.code}")
+                println("❌ Response: $responseBody")
+
+                // Try alternative approach - create via different method
+                tryAlternativeGitHubPush(filename, htmlContent, githubToken, githubRepo, githubUsername)
             }
 
         } catch (e: Exception) {
             println("❌ Error pushing to GitHub: ${e.message}")
             e.printStackTrace()
+        }
+    }
+
+    private fun tryAlternativeGitHubPush(filename: String, htmlContent: String, githubToken: String, githubRepo: String, githubUsername: String) {
+        try {
+            println("🔄 Trying alternative GitHub push method...")
+
+            // Just save to a simple gist instead for now
+            val gistUrl = "https://api.github.com/gists"
+
+            val gistBody = JSONObject().apply {
+                put("description", "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("public", true)
+                put("files", JSONObject().apply {
+                    put(filename, JSONObject().apply {
+                        put("content", htmlContent)
+                    })
+                })
+            }
+
+            val gistRequest = Request.Builder()
+                .url(gistUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .addHeader("Content-Type", "application/json")
+                .post(RequestBody.create(
+                    "application/json".toMediaType(),
+                    gistBody.toString()
+                ))
+                .build()
+
+            val gistResponse = client.newCall(gistRequest).execute()
+
+            if (gistResponse.isSuccessful) {
+                val gistResponseBody = gistResponse.body?.string()
+                val gistJson = JSONObject(gistResponseBody ?: "{}")
+                val gistUrl = gistJson.optString("html_url")
+                println("✅ Created GitHub Gist: $gistUrl")
+                println("📝 Blog available as Gist until repository issue is resolved")
+            } else {
+                println("❌ Gist creation also failed: ${gistResponse.code}")
+            }
+
+        } catch (e: Exception) {
+            println("❌ Alternative method failed: ${e.message}")
         }
     }
 
