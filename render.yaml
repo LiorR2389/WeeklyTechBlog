@@ -1,0 +1,7 @@
+services:
+  - type: cron
+    name: weekly-blog-job
+    env: docker
+    schedule: "0 9 * * MON"  # Every Monday at 09:00 UTC
+    plan: free
+    dockerContext: .
