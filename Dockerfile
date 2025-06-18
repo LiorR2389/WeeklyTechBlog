@@ -1,8 +1,11 @@
 FROM eclipse-temurin:17-jdk-alpine
 
+# Install gradle
+RUN apk add --no-cache gradle
+
 COPY . /app
 WORKDIR /app
 
-RUN ./gradlew build --no-daemon
+RUN gradle build --no-daemon
 
-CMD ["./gradlew", "run", "--no-daemon"]
+CMD ["gradle", "run", "--no-daemon"]
