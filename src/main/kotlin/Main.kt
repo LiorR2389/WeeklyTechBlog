@@ -402,7 +402,11 @@ class NewsAggregator {
         try {
             println("🔄 Trying alternative GitHub push method...")
 
-            // Just save to a simple gist instead for now
+            // Create the landing page HTML
+            val landingPageName = "index.html"
+            val landingPageContent = createLandingPage()
+
+            // Push both blog and landing page as Gists
             val gistUrl = "https://api.github.com/gists"
 
             val gistBody = JSONObject().apply {
@@ -411,6 +415,9 @@ class NewsAggregator {
                 put("files", JSONObject().apply {
                     put(filename, JSONObject().apply {
                         put("content", htmlContent)
+                    })
+                    put(landingPageName, JSONObject().apply {
+                        put("content", landingPageContent)
                     })
                 })
             }
@@ -432,6 +439,12 @@ class NewsAggregator {
                 val gistResponseBody = gistResponse.body?.string()
                 val gistJson = JSONObject(gistResponseBody ?: "{}")
                 val gistUrl = gistJson.optString("html_url")
+                val gistId = gistJson.optString("id")
+
+                // Store both URLs for email
+                System.setProperty("BLOG_URL", "$gistUrl#file-${filename.replace(".", "-")}")
+                System.setProperty("LANDING_URL", "https://gist.githack.com/$githubUsername/$gistId/raw/index.html")
+
                 println("✅ Created GitHub Gist: $gistUrl")
                 println("📝 Blog available as Gist until repository issue is resolved")
             } else {
@@ -441,6 +454,170 @@ class NewsAggregator {
         } catch (e: Exception) {
             println("❌ Alternative method failed: ${e.message}")
         }
+    }
+
+    private fun createLandingPage(): String {
+        return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cyprus Blog Analyzer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 100px auto;
+            padding: 20px;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 40px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .btn {
+            background: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            margin: 10px;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🇨🇾 Weekly Cyprus Blog</h1>
+        <p>Your automated news summary is ready!</p>
+        
+        <a href="#" class="btn" onclick="openBlog()">📖 Read Full Blog</a>
+        <a href="#" class="btn" onclick="analyzeWithGPT()">🤖 Get AI Analysis</a>
+        
+        <p><small>Blog generated automatically every Monday</small></p>
+    </div>
+
+    <script>
+        const blogUrl = new URLSearchParams(window.location.search).get('blog') || window.location.href.replace('index.html', 'weekly_blog_${SimpleDateFormat("yyyyMMdd").format(Date())}.html');
+
+        function openBlog() {
+            window.open(blogUrl, '_blank');
+        }
+
+        function analyzeWithGPT() {
+            const message = `Please analyze this week's Cyprus blog: ${'
+
+            fun sendEmail(blogFilename: String) {
+                val emailPassword = System.getenv("EMAIL_PASSWORD") ?: run {
+                    println("EMAIL_PASSWORD environment variable not set")
+                    return
+                }
+
+                val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
+                val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
+                val repoName = githubRepo.split("/")[1]
+
+                val fromEmail = "liorre.work@gmail.com"
+                val toEmail = "lior.global@gmail.com"
+
+                val properties = Properties().apply {
+                    put("mail.smtp.host", "smtp.gmail.com")
+                    put("mail.smtp.port", "587")
+                    put("mail.smtp.auth", "true")
+                    put("mail.smtp.starttls.enable", "true")
+                }
+
+                val session = Session.getInstance(properties, object : Authenticator() {
+                    override fun getPasswordAuthentication(): PasswordAuthentication {
+                        return PasswordAuthentication(fromEmail, emailPassword)
+                    }
+                })
+
+                try {
+                    val blogUrl = System.getProperty("BLOG_URL") ?: "Blog URL not available"
+                    val landingUrl = System.getProperty("LANDING_URL") ?: "https://gist.github.com/$githubUsername"
+
+                    val message = MimeMessage(session).apply {
+                        setFrom(InternetAddress(fromEmail))
+                        setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
+                        subject = "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}"
+                        setText("""
+                    🗞️ Your Weekly Cyprus Blog is Ready!
+                    
+                    🚀 ONE-CLICK ACCESS: $landingUrl
+                    
+                    From the landing page you can:
+                    • 📖 Read the full blog
+                    • 🤖 Get instant AI analysis (copies message to clipboard)
+                    
+                    This week's highlights:
+                    • Fresh Cyprus news from multiple sources
+                    • Categorized by topic for easy reading
+                    • Ready for AI analysis and insights
+                    
+                    Generated automatically every Monday.
+                """.trimIndent())
+                    }
+
+                    Transport.send(message)
+                    println("📧 Email sent successfully with GitHub blog link!")
+
+                } catch (e: Exception) {
+                    println("❌ Error sending email: ${e.message}")
+                }
+            }
+        }
+
+fun main() {
+    println("Starting Weekly Tech Blog Generator...")
+    
+    val aggregator = NewsAggregator()
+    
+    try {
+        val articles = aggregator.aggregateNews()
+        
+        if (articles.isEmpty()) {
+            println("No new articles found this week.")
+            return
+        }
+        
+        val htmlContent = aggregator.generateHtmlBlog(articles)
+        val blogFilename = aggregator.saveBlog(htmlContent)
+        aggregator.sendEmail(blogFilename)
+        
+        println("Weekly blog generation completed successfully!")
+        
+    } catch (e: Exception) {
+        println("Error during blog generation: ${e.message}")
+        e.printStackTrace()
+    }
+}}{blogUrl}`;
+            navigator.clipboard.writeText(message).then(() => {
+                window.open('https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog', '_blank');
+                alert('✅ Message copied! Paste it in ChatGPT.');
+            }).catch(() => {
+                window.open('https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog', '_blank');
+                prompt('Copy this message:', message);
+            });
+        }
+    </script>
+</body>
+</html>
+        """.trimIndent()
     }
 
     fun sendEmail(blogFilename: String) {
@@ -453,7 +630,7 @@ class NewsAggregator {
         val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
         val repoName = githubRepo.split("/")[1]
 
-        val fromEmail = "liorre.work@gmail.com"
+        val fromEmail = "liorre@work.gmail.com"
         val toEmail = "lior.global@gmail.com"
 
         val properties = Properties().apply {
@@ -483,8 +660,11 @@ class NewsAggregator {
                     
                     📖 Read the full blog: $blogUrl
                     
-                    🤖 Get AI Analysis: Click here for instant ChatGPT summary
-                    $gptLink
+                    🤖 Get AI Analysis:
+                    1. Click: https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog
+                    2. Copy and paste this message:
+                    
+                    "Please analyze this week's Cyprus blog: $blogUrl"
                     
                     This week's highlights:
                     • Fresh Cyprus news from multiple sources
