@@ -24,7 +24,7 @@ application {
 }
 
 kotlin {
-    jvmToolchain(21)
+    jvmToolchain(17) // Changed from 21 to 17 for better Render compatibility
 }
 
 // Disable tests to prevent build failures
