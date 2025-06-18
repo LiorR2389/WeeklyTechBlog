@@ -331,12 +331,16 @@ class NewsAggregator {
 
     fun sendEmail(blogFilename: String) {
         val emailPassword = System.getenv("EMAIL_PASSWORD") ?: run {
-            println("EMAIL_PASSWORD environment variable not set")
+            println("❌ EMAIL_PASSWORD environment variable not set")
             return
         }
 
-        val fromEmail = "liorre.work@gmail.com"
-        val toEmail = "lior.global@gmail.com"
+        println("✅ EMAIL_PASSWORD found, length: ${emailPassword.length}")
+
+        val fromEmail = "lior.global@gmail.com"  // Use your working Gmail
+        val toEmail = "lior.global@gmail.com"    // Send to yourself
+
+        println("📧 Using from email: $fromEmail")
 
         val properties = Properties().apply {
             put("mail.smtp.host", "smtp.gmail.com")
