@@ -331,16 +331,12 @@ class NewsAggregator {
 
     fun sendEmail(blogFilename: String) {
         val emailPassword = System.getenv("EMAIL_PASSWORD") ?: run {
-            println("❌ EMAIL_PASSWORD environment variable not set")
+            println("EMAIL_PASSWORD environment variable not set")
             return
         }
 
-        println("✅ EMAIL_PASSWORD found, length: ${emailPassword.length}")
-
-        val fromEmail = "lior.global@gmail.com"  // Use your working Gmail
-        val toEmail = "lior.global@gmail.com"    // Send to yourself
-
-        println("📧 Using from email: $fromEmail")
+        val fromEmail = "liorre@work.gmail.com"
+        val toEmail = "lior.global@gmail.com"
 
         val properties = Properties().apply {
             put("mail.smtp.host", "smtp.gmail.com")
@@ -348,6 +344,40 @@ class NewsAggregator {
             put("mail.smtp.auth", "true")
             put("mail.smtp.starttls.enable", "true")
         }
+
+        val session = Session.getInstance(properties, object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication {
+                return PasswordAuthentication(fromEmail, emailPassword)
+            }
+        })
+
+        try {
+            val blogUrl = "https://your-domain.com/$blogFilename" // Replace with your domain
+            val encodedMessage = URLEncoder.encode("give me this week's blog $blogUrl", "UTF-8")
+            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?t=$encodedMessage"
+
+            val message = MimeMessage(session).apply {
+                setFrom(InternetAddress(fromEmail))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
+                subject = "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}"
+                setText("""
+                Your weekly Cyprus blog is ready!
+                
+                Click here to get the AI-generated summary:
+                $gptLink
+                
+                Or view the full blog at:
+                $blogUrl
+            """.trimIndent())
+            }
+
+            Transport.send(message)
+            println("Email sent successfully!")
+
+        } catch (e: Exception) {
+            println("Error sending email: ${e.message}")
+        }
+    }
 
         val session = Session.getInstance(properties, object : Authenticator() {
             override fun getPasswordAuthentication(): PasswordAuthentication {
