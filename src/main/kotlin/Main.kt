@@ -335,7 +335,7 @@ class NewsAggregator {
             return
         }
 
-        val fromEmail = "liorre@work.gmail.com"
+        val fromEmail = "liorre.work@gmail.com"
         val toEmail = "lior.global@gmail.com"
 
         val properties = Properties().apply {
