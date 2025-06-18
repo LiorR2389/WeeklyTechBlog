@@ -5,13 +5,17 @@ import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
+import java.util.Base64
 
 data class Article(
     val title: String,
@@ -326,7 +330,78 @@ class NewsAggregator {
 
         File(filename).writeText(htmlContent)
         println("Blog saved as $filename")
+
+        // Push to GitHub
+        pushToGitHub(filename, htmlContent)
+
         return filename
+    }
+
+    private fun pushToGitHub(filename: String, htmlContent: String) {
+        try {
+            val githubToken = System.getenv("GITHUB_TOKEN") ?: run {
+                println("GITHUB_TOKEN environment variable not set")
+                return
+            }
+
+            val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
+            val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
+
+            // GitHub API URL for creating/updating files
+            val apiUrl = "https://api.github.com/repos/$githubRepo/contents/$filename"
+
+            // Check if file exists first
+            val checkRequest = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            val checkResponse = client.newCall(checkRequest).execute()
+            var sha: String? = null
+
+            if (checkResponse.isSuccessful) {
+                // File exists, get SHA for update
+                val responseBody = checkResponse.body?.string()
+                if (responseBody != null) {
+                    val jsonResponse = JSONObject(responseBody)
+                    sha = jsonResponse.optString("sha")
+                }
+            }
+
+            // Create the request body
+            val requestBody = JSONObject().apply {
+                put("message", "Update weekly blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("content", Base64.getEncoder().encodeToString(htmlContent.toByteArray()))
+                if (sha != null) {
+                    put("sha", sha) // Required for updates
+                }
+            }
+
+            val request = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .addHeader("Content-Type", "application/json")
+                .put(RequestBody.create(
+                    "application/json".toMediaType(),
+                    requestBody.toString()
+                ))
+                .build()
+
+            val response = client.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                println("✅ Successfully pushed $filename to GitHub!")
+                val repoName = githubRepo.split("/")[1]
+                println("🌐 Blog will be available at: https://$githubUsername.github.io/$repoName/$filename")
+            } else {
+                println("❌ Failed to push to GitHub: ${response.code} - ${response.body?.string()}")
+            }
+
+        } catch (e: Exception) {
+            println("❌ Error pushing to GitHub: ${e.message}")
+        }
     }
 
     fun sendEmail(blogFilename: String) {
@@ -334,6 +409,10 @@ class NewsAggregator {
             println("EMAIL_PASSWORD environment variable not set")
             return
         }
+
+        val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
+        val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
+        val repoName = githubRepo.split("/")[1]
 
         val fromEmail = "liorre@work.gmail.com"
         val toEmail = "lior.global@gmail.com"
@@ -352,64 +431,36 @@ class NewsAggregator {
         })
 
         try {
-            val blogUrl = "https://your-domain.com/$blogFilename" // Replace with your domain
-            val encodedMessage = URLEncoder.encode("give me this week's blog $blogUrl", "UTF-8")
-            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?t=$encodedMessage"
+            val blogUrl = "https://$githubUsername.github.io/$repoName/$blogFilename"
+            val encodedMessage = URLEncoder.encode("Please analyze this week's Cyprus blog and provide me with a comprehensive summary. Here's the blog: $blogUrl", "UTF-8")
+            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?message=$encodedMessage"
 
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail))
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
                 subject = "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}"
                 setText("""
-                Your weekly Cyprus blog is ready!
-                
-                Click here to get the AI-generated summary:
-                $gptLink
-                
-                Or view the full blog at:
-                $blogUrl
-            """.trimIndent())
-            }
-
-            Transport.send(message)
-            println("Email sent successfully!")
-
-        } catch (e: Exception) {
-            println("Error sending email: ${e.message}")
-        }
-    }
-
-        val session = Session.getInstance(properties, object : Authenticator() {
-            override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(fromEmail, emailPassword)
-            }
-        })
-
-        try {
-            val blogUrl = "https://your-domain.com/$blogFilename"
-            val encodedMessage = URLEncoder.encode("give me this week's blog $blogUrl", "UTF-8")
-            val gptLink = "https://chatgpt.com/g/g-684aba40cbf48191895de6ea9585a001-weeklytechblog?t=$encodedMessage"
-
-            val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(fromEmail))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
-                subject = "Weekly Cyprus Blog - ${SimpleDateFormat("yyyy-MM-dd").format(Date())}"
-                setText("""
-                    Your weekly Cyprus blog is ready!
+                    🗞️ Your Weekly Cyprus Blog is Ready!
                     
-                    Click here to get the AI-generated summary:
+                    📖 Read the full blog: $blogUrl
+                    
+                    🤖 Get AI Analysis: Click here for instant ChatGPT summary
                     $gptLink
                     
-                    Or view the full blog at:
-                    $blogUrl
+                    This week's highlights:
+                    • Fresh Cyprus news from multiple sources
+                    • Categorized by topic for easy reading
+                    • Ready for AI analysis and insights
+                    
+                    Generated automatically every Monday.
                 """.trimIndent())
             }
 
             Transport.send(message)
-            println("Email sent successfully!")
+            println("📧 Email sent successfully with GitHub blog link!")
 
         } catch (e: Exception) {
-            println("Error sending email: ${e.message}")
+            println("❌ Error sending email: ${e.message}")
         }
     }
 }
