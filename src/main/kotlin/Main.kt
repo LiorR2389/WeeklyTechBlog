@@ -553,7 +553,7 @@ class NewsAggregator {
         val repoName = githubRepo.split("/")[1]
 
         val fromEmail = "liorre.work@gmail.com"
-        val toEmail = "lior.global@gmail.com,marketing@absoldo.com,info@absoldo.com"
+        val toEmail = "lior.global@gmail.com,marketing@absoldo.com,info@absoldo.com,yaniv.global@gmail.com"
 
         val properties = Properties().apply {
             put("mail.smtp.host", "smtp.gmail.com")
