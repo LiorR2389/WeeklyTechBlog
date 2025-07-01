@@ -16,7 +16,6 @@ import java.util.concurrent.TimeUnit
 import java.util.Base64
 
 
-private val mail: Any
 
 data class Article(
     val title: String,
