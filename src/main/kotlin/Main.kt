@@ -502,7 +502,7 @@ class NewsAggregator {
                 put("mail.smtp.starttls.enable", "true")
             }
 
-            val session = Session.getInstance(props, object : Authenticator() {
+            val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
                 override fun getPasswordAuthentication(): PasswordAuthentication {
                     return PasswordAuthentication(fromEmail, emailPassword)
                 }
