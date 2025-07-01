@@ -31,14 +31,24 @@ class NewsAggregator {
     private val gson = Gson()
     private val seenArticlesFile = File("seen_articles.json")
     private val seenArticlesBackupFile = File("seen_articles_backup.json")
+
+    // Environment variables
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     private val githubToken = System.getenv("GITHUB_TOKEN")
     private val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
     private val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
     private val emailPassword = System.getenv("EMAIL_PASSWORD")
+    private val fromEmail = System.getenv("FROM_EMAIL") ?: "liorre.work@gmail.com"
+    private val toEmail = System.getenv("TO_EMAIL") ?: "lior.global@gmail.com"
 
-    private val cyprusMailUrl = "https://cyprus-mail.com"
-    private val inCyprusUrl = "https://in-cyprus.philenews.com"
+    // News sources
+    private val newsSources = mapOf(
+        "Cyprus Mail" to "https://cyprus-mail.com",
+        "In-Cyprus" to "https://in-cyprus.philenews.com",
+        "Financial Mirror" to "https://www.financialmirror.com/",
+        "Alpha News" to "https://www.alphanews.live/",
+        "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/gr/"
+    )
 
     private fun loadSeenArticles(): MutableSet<String> {
         return if (seenArticlesFile.exists()) {
@@ -55,7 +65,6 @@ class NewsAggregator {
 
     private fun saveSeenArticles(articles: Set<String>) {
         try {
-            // Backup current file
             if (seenArticlesFile.exists()) {
                 seenArticlesFile.copyTo(seenArticlesBackupFile, overwrite = true)
             }
@@ -186,79 +195,130 @@ class NewsAggregator {
         }
     }
 
-    private fun scrapeCyprusMail(): List<Article> {
-        println("🔍 Scraping Cyprus Mail...")
-        val doc = fetchPage(cyprusMailUrl) ?: return emptyList()
+    private fun scrapeNewsSource(sourceName: String, url: String): List<Article> {
+        println("🔍 Scraping $sourceName...")
+        val doc = fetchPage(url) ?: return emptyList()
 
-        return doc.select("article").take(20).mapNotNull { element ->
-            try {
-                val titleElement = element.select("h2 a, h3 a").first()
-                val title = titleElement?.text()?.trim()
-                val url = titleElement?.attr("abs:href")
+        val articles = mutableListOf<Article>()
 
-                if (title != null && url != null && title.length > 10 && url.isNotEmpty()) {
-                    val summary = generateSummary(title)
-                    val translations = translateSummary(summary)
+        // Try multiple selectors for different website structures
+        val selectors = listOf(
+            "article",
+            ".post",
+            ".entry",
+            ".news-item",
+            ".article-item",
+            ".story",
+            ".content-item",
+            ".post-item",
+            ".news-article",
+            ".story-item",
+            ".entry-content",
+            "h1", "h2", "h3"
+        )
 
-                    Article(
-                        title = title,
-                        url = url,
-                        summary = summary,
-                        category = categorizeArticle(title, summary),
-                        date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                        translations = translations
-                    )
-                } else null
-            } catch (e: Exception) {
-                println("Error parsing Cyprus Mail article: ${e.message}")
-                null
+        for (selector in selectors) {
+            val elements = doc.select(selector)
+            if (elements.size > 0) {
+                println("  ✅ Found ${elements.size} elements with selector: $selector")
+
+                elements.take(15).forEach { element ->
+                    try {
+                        val titleSelectors = listOf(
+                            "h1 a", "h2 a", "h3 a", "h4 a",
+                            ".title a", ".headline a",
+                            "a.title", "a.headline",
+                            ".post-title a", ".entry-title a",
+                            "a"
+                        )
+
+                        var title: String? = null
+                        var articleUrl: String? = null
+
+                        if (element.tagName() in listOf("h1", "h2", "h3", "h4")) {
+                            val link = element.select("a").first()
+                            title = element.text().trim()
+                            articleUrl = link?.attr("abs:href") ?: link?.attr("href")
+                        } else {
+                            for (titleSelector in titleSelectors) {
+                                val titleElement = element.select(titleSelector).first()
+                                if (titleElement != null) {
+                                    title = titleElement.text().trim()
+                                    articleUrl = titleElement.attr("abs:href").ifEmpty {
+                                        titleElement.attr("href")
+                                    }
+                                    if (title.isNotEmpty() && articleUrl.isNotEmpty()) break
+                                }
+                            }
+                        }
+
+                        if (articleUrl != null && articleUrl.isNotEmpty()) {
+                            if (articleUrl.startsWith("/")) {
+                                val baseUrl = when {
+                                    sourceName.contains("cyprus-mail", true) -> "https://cyprus-mail.com"
+                                    sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
+                                    sourceName.contains("financial", true) -> "https://www.financialmirror.com"
+                                    sourceName.contains("alpha", true) -> "https://www.alphanews.live"
+                                    sourceName.contains("kathimerini", true) -> "https://www.kathimerini.com.cy"
+                                    else -> ""
+                                }
+                                articleUrl = baseUrl + articleUrl
+                            }
+                        }
+
+                        if (title != null && articleUrl != null &&
+                            title.length > 10 && articleUrl.startsWith("http") &&
+                            !articleUrl.contains("javascript:") &&
+                            !articleUrl.contains("mailto:")) {
+
+                            val summary = generateSummary(title)
+                            val translations = translateSummary(summary)
+
+                            articles.add(Article(
+                                title = title,
+                                url = articleUrl,
+                                summary = summary,
+                                category = categorizeArticle(title, summary),
+                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                                translations = translations
+                            ))
+                        }
+                    } catch (e: Exception) {
+                        println("    ⚠️ Error parsing article: ${e.message}")
+                    }
+                }
+
+                if (articles.isNotEmpty()) {
+                    println("  📰 Successfully extracted ${articles.size} articles from $sourceName")
+                    break
+                }
             }
         }
-    }
 
-    private fun scrapeInCyprus(): List<Article> {
-        println("🔍 Scraping In-Cyprus...")
-        val doc = fetchPage(inCyprusUrl) ?: return emptyList()
-
-        return doc.select(".post-item, article").take(20).mapNotNull { element ->
-            try {
-                val titleElement = element.select(".post-title a, h2 a, h3 a").first()
-                val title = titleElement?.text()?.trim()
-                val url = titleElement?.attr("abs:href")
-
-                if (title != null && url != null && title.length > 10 && url.isNotEmpty()) {
-                    val summary = generateSummary(title)
-                    val translations = translateSummary(summary)
-
-                    Article(
-                        title = title,
-                        url = url,
-                        summary = summary,
-                        category = categorizeArticle(title, summary),
-                        date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                        translations = translations
-                    )
-                } else null
-            } catch (e: Exception) {
-                println("Error parsing In-Cyprus article: ${e.message}")
-                null
-            }
+        if (articles.isEmpty()) {
+            println("  ❌ No articles found for $sourceName")
         }
+
+        return articles.distinctBy { it.url }
     }
 
     fun aggregateNews(): List<Article> {
-        println("📰 Starting news aggregation...")
+        println("📰 Starting news aggregation from ${newsSources.size} sources...")
         val seen = loadSeenArticles()
         val allArticles = mutableListOf<Article>()
 
-        // Scrape from both sources
-        allArticles.addAll(scrapeCyprusMail())
-        allArticles.addAll(scrapeInCyprus())
+        newsSources.forEach { (sourceName, sourceUrl) ->
+            try {
+                val sourceArticles = scrapeNewsSource(sourceName, sourceUrl)
+                allArticles.addAll(sourceArticles)
+                Thread.sleep(1000)
+            } catch (e: Exception) {
+                println("❌ Error scraping $sourceName: ${e.message}")
+            }
+        }
 
-        // Filter new articles
         val newArticles = allArticles.filter { it.url !in seen }
 
-        // Update seen articles
         seen.addAll(newArticles.map { it.url })
         saveSeenArticles(seen)
 
@@ -399,28 +459,18 @@ class NewsAggregator {
         html.append("""
                     <div class="footer">
                         <p>Generated automatically • Updated ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}</p>
-                        <p>Sources: Cyprus Mail, In-Cyprus • Powered by AI Translation</p>
+                        <p>Sources: Cyprus Mail, In-Cyprus, Financial Mirror, Alpha News, Kathimerini • Powered by AI Translation</p>
                     </div>
                 </div>
                 <script>
                     function setLang(lang) {
-                        // Remove active class from all buttons
                         document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                        
-                        // Add active class to clicked button
                         document.getElementById('btn-' + lang).classList.add('active');
-                        
-                        // Hide all language content
                         document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                        
-                        // Show selected language content
                         document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                        
-                        // Save preference
                         localStorage.setItem('preferred-language', lang);
                     }
                     
-                    // Load saved language preference
                     window.onload = function() {
                         const savedLang = localStorage.getItem('preferred-language') || 'en';
                         setLang(savedLang);
@@ -438,11 +488,9 @@ class NewsAggregator {
         val filename = "weekly_blog_$date.html"
 
         try {
-            // Save locally
             File(filename).writeText(htmlContent)
             println("💾 Blog saved locally as $filename")
 
-            // Push to GitHub if token available
             if (!githubToken.isNullOrEmpty()) {
                 return pushToGitHub(filename, htmlContent)
             } else {
@@ -492,9 +540,6 @@ class NewsAggregator {
         }
 
         try {
-            val fromEmail = "liorre.work@gmail.com"
-            val toEmail = "lior.global@gmail.com"
-
             val props = Properties().apply {
                 put("mail.smtp.host", "smtp.gmail.com")
                 put("mail.smtp.port", "587")
@@ -564,8 +609,7 @@ fun main() {
 
     val aggregator = NewsAggregator()
 
-    // Check required environment variables
-    val requiredEnvVars = listOf("OPENAI_API_KEY", "GITHUB_TOKEN", "EMAIL_PASSWORD")
+    val requiredEnvVars = listOf("OPENAI_API_KEY", "GITHUB_TOKEN", "EMAIL_PASSWORD", "FROM_EMAIL", "TO_EMAIL")
     requiredEnvVars.forEach { envVar ->
         val value = System.getenv(envVar)
         if (value.isNullOrEmpty()) {
@@ -576,7 +620,6 @@ fun main() {
     }
 
     try {
-        // Aggregate news
         val articles = aggregator.aggregateNews()
 
         if (articles.isEmpty()) {
