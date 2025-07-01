@@ -164,14 +164,17 @@ class NewsAggregator {
         val content = "$title $summary".lowercase()
         return when {
             content.contains("tech") || content.contains("ai") ||
-                    content.contains("digital") || content.contains("innovation") -> "Technology"
+                    content.contains("digital") || content.contains("innovation") ||
+                    content.contains("startup") || content.contains("software") -> "Technology"
             content.contains("real estate") || content.contains("property") ||
-                    content.contains("housing") -> "Real Estate"
+                    content.contains("housing") || content.contains("construction") -> "Real Estate"
             content.contains("travel") || content.contains("tourism") ||
-                    content.contains("holiday") -> "Holidays & Travel"
+                    content.contains("holiday") || content.contains("hotel") -> "Holidays & Travel"
             content.contains("business") || content.contains("economy") ||
-                    content.contains("financial") -> "Business & Economy"
-            else -> "General"
+                    content.contains("financial") || content.contains("bank") ||
+                    content.contains("market") || content.contains("euro") ||
+                    content.contains("gdp") || content.contains("investment") -> "Business & Economy"
+            else -> "Other"
         }
     }
 
@@ -508,8 +511,14 @@ class NewsAggregator {
             if (response.isSuccessful) {
                 val responseJson = JSONObject(response.body?.string())
                 val gistUrl = responseJson.getString("html_url")
+
+                // Get the raw HTML URL for direct viewing
+                val gistId = gistUrl.split("/").last()
+                val rawUrl = "https://gist.githack.com/LiorR2389/$gistId/raw/index.html"
+
                 println("🚀 Blog uploaded as GitHub Gist: $gistUrl")
-                return gistUrl
+                println("📖 Direct blog view: $rawUrl")
+                return rawUrl
             } else {
                 println("❌ GitHub Gist upload failed: ${response.code}")
                 return ""
