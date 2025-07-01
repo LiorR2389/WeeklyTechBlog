@@ -1,9 +1,9 @@
-// — Full Kotlin source file —
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import jakarta.mail.*
 import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
+import jakarta.mail.Authenticator // ✅ <— Add this line
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
@@ -14,6 +14,9 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.Base64
+
+
+private val mail: Any
 
 data class Article(
     val title: String,
