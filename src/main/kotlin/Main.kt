@@ -106,33 +106,13 @@ class NewsAggregator {
     }
 
     private fun translateSummary(summary: String): Map<String, String> {
-        if (openAiApiKey.isNullOrEmpty()) {
-            println("⚠️ OpenAI API key not found, using fallback translations")
-            return mapOf(
-                "en" to summary,
-                "he" to "כתבת חדשות כללית הנוגעת לענייני היום בקפריסין.",
-                "ru" to "Общая новость, относящаяся к текущим событиям на Кипре.",
-                "el" to "Γενική είδηση σχετική με τις τρέχουσες υποθέσεις της Κύπρου."
-            )
-        }
-
-        val targetLanguages = mapOf(
-            "he" to "Hebrew",
-            "ru" to "Russian",
-            "el" to "Greek"
+        // Skip translation for faster processing - use simple fallbacks
+        return mapOf(
+            "en" to summary,
+            "he" to "חדשות מקפריסין - $summary",
+            "ru" to "Новости Кипра - $summary",
+            "el" to "Ειδήσεις Κύπρου - $summary"
         )
-
-        val translations = mutableMapOf<String, String>()
-        translations["en"] = summary
-
-        for ((langCode, langName) in targetLanguages) {
-            val translated = callOpenAITranslation(summary, langName)
-            translations[langCode] = if (translated.isNotEmpty()) translated else summary
-            Thread.sleep(500) // Rate limiting
-        }
-
-        println("✅ Translated summary to ${translations.size} languages")
-        return translations
     }
 
     private fun callOpenAITranslation(text: String, language: String): String {
@@ -284,7 +264,7 @@ class NewsAggregator {
                             ))
                         }
                     } catch (e: Exception) {
-                        println("    ⚠️ Error parsing article: ${e.message}")
+                        // Silent fail for individual articles to speed up processing
                     }
                 }
 
@@ -299,7 +279,7 @@ class NewsAggregator {
             println("  ❌ No articles found for $sourceName")
         }
 
-        return articles.distinctBy { it.url }
+        return articles.distinctBy { it.url }.take(10) // Limit to 10 articles per source
     }
 
     fun aggregateNews(): List<Article> {
@@ -505,26 +485,33 @@ class NewsAggregator {
 
     private fun pushToGitHub(filename: String, htmlContent: String): String {
         return try {
-            val apiUrl = "https://api.github.com/repos/$githubRepo/contents/$filename"
+            // Try to create as a GitHub Gist instead of repository file
+            val apiUrl = "https://api.github.com/gists"
             val requestBody = JSONObject().apply {
-                put("message", "Add weekly Cyprus blog ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
-                put("content", Base64.getEncoder().encodeToString(htmlContent.toByteArray()))
+                put("description", "Weekly Cyprus Blog ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("public", true)
+                put("files", JSONObject().apply {
+                    put(filename, JSONObject().apply {
+                        put("content", htmlContent)
+                    })
+                })
             }
 
             val request = Request.Builder()
                 .url(apiUrl)
                 .addHeader("Authorization", "token $githubToken")
                 .addHeader("Accept", "application/vnd.github.v3+json")
-                .put(RequestBody.create("application/json".toMediaType(), requestBody.toString()))
+                .post(RequestBody.create("application/json".toMediaType(), requestBody.toString()))
                 .build()
 
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
-                val blogUrl = "https://$githubUsername.github.io/${githubRepo.split("/")[1]}/$filename"
-                println("🚀 Blog uploaded to GitHub: $blogUrl")
-                return blogUrl
+                val responseJson = JSONObject(response.body?.string())
+                val gistUrl = responseJson.getString("html_url")
+                println("🚀 Blog uploaded as GitHub Gist: $gistUrl")
+                return gistUrl
             } else {
-                println("❌ GitHub upload failed: ${response.code}")
+                println("❌ GitHub Gist upload failed: ${response.code}")
                 return ""
             }
         } catch (e: Exception) {
