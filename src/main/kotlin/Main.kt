@@ -3,7 +3,7 @@ import com.google.gson.reflect.TypeToken
 import jakarta.mail.*
 import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
-import jakarta.mail.Authenticator // ✅ <— Add this line
+import jakarta.mail.Authenticator
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
@@ -14,8 +14,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.Base64
-
-
 
 data class Article(
     val title: String,
@@ -35,7 +33,6 @@ class NewsAggregator {
     private val gson = Gson()
     private val seenArticlesFile = File("seen_articles.json")
 
-    private val openAiApiKey = System.getenv("OPENAI_API_KEY") ?: ""
     private val githubToken = System.getenv("GITHUB_TOKEN") ?: ""
     private val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
     private val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
@@ -217,7 +214,8 @@ class NewsAggregator {
         val date = SimpleDateFormat("yyyyMMdd").format(Date())
         val filename = "weekly_blog_$date.html"
         File(filename).writeText(htmlContent)
-        return pushToGitHub(filename, htmlContent)
+        val url = pushToGitHub(filename, htmlContent)
+        return if (url.isNotEmpty()) url else fallbackToGist(filename, htmlContent)
     }
 
     private fun pushToGitHub(filename: String, htmlContent: String): String {
@@ -249,7 +247,44 @@ class NewsAggregator {
             }
         } catch (e: Exception) {
             println("❌ Exception in push: ${e.message}")
-            ""
+            return ""
+        }
+    }
+
+    private fun fallbackToGist(filename: String, htmlContent: String): String {
+        return try {
+            val apiUrl = "https://api.github.com/gists"
+            val body = JSONObject().apply {
+                put("description", "Fallback: Weekly Blog Gist")
+                put("public", true)
+                put("files", JSONObject().apply {
+                    put("index.html", JSONObject().apply {
+                        put("content", htmlContent)
+                    })
+                })
+            }
+
+            val request = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .post(RequestBody.create("application/json".toMediaType(), body.toString()))
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "")
+                val gistId = json.getString("id")
+                val gistUrl = "https://gist.githack.com/$githubUsername/$gistId/raw/index.html"
+                println("✅ Fallback Gist created: $gistUrl")
+                return gistUrl
+            } else {
+                println("❌ Fallback Gist failed: ${response.code}")
+                return ""
+            }
+        } catch (e: Exception) {
+            println("❌ Fallback Gist exception: ${e.message}")
+            return ""
         }
     }
 
