@@ -258,10 +258,14 @@ class NewsAggregator {
 fun main() {
     val blog = NewsAggregator()
     val articles = blog.aggregateNews()
-    val override = true // for testing — change to false in production
+    val override = true // set to false in production
+
+    val finalArticles = if (articles.isNotEmpty()) articles else blog.aggregateNews()
+
     if (articles.isNotEmpty() || override) {
-        val html = blog.generateHtmlBlog(articles.ifEmpty { blog.aggregateNews() })
+        val html = blog.generateHtmlBlog(finalArticles)
         val url = blog.saveAndPush(html)
-        blog.sendEmail(url, articles.size)
+        blog.sendEmail(url, finalArticles.size)
     } else println("ℹ️ No new articles found.")
 }
+
