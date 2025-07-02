@@ -3,7 +3,6 @@ import com.google.gson.reflect.TypeToken
 import jakarta.mail.*
 import jakarta.mail.internet.InternetAddress
 import jakarta.mail.internet.MimeMessage
-import jakarta.mail.Authenticator
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
@@ -12,8 +11,8 @@ import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.TimeUnit
 import java.util.Base64
+import java.util.concurrent.TimeUnit
 
 data class Article(
     val title: String,
@@ -113,22 +112,45 @@ class NewsAggregator {
     }
 
     private fun scrapeNewsSource(name: String, url: String): List<Article> {
+        println("🔍 Scraping $name")
         val doc = fetchPage(url) ?: return emptyList()
-        val links = doc.select("a[href]").map { it.absUrl("href") }.filter { it.contains("2025") }.distinct()
+        val links = doc.select("a[href]")
+            .map { it.absUrl("href") }
+            .filter { it.contains("/2025") || it.contains("/article") || it.contains("/news") || it.contains("/cyprus") }
+            .distinct()
+            .take(10)
+
+        println("🔗 [$name] Found ${links.size} candidate links")
+
         val articles = mutableListOf<Article>()
 
-        links.take(8).forEach { link ->
+        links.forEach { link ->
             try {
                 val page = Jsoup.connect(link).get()
                 val title = page.title().take(140)
                 val articleText = page.select("p").joinToString(" ") { it.text() }.take(2000)
+
+                if (articleText.isBlank()) {
+                    println("⚠️ Empty article body for $link – skipping")
+                    return@forEach
+                }
+
                 val translations = translateSummaryFromContent(articleText)
+                println("✅ Scraped: $title")
 
                 articles.add(
-                    Article(title, link, translations["en"] ?: "", "General",
-                        SimpleDateFormat("yyyy-MM-dd").format(Date()), translations)
+                    Article(
+                        title = title,
+                        url = link,
+                        summary = translations["en"] ?: "",
+                        category = "General",
+                        date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                        translations = translations
+                    )
                 )
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                println("❌ Error scraping $link: ${e.message}")
+            }
         }
 
         return articles
@@ -256,16 +278,16 @@ class NewsAggregator {
 }
 
 fun main() {
+    val force = true // ✅ override for testing
     val blog = NewsAggregator()
-    val articles = blog.aggregateNews()
-    val override = true // set to false in production
+    val initialArticles = blog.aggregateNews()
+    val finalArticles = if (initialArticles.isNotEmpty()) initialArticles else if (force) blog.aggregateNews() else emptyList()
 
-    val finalArticles = if (articles.isNotEmpty()) articles else blog.aggregateNews()
-
-    if (articles.isNotEmpty() || override) {
+    if (finalArticles.isNotEmpty()) {
         val html = blog.generateHtmlBlog(finalArticles)
         val url = blog.saveAndPush(html)
         blog.sendEmail(url, finalArticles.size)
-    } else println("ℹ️ No new articles found.")
+    } else {
+        println("ℹ️ No new articles found.")
+    }
 }
-
