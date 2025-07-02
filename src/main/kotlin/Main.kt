@@ -48,6 +48,7 @@ class NewsAggregator {
         "Alpha News" to "https://www.alphanews.live/",
         "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/gr/"
     )
+
     private fun loadSeenArticles(): MutableSet<String> {
         return if (seenArticlesFile.exists()) {
             val json = seenArticlesFile.readText()
@@ -70,19 +71,19 @@ class NewsAggregator {
         }
     }
 
-    private fun fetchAndSummarize(url: String): String {
-        val doc = fetchPage(url) ?: return "General news story relevant to Cyprus current affairs."
-        val text = doc.select("p").joinToString(" ") { it.text() }.take(1000)
-        return callOpenAi("Summarize this in one sentence:\n$text")
-    }
+    private fun translateSummaryFromContent(articleText: String): Map<String, String> {
+        val langs = mapOf("en" to "English", "he" to "Hebrew", "ru" to "Russian", "el" to "Greek")
+        val translations = mutableMapOf<String, String>()
 
-    private fun translateSummary(summary: String): Map<String, String> {
-        val langs = mapOf("he" to "Hebrew", "ru" to "Russian", "el" to "Greek")
-        val map = mutableMapOf("en" to summary)
-        langs.forEach { (code, lang) ->
-            map[code] = callOpenAi("Translate this to $lang:\n$summary")
+        langs.forEach { (code, langName) ->
+            val prompt = """
+                Summarize the following news article in one sentence in $langName, with a journalistic tone:
+                $articleText
+            """.trimIndent()
+            translations[code] = callOpenAi(prompt)
         }
-        return map
+
+        return translations
     }
 
     private fun callOpenAi(prompt: String): String {
@@ -118,11 +119,14 @@ class NewsAggregator {
 
         links.take(8).forEach { link ->
             try {
-                val title = Jsoup.connect(link).get().title().take(140)
-                val summary = fetchAndSummarize(link)
-                val translations = translateSummary(summary)
+                val page = Jsoup.connect(link).get()
+                val title = page.title().take(140)
+                val articleText = page.select("p").joinToString(" ") { it.text() }.take(2000)
+                val translations = translateSummaryFromContent(articleText)
+
                 articles.add(
-                    Article(title, link, summary, "General", SimpleDateFormat("yyyy-MM-dd").format(Date()), translations)
+                    Article(title, link, translations["en"] ?: "", "General",
+                        SimpleDateFormat("yyyy-MM-dd").format(Date()), translations)
                 )
             } catch (_: Exception) {}
         }
@@ -138,6 +142,7 @@ class NewsAggregator {
         seen.addAll(newArticles.map { it.url }); saveSeenArticles(seen)
         return newArticles
     }
+
     fun generateHtmlBlog(articles: List<Article>): String {
         val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val grouped = articles.groupBy { it.category }
@@ -206,7 +211,9 @@ class NewsAggregator {
             .addHeader("Authorization", "token $githubToken")
             .put(RequestBody.create("application/json".toMediaType(), body.toString())).build()
         val res = client.newCall(req).execute()
-        return if (res.isSuccessful) "https://$githubUsername.github.io/${githubRepo.split("/")[1]}/$file" else ""
+        return if (res.isSuccessful)
+            "https://$githubUsername.github.io/${githubRepo.split("/")[1]}/$file"
+        else ""
     }
 
     private fun fallbackToGist(file: String, content: String): String {
@@ -251,8 +258,9 @@ class NewsAggregator {
 fun main() {
     val blog = NewsAggregator()
     val articles = blog.aggregateNews()
-    if (articles.isNotEmpty()) {
-        val html = blog.generateHtmlBlog(articles)
+    val override = true // for testing — change to false in production
+    if (articles.isNotEmpty() || override) {
+        val html = blog.generateHtmlBlog(articles.ifEmpty { blog.aggregateNews() })
         val url = blog.saveAndPush(html)
         blog.sendEmail(url, articles.size)
     } else println("ℹ️ No new articles found.")
