@@ -43,4 +43,3 @@ pip install googletrans==4.0.0-rc1
 
 ## Language Support
 
-The generated HTML page now includes a language selector for English, Hebrew, Russian and Greek. Summaries are translated using the Python `googletrans` library when no OpenAI API key is provided. Selecting a language also changes the "Read more" links to open via Google Translate.
