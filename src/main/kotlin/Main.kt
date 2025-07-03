@@ -91,7 +91,8 @@ class NewsAggregator {
                 )
             )
 
-            val jsonBody = Json.encodeToString(request)
+            // Explicitly specify serializer to avoid runtime issues
+            val jsonBody = Json.encodeToString(ChatRequest.serializer(), request)
 
             val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
             conn.requestMethod = "POST"

@@ -1,7 +1,16 @@
 FROM eclipse-temurin:17-jdk-alpine
 
-# Install gradle
-RUN apk add --no-cache gradle
+# Install gradle and git for pushing updates
+RUN apk add --no-cache gradle git
+
+# Environment variables will be injected by Render
+ARG OPENAI_API_KEY
+ARG EMAIL_USER
+ARG EMAIL_PASS
+
+ENV OPENAI_API_KEY=${OPENAI_API_KEY}
+ENV EMAIL_USER=${EMAIL_USER}
+ENV EMAIL_PASS=${EMAIL_PASS}
 
 COPY . /app
 WORKDIR /app
