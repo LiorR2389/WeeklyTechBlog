@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "1.9.23"
+    kotlin("plugin.serialization") version "1.9.23"
     application
 }
 
@@ -17,6 +18,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1") // JSON parsing
     implementation("org.json:json:20240303")
     implementation("com.sun.mail:jakarta.mail:2.0.1") // Email functionality
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 }
 
 application {
@@ -24,7 +26,8 @@ application {
 }
 
 kotlin {
-    jvmToolchain(17) // Changed from 21 to 17 for better Render compatibility
+    // Use the available JDK
+    jvmToolchain(21)
 }
 
 // Disable tests to prevent build failures
