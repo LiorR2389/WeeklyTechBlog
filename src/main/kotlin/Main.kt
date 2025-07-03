@@ -200,18 +200,35 @@ class NewsAggregator {
 
         if (isGitAvailable()) {
             try {
-                Runtime.getRuntime().exec("git add $filename").waitFor()
-                Runtime.getRuntime().exec("git commit -m \"Weekly update\"").waitFor()
-                Runtime.getRuntime().exec("git push").waitFor()
+                val addExit = ProcessBuilder("git", "add", filename).start().waitFor()
+                if (addExit != 0) {
+                    println("❌ git add failed with code $addExit")
+                    return ""
+                }
+
+                val commitExit = ProcessBuilder("git", "commit", "-m", "Weekly update").start().waitFor()
+                if (commitExit != 0) {
+                    println("❌ git commit failed with code $commitExit")
+                    return ""
+                }
+
+                val pushExit = ProcessBuilder("git", "push").start().waitFor()
+                if (pushExit != 0) {
+                    println("❌ git push failed with code $pushExit")
+                    return ""
+                }
+
                 println("✅ Pushed blog to GitHub")
             } catch (e: Exception) {
                 println("❌ Failed GitHub push: ${e.message}")
+                return ""
             }
         } else {
             println("ℹ️ Git not available, skipping push")
+            return ""
         }
 
-        return "https://gist.githack.com/LiorR2389/2a6605238211f6e141dc126e16f8fbfa/raw/index.html"
+        return "https://gist.githack.com/LiorR2389/2a6605238211f6e141dc126e16f8fbfa/raw/$filename"
     }
 
     fun sendEmail(url: String, count: Int) {
