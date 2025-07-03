@@ -61,17 +61,35 @@ class NewsAggregator {
         }
     }
 
+    private fun googleTranslate(text: String, lang: String): String? {
+        return try {
+            val process = ProcessBuilder(
+                "python3",
+                "scripts/translate.py",
+                text,
+                lang
+            ).start()
+            val result = process.inputStream.bufferedReader().readText().trim()
+            if (process.waitFor() == 0) result else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun translateSummaryFromContent(text: String): Map<String, String> {
         val content = text.take(2000)
         val response = openAiTranslate(content)
         if (response != null) return response
 
         val simple = extractFirstSentence(content)
+        val he = googleTranslate(simple, "he") ?: "חדשות כלליות מקפריסין."
+        val ru = googleTranslate(simple, "ru") ?: "Актуальные новости Кипра."
+        val el = googleTranslate(simple, "el") ?: "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
         return mapOf(
             "en" to simple,
-            "he" to "חדשות כלליות מקפריסין.",
-            "ru" to "Актуальные новости Кипра.",
-            "el" to "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
+            "he" to he,
+            "ru" to ru,
+            "el" to el
         )
     }
 
@@ -81,6 +99,14 @@ class NewsAggregator {
         return first?.take(150) ?: text.take(150)
     }
 
+    private fun escapeHtml(text: String): String {
+        return text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;")
+    }
     private fun openAiTranslate(content: String): Map<String, String>? {
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
@@ -132,6 +158,14 @@ class NewsAggregator {
         }
     }
 
+    private fun cleanArticleText(raw: String): String {
+        return raw.lines()
+            .filterNot { it.contains("Newsletter", ignoreCase = true) || it.contains("Language", ignoreCase = true) }
+            .joinToString(" ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
     private fun scrapeNewsSource(name: String, url: String): List<Article> {
         println("🔍 Scraping $name")
         val doc = fetchPage(url) ?: return emptyList()
@@ -144,12 +178,14 @@ class NewsAggregator {
         println("🔗 [$name] Found ${links.size} candidate links")
 
         val articles = mutableListOf<Article>()
+        val titles = mutableSetOf<String>()
         links.forEach { link ->
             if (seen.contains(link)) return@forEach
             try {
                 val page = Jsoup.connect(link).get()
                 val title = page.title().take(140)
-                val articleText = page.select("p").joinToString(" ") { it.text() }.take(2000)
+                if (titles.contains(title)) return@forEach
+                val articleText = cleanArticleText(page.select("p").joinToString(" ") { it.text() }).take(2000)
 
                 if (articleText.isBlank()) {
                     println("⚠️ Empty article body for $link – skipping")
@@ -170,6 +206,7 @@ class NewsAggregator {
                     )
                 )
                 seen.add(link)
+                titles.add(title)
             } catch (e: Exception) {
                 println("❌ Error scraping $link: ${e.message}")
             }
@@ -191,21 +228,29 @@ class NewsAggregator {
 
     fun generateHtmlBlog(articles: List<Article>): String {
         val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
+
         val builder = StringBuilder()
         builder.append("<html><head><meta charset='utf-8'><title>Weekly Cyprus Blog – $date</title></head><body>")
         builder.append("<h1>Weekly Cyprus Blog – $date</h1>")
+        builder.append("<label for='lang'>Language:</label>")
+        builder.append("<select id='lang'><option value='en'>English</option><option value='he'>עברית</option><option value='ru'>Русский</option><option value='el'>Ελληνικά</option></select>")
         articles.forEach {
-            builder.append("<h2>${it.title}</h2>")
-            builder.append("<p>${it.translations["en"]}</p>")
-            builder.append("<p><strong>HE:</strong> ${it.translations["he"]}</p>")
-            builder.append("<p><strong>RU:</strong> ${it.translations["ru"]}</p>")
-            builder.append("<p><strong>EL:</strong> ${it.translations["el"]}</p>")
-            builder.append("<p><a href='${it.url}' target='_blank'>Read more</a></p><hr>")
+            val title = escapeHtml(it.title)
+            val en = escapeHtml(it.translations["en"] ?: "")
+            val he = escapeHtml(it.translations["he"] ?: "")
+            val ru = escapeHtml(it.translations["ru"] ?: "")
+            val el = escapeHtml(it.translations["el"] ?: "")
+            val url = it.url
+            builder.append("<div class='article'>")
+            builder.append("<h2>$title</h2>")
+            builder.append("<p class='summary' data-en='$en' data-he='$he' data-ru='$ru' data-el='$el'></p>")
+            builder.append("<p><a class='read-more' data-url='$url' target='_blank'>Read more</a></p><hr>")
+            builder.append("</div>")
         }
+        builder.append("<script>const sel=document.getElementById('lang');function upd(){const l=sel.value;document.querySelectorAll('.summary').forEach(p=>{p.textContent=p.dataset[l]||''});document.querySelectorAll('.read-more').forEach(a=>{a.href='https://translate.google.com/translate?hl='+l+'&u='+encodeURIComponent(a.dataset.url)});}sel.addEventListener('change',upd);upd();</script>")
         builder.append("</body></html>")
         return builder.toString()
     }
-
     private fun pushViaGistApi(filename: String, html: String, gistId: String): String {
         val token = System.getenv("GITHUB_TOKEN") ?: return ""
 

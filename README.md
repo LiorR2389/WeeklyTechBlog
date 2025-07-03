@@ -28,9 +28,19 @@ Run the aggregator with:
 
 The script will scrape news, generate `index.html`, push it to the configured Gist and send an email if credentials are provided.
 
+The optional translation helper under `scripts/translate.py` requires the Python package `googletrans`:
+
+```sh
+pip install googletrans==4.0.0-rc1
+```
+
 ## Repository Layout
 
 - `src/main/kotlin` – application source
 - `build.gradle.kts` – build configuration
 - `seen_articles.json` – remembers which URLs were already processed
 
+
+## Language Support
+
+The generated HTML page now includes a language selector for English, Hebrew, Russian and Greek. Summaries are translated using the Python `googletrans` library when no OpenAI API key is provided. Selecting a language also changes the "Read more" links to open via Google Translate.
