@@ -14,9 +14,9 @@ This compiles the Kotlin sources and ensures dependencies are downloaded.
 
 ## Running
 
-Set the required environment variables before running:
+-Set the required environment variables before running:
 
-- `OPENAI_API_KEY` – optional, used for generating summaries and translations.
+- `OPENAI_API_KEY` – optional, used for generating summaries and translations. If not set, the first sentence of each article will be used as the summary.
 - `EMAIL_USER` / `EMAIL_PASS` / `TO_EMAIL` – optional, enable email notifications.
 - `GITHUB_TOKEN` – optional, enables pushing the generated blog via the GitHub API.
 

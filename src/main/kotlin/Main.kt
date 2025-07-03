@@ -64,12 +64,21 @@ class NewsAggregator {
     private fun translateSummaryFromContent(text: String): Map<String, String> {
         val content = text.take(2000)
         val response = openAiTranslate(content)
-        return response ?: mapOf(
-            "en" to "General news story relevant to Cyprus current affairs.",
+        if (response != null) return response
+
+        val simple = extractFirstSentence(content)
+        return mapOf(
+            "en" to simple,
             "he" to "חדשות כלליות מקפריסין.",
             "ru" to "Актуальные новости Кипра.",
             "el" to "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
         )
+    }
+
+    private fun extractFirstSentence(text: String): String {
+        val sentenceEnd = Regex("(?<=[.!?])\\s+")
+        val first = sentenceEnd.split(text).firstOrNull()?.trim()
+        return first?.take(150) ?: text.take(150)
     }
 
     private fun openAiTranslate(content: String): Map<String, String>? {
