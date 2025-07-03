@@ -1,9 +1,9 @@
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import javax.mail.*
-import javax.mail.internet.InternetAddress
-import javax.mail.internet.MimeMessage
+import jakarta.mail.*
+import jakarta.mail.internet.InternetAddress
+import jakarta.mail.internet.MimeMessage
 import kotlin.system.exitProcess
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
