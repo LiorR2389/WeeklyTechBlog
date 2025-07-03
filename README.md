@@ -18,6 +18,7 @@ Set the required environment variables before running:
 
 - `OPENAI_API_KEY` – optional, used for generating summaries and translations.
 - `EMAIL_USER` / `EMAIL_PASS` / `TO_EMAIL` – optional, enable email notifications.
+- `GITHUB_TOKEN` – optional, enables pushing the generated blog via the GitHub API.
 
 Run the aggregator with:
 

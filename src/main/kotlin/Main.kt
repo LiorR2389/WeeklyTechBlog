@@ -11,6 +11,10 @@ import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 import java.net.HttpURLConnection
 import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @Serializable
 data class Article(
@@ -193,6 +197,42 @@ class NewsAggregator {
         return builder.toString()
     }
 
+    private fun pushViaGistApi(filename: String, html: String, gistId: String): String {
+        val token = System.getenv("GITHUB_TOKEN") ?: return ""
+
+        val client = OkHttpClient()
+        val apiUrl = "https://api.github.com/gists/$gistId"
+
+        val json = buildJsonObject {
+            put("files", buildJsonObject {
+                put(filename, buildJsonObject {
+                    put("content", html)
+                })
+            })
+        }
+
+        val request = Request.Builder()
+            .url(apiUrl)
+            .patch(Json.encodeToString(json).toRequestBody("application/json".toMediaType()))
+            .addHeader("Authorization", "token $token")
+            .addHeader("Accept", "application/vnd.github.v3+json")
+            .build()
+
+        return try {
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                println("✅ Updated gist via API")
+                "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
+            } else {
+                println("❌ Gist API response ${'$'}{response.code}")
+                ""
+            }
+        } catch (e: Exception) {
+            println("❌ Gist API error: ${'$'}{e.message}")
+            ""
+        }
+    }
+
     fun saveAndPush(html: String): String {
         val filename = "index.html"
         File(filename).writeText(html)
@@ -201,6 +241,9 @@ class NewsAggregator {
         val remoteUrl = "https://gist.github.com/$gistId.git"
         val rawUrl = "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
         val repoDir = File(".")
+
+        val apiUrl = pushViaGistApi(filename, html, gistId)
+        if (apiUrl.isNotBlank()) return apiUrl
 
         if (isGitAvailable()) {
             if (!File(".git").exists()) {
