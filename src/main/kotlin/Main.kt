@@ -62,9 +62,10 @@ class NewsAggregator {
     }
 
     private fun googleTranslate(text: String, lang: String): String? {
+        val python = System.getenv("PYTHON3") ?: "python3"
         return try {
             val process = ProcessBuilder(
-                "python3",
+                python,
                 "scripts/translate.py",
                 text,
                 lang
