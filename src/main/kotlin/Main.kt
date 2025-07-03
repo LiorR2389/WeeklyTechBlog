@@ -91,7 +91,6 @@ class NewsAggregator {
                 )
             )
 
-            // Explicitly specify serializer to avoid runtime issues
             val jsonBody = Json.encodeToString(ChatRequest.serializer(), request)
 
             val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
@@ -116,7 +115,7 @@ class NewsAggregator {
             }
         } catch (e: Exception) {
             println("❌ OpenAI translation error: ${e.message}")
-            null
+            return null
         }
     }
 
@@ -198,24 +197,67 @@ class NewsAggregator {
         val filename = "index.html"
         File(filename).writeText(html)
 
+        val gistId = "2a6605238211f6e141dc126e16f8fbfa"
+        val remoteUrl = "https://gist.github.com/$gistId.git"
+        val rawUrl = "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
+        val repoDir = File(".")
+
         if (isGitAvailable()) {
+            if (!File(".git").exists()) {
+                val initExit = ProcessBuilder("git", "init")
+                    .directory(repoDir).start().waitFor()
+                if (initExit != 0) {
+                    println("❌ git init failed with code $initExit")
+                    return ""
+                }
+            }
+
             try {
-                val addExit = ProcessBuilder("git", "add", filename).start().waitFor()
+                val remotesProc = ProcessBuilder("git", "remote")
+                    .directory(repoDir).start()
+                val remotes = remotesProc.inputStream.bufferedReader().readText().trim().split("\n")
+                remotesProc.waitFor()
+                if (!remotes.contains("origin")) {
+                    val addRemoteExit = ProcessBuilder("git", "remote", "add", "origin", remoteUrl)
+                        .directory(repoDir).start().waitFor()
+                    if (addRemoteExit != 0) {
+                        println("❌ git remote add failed with code $addRemoteExit")
+                        return ""
+                    }
+                }
+
+                val addExit = ProcessBuilder("git", "add", filename)
+                    .directory(repoDir).start().waitFor()
                 if (addExit != 0) {
                     println("❌ git add failed with code $addExit")
                     return ""
                 }
 
-                val commitExit = ProcessBuilder("git", "commit", "-m", "Weekly update").start().waitFor()
-                if (commitExit != 0) {
+                val commitExit = ProcessBuilder("git", "commit", "-m", "Weekly update")
+                    .directory(repoDir).start().waitFor()
+                if (commitExit == 1) {
+                    println("ℹ️ Nothing to commit")
+                } else if (commitExit != 0) {
                     println("❌ git commit failed with code $commitExit")
                     return ""
                 }
 
-                val pushExit = ProcessBuilder("git", "push").start().waitFor()
+                val pushExit = ProcessBuilder("git", "push", "origin", "HEAD")
+                    .directory(repoDir).start().waitFor()
                 if (pushExit != 0) {
                     println("❌ git push failed with code $pushExit")
                     return ""
+                }
+
+                try {
+                    val remoteContent = URL(rawUrl).readText()
+                    if (remoteContent.trim() == html.trim()) {
+                        println("✅ Verified pushed content")
+                    } else {
+                        println("⚠️ Remote content does not match pushed file")
+                    }
+                } catch (ve: Exception) {
+                    println("⚠️ Unable to verify remote file: ${ve.message}")
                 }
 
                 println("✅ Pushed blog to GitHub")
@@ -228,7 +270,7 @@ class NewsAggregator {
             return ""
         }
 
-        return "https://gist.githack.com/LiorR2389/2a6605238211f6e141dc126e16f8fbfa/raw/$filename"
+        return rawUrl
     }
 
     fun sendEmail(url: String, count: Int) {
@@ -271,7 +313,7 @@ class NewsAggregator {
 }
 
 fun main() {
-    val force = true // ✅ override mode for debug/testing
+    val force = true
 
     val blog = NewsAggregator()
     val initialArticles = blog.aggregateNews()
@@ -281,7 +323,11 @@ fun main() {
     if (finalArticles.isNotEmpty()) {
         val html = blog.generateHtmlBlog(finalArticles)
         val url = blog.saveAndPush(html)
-        blog.sendEmail(url, finalArticles.size)
+        if (url.isNotBlank()) {
+            blog.sendEmail(url, finalArticles.size)
+        } else {
+            println("ℹ️ Skipping email because no URL was generated")
+        }
     } else {
         println("ℹ️ No new articles found.")
     }
