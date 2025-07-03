@@ -224,8 +224,9 @@ class NewsAggregator {
 
         val emailUser = System.getenv("EMAIL_USER")
         val emailPass = System.getenv("EMAIL_PASS")
+        val toEmail = System.getenv("TO_EMAIL")
 
-        if (emailUser.isNullOrBlank() || emailPass.isNullOrBlank()) {
+        if (emailUser.isNullOrBlank() || emailPass.isNullOrBlank() || toEmail.isNullOrBlank()) {
             println("ℹ️ No email credentials provided – skipping email")
             return
         }
@@ -239,7 +240,7 @@ class NewsAggregator {
         try {
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(emailUser))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(emailUser))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
                 subject = "🌐 Weekly Cyprus Blog – $count new articles"
                 setText("View the latest blog:\n\n$url")
             }
