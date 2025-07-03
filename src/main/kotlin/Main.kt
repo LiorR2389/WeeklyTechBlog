@@ -61,17 +61,35 @@ class NewsAggregator {
         }
     }
 
+    private fun googleTranslate(text: String, lang: String): String? {
+        return try {
+            val process = ProcessBuilder(
+                "python3",
+                "scripts/translate.py",
+                text,
+                lang
+            ).start()
+            val result = process.inputStream.bufferedReader().readText().trim()
+            if (process.waitFor() == 0) result else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun translateSummaryFromContent(text: String): Map<String, String> {
         val content = text.take(2000)
         val response = openAiTranslate(content)
         if (response != null) return response
 
         val simple = extractFirstSentence(content)
+        val he = googleTranslate(simple, "he") ?: "חדשות כלליות מקפריסין."
+        val ru = googleTranslate(simple, "ru") ?: "Актуальные новости Кипра."
+        val el = googleTranslate(simple, "el") ?: "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
         return mapOf(
             "en" to simple,
-            "he" to "חדשות כלליות מקפריסין.",
-            "ru" to "Актуальные новости Кипра.",
-            "el" to "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
+            "he" to he,
+            "ru" to ru,
+            "el" to el
         )
     }
 
@@ -140,6 +158,14 @@ class NewsAggregator {
         }
     }
 
+    private fun cleanArticleText(raw: String): String {
+        return raw.lines()
+            .filterNot { it.contains("Newsletter", ignoreCase = true) || it.contains("Language", ignoreCase = true) }
+            .joinToString(" ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
     private fun scrapeNewsSource(name: String, url: String): List<Article> {
         println("🔍 Scraping $name")
         val doc = fetchPage(url) ?: return emptyList()
@@ -152,12 +178,14 @@ class NewsAggregator {
         println("🔗 [$name] Found ${links.size} candidate links")
 
         val articles = mutableListOf<Article>()
+        val titles = mutableSetOf<String>()
         links.forEach { link ->
             if (seen.contains(link)) return@forEach
             try {
                 val page = Jsoup.connect(link).get()
                 val title = page.title().take(140)
-                val articleText = page.select("p").joinToString(" ") { it.text() }.take(2000)
+                if (titles.contains(title)) return@forEach
+                val articleText = cleanArticleText(page.select("p").joinToString(" ") { it.text() }).take(2000)
 
                 if (articleText.isBlank()) {
                     println("⚠️ Empty article body for $link – skipping")
@@ -178,6 +206,7 @@ class NewsAggregator {
                     )
                 )
                 seen.add(link)
+                titles.add(title)
             } catch (e: Exception) {
                 println("❌ Error scraping $link: ${e.message}")
             }
