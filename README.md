@@ -34,3 +34,7 @@ The script will scrape news, generate `index.html`, push it to the configured Gi
 - `build.gradle.kts` – build configuration
 - `seen_articles.json` – remembers which URLs were already processed
 
+
+## Language Support
+
+The generated HTML page now includes a language selector (English, Hebrew, Russian and Greek). Choosing a language updates the article summaries and the "Read more" links open via Google Translate in the selected language.
