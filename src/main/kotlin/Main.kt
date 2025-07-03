@@ -22,9 +22,23 @@ data class Article(
     val translations: Map<String, String> = emptyMap()
 )
 
+@Serializable
+data class ChatMessage(val role: String, val content: String)
+
+@Serializable
+data class ChatRequest(val model: String, val messages: List<ChatMessage>)
+
 class NewsAggregator {
     private val seenFile = File("seen_articles.json")
     private val seen = loadSeenArticles().toMutableSet()
+
+    private fun isGitAvailable(): Boolean {
+        return try {
+            ProcessBuilder("git", "--version").start().waitFor() == 0
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private fun loadSeenArticles(): Set<String> {
         return if (seenFile.exists()) Json.decodeFromString(seenFile.readText()) else emptySet()
@@ -69,15 +83,15 @@ class NewsAggregator {
                 $content
             """.trimIndent()
 
-            val jsonBody = Json.encodeToString(
-                mapOf(
-                    "model" to "gpt-4o",
-                    "messages" to listOf(
-                        mapOf("role" to "system", "content" to "You are a news translator."),
-                        mapOf("role" to "user", "content" to prompt)
-                    )
+            val request = ChatRequest(
+                model = "gpt-4o",
+                messages = listOf(
+                    ChatMessage("system", "You are a news translator."),
+                    ChatMessage("user", prompt)
                 )
             )
+
+            val jsonBody = Json.encodeToString(request)
 
             val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
@@ -183,13 +197,17 @@ class NewsAggregator {
         val filename = "index.html"
         File(filename).writeText(html)
 
-        try {
-            Runtime.getRuntime().exec("git add $filename").waitFor()
-            Runtime.getRuntime().exec("git commit -m \"Weekly update\"").waitFor()
-            Runtime.getRuntime().exec("git push").waitFor()
-            println("✅ Pushed blog to GitHub")
-        } catch (e: Exception) {
-            println("❌ Failed GitHub push: ${e.message}")
+        if (isGitAvailable()) {
+            try {
+                Runtime.getRuntime().exec("git add $filename").waitFor()
+                Runtime.getRuntime().exec("git commit -m \"Weekly update\"").waitFor()
+                Runtime.getRuntime().exec("git push").waitFor()
+                println("✅ Pushed blog to GitHub")
+            } catch (e: Exception) {
+                println("❌ Failed GitHub push: ${e.message}")
+            }
+        } else {
+            println("ℹ️ Git not available, skipping push")
         }
 
         return "https://gist.githack.com/LiorR2389/2a6605238211f6e141dc126e16f8fbfa/raw/index.html"
@@ -205,6 +223,11 @@ class NewsAggregator {
 
         val emailUser = System.getenv("EMAIL_USER")
         val emailPass = System.getenv("EMAIL_PASS")
+
+        if (emailUser.isNullOrBlank() || emailPass.isNullOrBlank()) {
+            println("ℹ️ No email credentials provided – skipping email")
+            return
+        }
 
         val session = Session.getInstance(props, object : Authenticator() {
             override fun getPasswordAuthentication(): PasswordAuthentication {
