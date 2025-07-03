@@ -55,41 +55,54 @@ class NewsAggregator {
     }
 
     private fun openAiTranslate(content: String): Map<String, String>? {
-        val prompt = """
-            Summarize the following news text in a single sentence and provide translations in Hebrew, Russian, and Greek.
+        val apiKey = System.getenv("OPENAI_API_KEY")
+        if (apiKey.isNullOrBlank()) {
+            println("ℹ️ No OpenAI API key provided – skipping translation")
+            return null
+        }
 
-            News content:
-            $content
-        """.trimIndent()
+        return try {
+            val prompt = """
+                Summarize the following news text in a single sentence and provide translations in Hebrew, Russian, and Greek.
 
-        val jsonBody = Json.encodeToString(
-            mapOf(
-                "model" to "gpt-4o",
-                "messages" to listOf(
-                    mapOf("role" to "system", "content" to "You are a news translator."),
-                    mapOf("role" to "user", "content" to prompt)
+                News content:
+                $content
+            """.trimIndent()
+
+            val jsonBody = Json.encodeToString(
+                mapOf(
+                    "model" to "gpt-4o",
+                    "messages" to listOf(
+                        mapOf("role" to "system", "content" to "You are a news translator."),
+                        mapOf("role" to "user", "content" to prompt)
+                    )
                 )
             )
-        )
 
-        val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer ${System.getenv("OPENAI_API_KEY")}")
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.outputStream.write(jsonBody.toByteArray())
+            val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.outputStream.use { it.write(jsonBody.toByteArray()) }
 
-        val response = conn.inputStream.bufferedReader().readText()
-        val match = Regex("\"content\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\n", "\n")
+            val response = conn.inputStream.bufferedReader().readText()
+            val match = Regex("\"content\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\n", "\n")
 
-        return if (match != null) {
-            mapOf(
-                "en" to match.lines().getOrNull(0)?.trim().orEmpty(),
-                "he" to match.lines().getOrNull(1)?.trim().orEmpty(),
-                "ru" to match.lines().getOrNull(2)?.trim().orEmpty(),
-                "el" to match.lines().getOrNull(3)?.trim().orEmpty()
-            )
-        } else null
+            if (match != null) {
+                mapOf(
+                    "en" to match.lines().getOrNull(0)?.trim().orEmpty(),
+                    "he" to match.lines().getOrNull(1)?.trim().orEmpty(),
+                    "ru" to match.lines().getOrNull(2)?.trim().orEmpty(),
+                    "el" to match.lines().getOrNull(3)?.trim().orEmpty()
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            println("❌ OpenAI translation error: ${e.message}")
+            null
+        }
     }
 
     private fun scrapeNewsSource(name: String, url: String): List<Article> {
