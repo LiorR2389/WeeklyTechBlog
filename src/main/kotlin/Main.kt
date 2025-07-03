@@ -55,41 +55,48 @@ class NewsAggregator {
     }
 
     private fun openAiTranslate(content: String): Map<String, String>? {
-        val prompt = """
-            Summarize the following news text in a single sentence and provide translations in Hebrew, Russian, and Greek.
+        return try {
+            val prompt = """
+                Summarize the following news text in a single sentence and provide translations in Hebrew, Russian, and Greek.
 
-            News content:
-            $content
-        """.trimIndent()
+                News content:
+                $content
+            """.trimIndent()
 
-        val jsonBody = Json.encodeToString(
-            mapOf(
-                "model" to "gpt-4o",
-                "messages" to listOf(
-                    mapOf("role" to "system", "content" to "You are a news translator."),
-                    mapOf("role" to "user", "content" to prompt)
+            val jsonBody = Json.encodeToString(
+                mapOf(
+                    "model" to "gpt-4o",
+                    "messages" to listOf(
+                        mapOf("role" to "system", "content" to "You are a news translator."),
+                        mapOf("role" to "user", "content" to prompt)
+                    )
                 )
             )
-        )
 
-        val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer ${System.getenv("OPENAI_API_KEY")}")
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.outputStream.write(jsonBody.toByteArray())
+            val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Authorization", "Bearer ${System.getenv("OPENAI_API_KEY")}")
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.outputStream.write(jsonBody.toByteArray())
 
-        val response = conn.inputStream.bufferedReader().readText()
-        val match = Regex("\"content\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\n", "\n")
+            val response = conn.inputStream.bufferedReader().readText()
+            val match = Regex("\"content\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\n", "\n")
 
-        return if (match != null) {
-            mapOf(
-                "en" to match.lines().getOrNull(0)?.trim().orEmpty(),
-                "he" to match.lines().getOrNull(1)?.trim().orEmpty(),
-                "ru" to match.lines().getOrNull(2)?.trim().orEmpty(),
-                "el" to match.lines().getOrNull(3)?.trim().orEmpty()
-            )
-        } else null
+            if (match != null) {
+                mapOf(
+                    "en" to match.lines().getOrNull(0)?.trim().orEmpty(),
+                    "he" to match.lines().getOrNull(1)?.trim().orEmpty(),
+                    "ru" to match.lines().getOrNull(2)?.trim().orEmpty(),
+                    "el" to match.lines().getOrNull(3)?.trim().orEmpty()
+                )
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            println("❌ Translation request failed (${e.javaClass.simpleName})")
+            null
+        }
     }
 
     private fun scrapeNewsSource(name: String, url: String): List<Article> {
@@ -131,7 +138,7 @@ class NewsAggregator {
                 )
                 seen.add(link)
             } catch (e: Exception) {
-                println("❌ Error scraping $link: ${e.message}")
+                println("❌ Error scraping $link (${e.javaClass.simpleName})")
             }
         }
 
@@ -176,7 +183,7 @@ class NewsAggregator {
             Runtime.getRuntime().exec("git push").waitFor()
             println("✅ Pushed blog to GitHub")
         } catch (e: Exception) {
-            println("❌ Failed GitHub push: ${e.message}")
+            println("❌ Failed GitHub push (${e.javaClass.simpleName})")
         }
 
         return "https://gist.githack.com/LiorR2389/2a6605238211f6e141dc126e16f8fbfa/raw/index.html"
@@ -210,7 +217,7 @@ class NewsAggregator {
             Transport.send(message)
             println("📬 Email sent successfully!")
         } catch (e: Exception) {
-            println("❌ Failed to send email: ${e.message}")
+            println("❌ Failed to send email (${e.javaClass.simpleName})")
         }
     }
 }
