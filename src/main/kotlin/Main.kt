@@ -71,7 +71,8 @@ class NewsAggregator {
             ).start()
             val result = process.inputStream.bufferedReader().readText().trim()
             if (process.waitFor() == 0) result else null
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("⚠️ Local translation failed: ${e.message}")
             null
         }
     }
@@ -107,6 +108,7 @@ class NewsAggregator {
             .replace("\"", "&quot;")
             .replace("'", "&#39;")
     }
+
     private fun openAiTranslate(content: String): Map<String, String>? {
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
@@ -251,6 +253,7 @@ class NewsAggregator {
         builder.append("</body></html>")
         return builder.toString()
     }
+
     private fun pushViaGistApi(filename: String, html: String, gistId: String): String {
         val token = System.getenv("GITHUB_TOKEN") ?: return ""
 
@@ -278,11 +281,11 @@ class NewsAggregator {
                 println("✅ Updated gist via API")
                 "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
             } else {
-                println("❌ Gist API response ${'$'}{response.code}")
+                println("❌ Gist API response ${response.code}")
                 ""
             }
         } catch (e: Exception) {
-            println("❌ Gist API error: ${'$'}{e.message}")
+            println("❌ Gist API error: ${e.message}")
             ""
         }
     }
