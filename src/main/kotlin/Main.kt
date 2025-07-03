@@ -62,7 +62,7 @@ class NewsAggregator {
     }
 
     private fun googleTranslate(text: String, lang: String): String? {
-        val python = System.getenv("PYTHON3") ?: "/usr/bin/python3"
+        val python = System.getenv("PYTHON3") ?: "python3"
         return try {
             val process = ProcessBuilder(
                 python,
@@ -84,9 +84,9 @@ class NewsAggregator {
         if (response != null) return response
 
         val simple = extractFirstSentence(content)
-        val he = googleTranslate(simple, "he") ?: simple
-        val ru = googleTranslate(simple, "ru") ?: simple
-        val el = googleTranslate(simple, "el") ?: simple
+        val he = googleTranslate(simple, "he") ?: "חדשות כלליות מקפריסין."
+        val ru = googleTranslate(simple, "ru") ?: "Актуальные новости Кипра."
+        val el = googleTranslate(simple, "el") ?: "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
         return mapOf(
             "en" to simple,
             "he" to he,
@@ -109,6 +109,7 @@ class NewsAggregator {
             .replace("\"", "&quot;")
             .replace("'", "&#39;")
     }
+
     private fun openAiTranslate(content: String): Map<String, String>? {
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
@@ -253,6 +254,7 @@ class NewsAggregator {
         builder.append("</body></html>")
         return builder.toString()
     }
+
     private fun pushViaGistApi(filename: String, html: String, gistId: String): String {
         val token = System.getenv("GITHUB_TOKEN") ?: return ""
 
@@ -280,11 +282,11 @@ class NewsAggregator {
                 println("✅ Updated gist via API")
                 "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
             } else {
-                println("❌ Gist API response ${'$'}{response.code}")
+                println("❌ Gist API response ${response.code}")
                 ""
             }
         } catch (e: Exception) {
-            println("❌ Gist API error: ${'$'}{e.message}")
+            println("❌ Gist API error: ${e.message}")
             ""
         }
     }
