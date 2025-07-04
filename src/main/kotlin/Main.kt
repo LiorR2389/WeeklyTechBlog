@@ -62,7 +62,11 @@ class NewsAggregator {
     }
 
     private fun googleTranslate(text: String, lang: String): String? {
+ dc8pls-codex/add-language-selection-and-translation-support
         val python = System.getenv("PYTHON3") ?: "/usr/bin/python3"
+
+        val python = System.getenv("PYTHON3") ?: "python3"
+ Dev
         return try {
             val process = ProcessBuilder(
                 python,
@@ -84,9 +88,15 @@ class NewsAggregator {
         if (response != null) return response
 
         val simple = extractFirstSentence(content)
+ dc8pls-codex/add-language-selection-and-translation-support
         val he = googleTranslate(simple, "he") ?: simple
         val ru = googleTranslate(simple, "ru") ?: simple
         val el = googleTranslate(simple, "el") ?: simple
+
+        val he = googleTranslate(simple, "he") ?: "חדשות כלליות מקפריסין."
+        val ru = googleTranslate(simple, "ru") ?: "Актуальные новости Кипра."
+        val el = googleTranslate(simple, "el") ?: "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
+ Dev
         return mapOf(
             "en" to simple,
             "he" to he,
@@ -109,6 +119,10 @@ class NewsAggregator {
             .replace("\"", "&quot;")
             .replace("'", "&#39;")
     }
+ dc8pls-codex/add-language-selection-and-translation-support
+
+
+ Dev
     private fun openAiTranslate(content: String): Map<String, String>? {
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
@@ -187,7 +201,10 @@ class NewsAggregator {
             try {
                 val page = Jsoup.connect(link).get()
                 val title = page.title().take(140)
+ dc8pls-codex/add-language-selection-and-translation-support
                 if (title.contains("Newsletter", ignoreCase = true)) return@forEach
+
+ Dev
                 if (titles.contains(title)) return@forEach
                 val articleText = cleanArticleText(page.select("p").joinToString(" ") { it.text() }).take(2000)
 
@@ -282,11 +299,11 @@ class NewsAggregator {
                 println("✅ Updated gist via API")
                 "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
             } else {
-                println("❌ Gist API response ${'$'}{response.code}")
+                println("❌ Gist API response ${response.code}")
                 ""
             }
         } catch (e: Exception) {
-            println("❌ Gist API error: ${'$'}{e.message}")
+            println("❌ Gist API error: ${e.message}")
             ""
         }
     }

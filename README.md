@@ -41,8 +41,6 @@ If Gradle cannot find `python3`, set a `PYTHON3` environment variable pointing
 to the interpreter. The Kotlin code uses this variable when invoking the
 translation helper.
 
-## Repository Layout
-
 - `src/main/kotlin` – application source
 - `build.gradle.kts` – build configuration
 - `seen_articles.json` – remembers which URLs were already processed
@@ -50,4 +48,3 @@ translation helper.
 
 ## Language Support
 
-The generated HTML page now includes a language selector for English, Hebrew, Russian and Greek. Summaries are translated using the Python `googletrans` library when no OpenAI API key is provided. Selecting a language also changes the "Read more" links to open via Google Translate.
