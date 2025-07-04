@@ -34,22 +34,12 @@ The optional translation helper under `scripts/translate.py` requires the Python
 pip install googletrans==4.0.0-rc1
 ```
 
-rkgzzy-codex/add-language-selection-and-translation-support
 If summaries remain in English, ensure the package is installed or provide an
 `OPENAI_API_KEY` so the script can fall back to OpenAI's translation API.
 
 If Gradle cannot find `python3`, set a `PYTHON3` environment variable pointing
 to the interpreter. The Kotlin code uses this variable when invoking the
 translation helper.
-
-=======
-9z72xl-codex/add-language-selection-and-translation-support
-If summaries remain in English, ensure the package is installed or provide an
-`OPENAI_API_KEY` so the script can fall back to OpenAI's translation API.
-
-Dev
-Dev
-## Repository Layout
 
 - `src/main/kotlin` – application source
 - `build.gradle.kts` – build configuration
@@ -58,10 +48,3 @@ Dev
 
 ## Language Support
 
-rkgzzy-codex/add-language-selection-and-translation-support
-The generated HTML page now includes a language selector for English, Hebrew, Russian and Greek. Summaries are translated using the Python `googletrans` library when no OpenAI API key is provided. Selecting a language also changes the "Read more" links to open via Google Translate.
-
-9z72xl-codex/add-language-selection-and-translation-support
-The generated HTML page now includes a language selector for English, Hebrew, Russian and Greek. Summaries are translated using the Python `googletrans` library when no OpenAI API key is provided. Selecting a language also changes the "Read more" links to open via Google Translate.
-Dev
-Dev

@@ -62,7 +62,11 @@ class NewsAggregator {
     }
 
     private fun googleTranslate(text: String, lang: String): String? {
+ dc8pls-codex/add-language-selection-and-translation-support
+        val python = System.getenv("PYTHON3") ?: "/usr/bin/python3"
+
         val python = System.getenv("PYTHON3") ?: "python3"
+ Dev
         return try {
             val process = ProcessBuilder(
                 python,
@@ -84,9 +88,15 @@ class NewsAggregator {
         if (response != null) return response
 
         val simple = extractFirstSentence(content)
+ dc8pls-codex/add-language-selection-and-translation-support
+        val he = googleTranslate(simple, "he") ?: simple
+        val ru = googleTranslate(simple, "ru") ?: simple
+        val el = googleTranslate(simple, "el") ?: simple
+
         val he = googleTranslate(simple, "he") ?: "חדשות כלליות מקפריסין."
         val ru = googleTranslate(simple, "ru") ?: "Актуальные новости Кипра."
         val el = googleTranslate(simple, "el") ?: "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
+ Dev
         return mapOf(
             "en" to simple,
             "he" to he,
@@ -109,7 +119,10 @@ class NewsAggregator {
             .replace("\"", "&quot;")
             .replace("'", "&#39;")
     }
+ dc8pls-codex/add-language-selection-and-translation-support
 
+
+ Dev
     private fun openAiTranslate(content: String): Map<String, String>? {
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
@@ -175,6 +188,7 @@ class NewsAggregator {
         val links = doc.select("a[href]")
             .map { it.absUrl("href") }
             .filter { it.contains("/2025") || it.contains("/article") || it.contains("/news") }
+            .filterNot { it.contains("news-feed") || it.contains("newsletter") }
             .distinct()
             .take(10)
 
@@ -187,6 +201,10 @@ class NewsAggregator {
             try {
                 val page = Jsoup.connect(link).get()
                 val title = page.title().take(140)
+ dc8pls-codex/add-language-selection-and-translation-support
+                if (title.contains("Newsletter", ignoreCase = true)) return@forEach
+
+ Dev
                 if (titles.contains(title)) return@forEach
                 val articleText = cleanArticleText(page.select("p").joinToString(" ") { it.text() }).take(2000)
 
@@ -254,7 +272,6 @@ class NewsAggregator {
         builder.append("</body></html>")
         return builder.toString()
     }
-
     private fun pushViaGistApi(filename: String, html: String, gistId: String): String {
         val token = System.getenv("GITHUB_TOKEN") ?: return ""
 
