@@ -1,18 +1,19 @@
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import jakarta.mail.*
+import jakarta.mail.internet.InternetAddress
+import jakarta.mail.internet.MimeMessage
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Document
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import javax.mail.*
-import javax.mail.internet.InternetAddress
-import javax.mail.internet.MimeMessage
-import kotlin.system.exitProcess
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import kotlinx.serialization.*
-import kotlinx.serialization.json.*
-import java.net.HttpURLConnection
-import java.net.URL
+import java.util.concurrent.TimeUnit
+import java.util.Base64
 
-@Serializable
 data class Article(
     val title: String,
     val url: String,
@@ -23,211 +24,652 @@ data class Article(
 )
 
 class NewsAggregator {
-    private val seenFile = File("seen_articles.json")
-    private val seen = loadSeenArticles().toMutableSet()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+    private val gson = Gson()
+    private val seenArticlesFile = File("seen_articles.json")
+    private val seenArticlesBackupFile = File("seen_articles_backup.json")
 
-    private fun loadSeenArticles(): Set<String> {
-        return if (seenFile.exists()) Json.decodeFromString(seenFile.readText()) else emptySet()
+    // Environment variables
+    private val openAiApiKey = System.getenv("OPENAI_API_KEY")
+    private val githubToken = System.getenv("GITHUB_TOKEN")
+    private val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
+    private val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
+    private val emailPassword = System.getenv("EMAIL_PASSWORD")
+    private val fromEmail = System.getenv("FROM_EMAIL") ?: "liorre.work@gmail.com"
+    private val toEmail = System.getenv("TO_EMAIL") ?: "lior.global@gmail.com"
+
+    // News sources with better selectors
+    private val newsSources = mapOf(
+        "Cyprus Mail" to "https://cyprus-mail.com",
+        "In-Cyprus" to "https://in-cyprus.philenews.com/local/",
+        "Financial Mirror" to "https://www.financialmirror.com/",
+        "Alpha News" to "https://www.alphanews.live/cyprus/",
+        "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/gr/kypros/"
+    )
+
+    private fun loadSeenArticles(): MutableSet<String> {
+        return if (seenArticlesFile.exists()) {
+            try {
+                val json = seenArticlesFile.readText()
+                val type = object : TypeToken<Set<String>>() {}.type
+                gson.fromJson<Set<String>>(json, type).toMutableSet()
+            } catch (e: Exception) {
+                println("Error loading seen articles: ${e.message}")
+                mutableSetOf()
+            }
+        } else mutableSetOf()
     }
 
-    private fun saveSeenArticles() {
-        seenFile.writeText(Json.encodeToString(seen.toList()))
+    private fun saveSeenArticles(articles: Set<String>) {
+        try {
+            if (seenArticlesFile.exists()) {
+                seenArticlesFile.copyTo(seenArticlesBackupFile, overwrite = true)
+            }
+            seenArticlesFile.writeText(gson.toJson(articles))
+        } catch (e: Exception) {
+            println("Error saving seen articles: ${e.message}")
+        }
     }
 
     private fun fetchPage(url: String): Document? {
         return try {
-            Jsoup.connect(url).userAgent("Mozilla").timeout(10000).get()
+            val request = Request.Builder()
+                .url(url)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .addHeader("Accept-Language", "en-US,en;q=0.5")
+                .build()
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                Jsoup.parse(response.body?.string() ?: "")
+            } else {
+                println("Failed to fetch $url: ${response.code}")
+                null
+            }
         } catch (e: Exception) {
-            println("❌ Failed to fetch $url")
+            println("Error fetching $url: ${e.message}")
             null
         }
     }
 
-    private fun translateSummaryFromContent(text: String): Map<String, String> {
-        val content = text.take(2000)
-        val response = openAiTranslate(content)
-        return response ?: mapOf(
-            "en" to "General news story relevant to Cyprus current affairs.",
-            "he" to "חדשות כלליות מקפריסין.",
-            "ru" to "Актуальные новости Кипра.",
-            "el" to "Γενικές ειδήσεις που σχετίζονται με την Κύπρο."
-        )
+    private fun generateSummary(title: String): String {
+        return when {
+            title.contains("tech", true) ||
+                    title.contains("AI", true) ||
+                    title.contains("digital", true) ||
+                    title.contains("innovation", true) ||
+                    title.contains("startup", true) ->
+                "Technology sector advancement with implications for Cyprus digital economy."
+            else -> "General news story relevant to Cyprus current affairs."
+        }
     }
 
-    private fun openAiTranslate(content: String): Map<String, String>? {
-        val prompt = """
-            Summarize the following news text in a single sentence and provide translations in Hebrew, Russian, and Greek.
-
-            News content:
-            $content
-        """.trimIndent()
-
-        val jsonBody = Json.encodeToString(
-            mapOf(
-                "model" to "gpt-4o",
-                "messages" to listOf(
-                    mapOf("role" to "system", "content" to "You are a news translator."),
-                    mapOf("role" to "user", "content" to prompt)
-                )
+    private fun translateSummary(summary: String): Map<String, String> {
+        if (openAiApiKey.isNullOrEmpty()) {
+            return mapOf(
+                "en" to summary,
+                "he" to "חדשות כלליות מקפריסין.",
+                "ru" to "Общие новости Кипра.",
+                "el" to "Γενικές ειδήσεις Κύπρου."
             )
+        }
+
+        // Use OpenAI for better translations
+        val translations = mutableMapOf<String, String>()
+        translations["en"] = summary
+
+        val targetLanguages = mapOf(
+            "he" to "Hebrew",
+            "ru" to "Russian",
+            "el" to "Greek"
         )
 
-        val conn = URL("https://api.openai.com/v1/chat/completions").openConnection() as HttpURLConnection
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer ${System.getenv("OPENAI_API_KEY")}")
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.doOutput = true
-        conn.outputStream.write(jsonBody.toByteArray())
+        for ((langCode, langName) in targetLanguages) {
+            val translated = callOpenAITranslation(summary, langName)
+            translations[langCode] = if (translated.isNotEmpty()) translated else "תרגום לא זמין"
+            Thread.sleep(200) // Shorter delay
+        }
 
-        val response = conn.inputStream.bufferedReader().readText()
-        val match = Regex("\"content\":\"(.*?)\"").find(response)?.groupValues?.get(1)?.replace("\\n", "\n")
-
-        return if (match != null) {
-            mapOf(
-                "en" to match.lines().getOrNull(0)?.trim().orEmpty(),
-                "he" to match.lines().getOrNull(1)?.trim().orEmpty(),
-                "ru" to match.lines().getOrNull(2)?.trim().orEmpty(),
-                "el" to match.lines().getOrNull(3)?.trim().orEmpty()
-            )
-        } else null
+        return translations
     }
 
-    private fun scrapeNewsSource(name: String, url: String): List<Article> {
-        println("🔍 Scraping $name")
-        val doc = fetchPage(url) ?: return emptyList()
-        val links = doc.select("a[href]")
-            .map { it.absUrl("href") }
-            .filter { it.contains("/2025") || it.contains("/article") || it.contains("/news") }
-            .distinct()
-            .take(10)
+    private fun callOpenAITranslation(text: String, language: String): String {
+        return try {
+            val apiUrl = "https://api.openai.com/v1/chat/completions"
+            val requestBody = """
+                {
+                  "model": "gpt-4o-mini",
+                  "messages": [
+                    {"role": "system", "content": "You are a professional news translator. Translate accurately while maintaining journalistic tone. Keep it brief and professional."},
+                    {"role": "user", "content": "Translate this news summary to $language (keep it under 100 characters):\n\n$text"}
+                  ],
+                  "temperature": 0.2,
+                  "max_tokens": 100
+                }
+            """.trimIndent()
 
-        println("🔗 [$name] Found ${links.size} candidate links")
+            val request = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "Bearer $openAiApiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(RequestBody.create("application/json".toMediaType(), requestBody))
+                .build()
 
-        val articles = mutableListOf<Article>()
-        links.forEach { link ->
-            if (seen.contains(link)) return@forEach
-            try {
-                val page = Jsoup.connect(link).get()
-                val title = page.title().take(140)
-                val articleText = page.select("p").joinToString(" ") { it.text() }.take(2000)
-
-                if (articleText.isBlank()) {
-                    println("⚠️ Empty article body for $link – skipping")
-                    return@forEach
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("❌ OpenAI translation failed for $language: ${response.code}")
+                    return ""
                 }
 
-                val translations = translateSummaryFromContent(articleText)
-                println("✅ Scraped: $title")
+                val json = JSONObject(response.body?.string())
+                val translatedText = json
+                    .getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .getString("content")
+                    .trim()
 
-                articles.add(
-                    Article(
-                        title = title,
-                        url = link,
-                        summary = translations["en"] ?: "",
-                        category = "General",
-                        date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                        translations = translations
-                    )
-                )
-                seen.add(link)
-            } catch (e: Exception) {
-                println("❌ Error scraping $link: ${e.message}")
+                return translatedText
+            }
+        } catch (e: Exception) {
+            println("❌ Translation error for $language: ${e.message}")
+            ""
+        }
+    }
+
+    private fun categorizeArticle(title: String, summary: String): String {
+        val content = "$title $summary".lowercase()
+        return when {
+            content.contains("tech") || content.contains("ai") ||
+                    content.contains("digital") || content.contains("innovation") ||
+                    content.contains("startup") || content.contains("software") -> "Technology"
+            content.contains("real estate") || content.contains("property") ||
+                    content.contains("housing") || content.contains("construction") -> "Real Estate"
+            content.contains("travel") || content.contains("tourism") ||
+                    content.contains("holiday") || content.contains("hotel") -> "Holidays & Travel"
+            content.contains("business") || content.contains("economy") ||
+                    content.contains("financial") || content.contains("bank") ||
+                    content.contains("market") || content.contains("euro") ||
+                    content.contains("gdp") || content.contains("investment") -> "Business & Economy"
+            else -> "Other"
+        }
+    }
+
+    private fun scrapeNewsSource(sourceName: String, url: String): List<Article> {
+        println("🔍 Scraping $sourceName...")
+        val doc = fetchPage(url) ?: return emptyList()
+
+        val articles = mutableListOf<Article>()
+
+        // Improved selectors for each source
+        val selectors = when {
+            sourceName.contains("Cyprus Mail", true) -> listOf(
+                "article:not(.newsletter):not(.subscription)",
+                ".post:not(.newsletter):not(.subscription)",
+                ".news-item:not(.newsletter)"
+            )
+            sourceName.contains("In-Cyprus", true) -> listOf(
+                ".post-item",
+                ".entry",
+                "article"
+            )
+            sourceName.contains("Financial Mirror", true) -> listOf(
+                ".post",
+                "article",
+                ".entry"
+            )
+            sourceName.contains("Alpha News", true) -> listOf(
+                ".post",
+                ".news-item",
+                "article"
+            )
+            sourceName.contains("Kathimerini", true) -> listOf(
+                ".article-item",
+                ".post",
+                "article"
+            )
+            else -> listOf("article", ".post", ".entry")
+        }
+
+        for (selector in selectors) {
+            val elements = doc.select(selector)
+            if (elements.size > 0) {
+                println("  ✅ Found ${elements.size} elements with selector: $selector")
+
+                elements.take(8).forEach { element ->
+                    try {
+                        val titleSelectors = listOf(
+                            "h1 a", "h2 a", "h3 a",
+                            ".title a", ".headline a",
+                            ".post-title a", ".entry-title a",
+                            "a[href*='/20']", // Articles with dates
+                            "a"
+                        )
+
+                        var title: String? = null
+                        var articleUrl: String? = null
+
+                        for (titleSelector in titleSelectors) {
+                            val titleElement = element.select(titleSelector).first()
+                            if (titleElement != null) {
+                                title = titleElement.text().trim()
+                                articleUrl = titleElement.attr("abs:href").ifEmpty {
+                                    titleElement.attr("href")
+                                }
+                                if (title.isNotEmpty() && articleUrl.isNotEmpty()) break
+                            }
+                        }
+
+                        // Clean and validate
+                        if (articleUrl != null && articleUrl.startsWith("/")) {
+                            val baseUrl = when {
+                                sourceName.contains("cyprus-mail", true) -> "https://cyprus-mail.com"
+                                sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
+                                sourceName.contains("financial", true) -> "https://www.financialmirror.com"
+                                sourceName.contains("alpha", true) -> "https://www.alphanews.live"
+                                sourceName.contains("kathimerini", true) -> "https://www.kathimerini.com.cy"
+                                else -> ""
+                            }
+                            articleUrl = baseUrl + articleUrl
+                        }
+
+                        // Filter out unwanted content
+                        if (title != null && articleUrl != null &&
+                            title.length > 10 && articleUrl.startsWith("http") &&
+                            !articleUrl.contains("javascript:") &&
+                            !articleUrl.contains("mailto:") &&
+                            !title.contains("newsletter", true) &&
+                            !title.contains("subscription", true) &&
+                            !title.contains("top stories", true) &&
+                            !title.contains("delivered straight", true)) {
+
+                            val summary = generateSummary(title)
+                            val translations = translateSummary(summary)
+
+                            articles.add(Article(
+                                title = title,
+                                url = articleUrl,
+                                summary = summary,
+                                category = categorizeArticle(title, summary),
+                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                                translations = translations
+                            ))
+                        }
+                    } catch (e: Exception) {
+                        // Silent fail for individual articles
+                    }
+                }
+
+                if (articles.isNotEmpty()) {
+                    println("  📰 Successfully extracted ${articles.size} articles from $sourceName")
+                    break
+                }
             }
         }
 
-        return articles
+        if (articles.isEmpty()) {
+            println("  ❌ No articles found for $sourceName")
+        }
+
+        return articles.distinctBy { it.url }.take(5) // Limit to 5 per source
     }
 
     fun aggregateNews(): List<Article> {
-        val sources = listOf(
-            "Cyprus Mail" to "https://cyprus-mail.com/",
-            "In-Cyprus" to "https://in-cyprus.philenews.com/",
-            "Financial Mirror" to "https://www.financialmirror.com/",
-            "Alpha News" to "https://www.alphanews.live/",
-            "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/"
-        )
-        return sources.flatMap { scrapeNewsSource(it.first, it.second) }.also { saveSeenArticles() }
+        println("📰 Starting news aggregation from ${newsSources.size} sources...")
+        val seen = loadSeenArticles()
+        val allArticles = mutableListOf<Article>()
+
+        newsSources.forEach { (sourceName, sourceUrl) ->
+            try {
+                val sourceArticles = scrapeNewsSource(sourceName, sourceUrl)
+                allArticles.addAll(sourceArticles)
+                Thread.sleep(1000)
+            } catch (e: Exception) {
+                println("❌ Error scraping $sourceName: ${e.message}")
+            }
+        }
+
+        val newArticles = allArticles.filter { it.url !in seen }
+
+        seen.addAll(newArticles.map { it.url })
+        saveSeenArticles(seen)
+
+        println("📊 Found ${allArticles.size} total articles, ${newArticles.size} new articles")
+        return newArticles
     }
 
     fun generateHtmlBlog(articles: List<Article>): String {
-        val date = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        val builder = StringBuilder()
-        builder.append("<html><head><meta charset='utf-8'><title>Weekly Cyprus Blog – $date</title></head><body>")
-        builder.append("<h1>Weekly Cyprus Blog – $date</h1>")
-        articles.forEach {
-            builder.append("<h2>${it.title}</h2>")
-            builder.append("<p>${it.translations["en"]}</p>")
-            builder.append("<p><strong>HE:</strong> ${it.translations["he"]}</p>")
-            builder.append("<p><strong>RU:</strong> ${it.translations["ru"]}</p>")
-            builder.append("<p><strong>EL:</strong> ${it.translations["el"]}</p>")
-            builder.append("<p><a href='${it.url}' target='_blank'>Read more</a></p><hr>")
-        }
-        builder.append("</body></html>")
-        return builder.toString()
-    }
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val grouped = articles.groupBy { it.category }
 
-    fun saveAndPush(html: String): String {
-        val filename = "index.html"
-        File(filename).writeText(html)
+        val html = StringBuilder("""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Weekly Cyprus Blog – $currentDate</title>
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        line-height: 1.6; 
+                        max-width: 800px; 
+                        margin: 0 auto; 
+                        padding: 20px; 
+                        background-color: #f8f9fa;
+                    }
+                    .container {
+                        background: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    }
+                    h1 { 
+                        color: #2c3e50; 
+                        border-bottom: 3px solid #3498db; 
+                        padding-bottom: 10px; 
+                        text-align: center;
+                    }
+                    h2 { 
+                        color: #34495e; 
+                        margin-top: 30px; 
+                        font-size: 24px;
+                    }
+                    .lang-buttons { 
+                        text-align: center;
+                        margin: 20px 0; 
+                        padding: 15px;
+                        background: #ecf0f1;
+                        border-radius: 8px;
+                    }
+                    .lang-buttons button { 
+                        margin: 5px; 
+                        padding: 8px 16px; 
+                        border: none;
+                        border-radius: 5px;
+                        background: #3498db;
+                        color: white;
+                        cursor: pointer;
+                        font-weight: bold;
+                        transition: background 0.3s;
+                    }
+                    .lang-buttons button:hover { 
+                        background: #2980b9; 
+                    }
+                    .lang-buttons button.active { 
+                        background: #e74c3c; 
+                    }
+                    .article { 
+                        margin-bottom: 15px; 
+                        padding: 15px; 
+                        border-left: 4px solid #3498db; 
+                        background: #f8f9fa;
+                        border-radius: 0 5px 5px 0;
+                    }
+                    .article-title { 
+                        font-weight: bold; 
+                        margin-bottom: 8px; 
+                        color: #2c3e50;
+                        font-size: 16px;
+                    }
+                    .article-summary { 
+                        color: #666; 
+                        margin-bottom: 8px;
+                        font-style: italic;
+                    }
+                    .article-link { 
+                        color: #3498db; 
+                        text-decoration: none; 
+                        font-size: 14px;
+                        font-weight: bold;
+                    }
+                    .article-link:hover { 
+                        text-decoration: underline; 
+                    }
+                    .lang { 
+                        display: none; 
+                    }
+                    .lang.active { 
+                        display: block; 
+                    }
+                    .footer {
+                        text-align: center;
+                        margin-top: 40px;
+                        padding-top: 20px;
+                        border-top: 1px solid #bdc3c7;
+                        color: #7f8c8d;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>Weekly Cyprus Blog – $currentDate</h1>
+                    <div class="lang-buttons">
+                        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+                        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+                        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+                        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+                    </div>
+        """.trimIndent())
 
-        try {
-            Runtime.getRuntime().exec("git add $filename").waitFor()
-            Runtime.getRuntime().exec("git commit -m \"Weekly update\"").waitFor()
-            Runtime.getRuntime().exec("git push").waitFor()
-            println("✅ Pushed blog to GitHub")
-        } catch (e: Exception) {
-            println("❌ Failed GitHub push: ${e.message}")
-        }
-
-        return "https://gist.githack.com/LiorR2389/2a6605238211f6e141dc126e16f8fbfa/raw/index.html"
-    }
-
-    fun sendEmail(url: String, count: Int) {
-        val props = Properties().apply {
-            put("mail.smtp.auth", "true")
-            put("mail.smtp.starttls.enable", "true")
-            put("mail.smtp.host", "smtp.gmail.com")
-            put("mail.smtp.port", "587")
-        }
-
-        val emailUser = System.getenv("EMAIL_USER")
-        val emailPass = System.getenv("EMAIL_PASS")
-
-        val session = Session.getInstance(props, object : Authenticator() {
-            override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(emailUser, emailPass)
+        grouped.forEach { (category, items) ->
+            html.append("\n                    <h2>$category</h2>")
+            items.forEach { article ->
+                html.append("""
+                    <div class="article">
+                        <div class="article-title">${article.title}</div>
+                        <div class="lang en active">${article.translations["en"] ?: article.summary}</div>
+                        <div class="lang he">${article.translations["he"] ?: "תרגום לא זמין"}</div>
+                        <div class="lang ru">${article.translations["ru"] ?: "Перевод недоступен"}</div>
+                        <div class="lang el">${article.translations["el"] ?: "Μετάφραση μη διαθέσιμη"}</div>
+                        <a href="${article.url}" class="article-link" target="_blank">Read more</a>
+                    </div>
+                """.trimIndent())
             }
-        })
+        }
+
+        html.append("""
+                    <div class="footer">
+                        <p>Generated automatically • Updated ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}</p>
+                        <p>Sources: Cyprus Mail, In-Cyprus, Financial Mirror, Alpha News, Kathimerini • Powered by AI Translation</p>
+                    </div>
+                </div>
+                <script>
+                    function setLang(lang) {
+                        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                        document.getElementById('btn-' + lang).classList.add('active');
+                        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                        localStorage.setItem('preferred-language', lang);
+                    }
+                    
+                    window.onload = function() {
+                        const savedLang = localStorage.getItem('preferred-language') || 'en';
+                        setLang(savedLang);
+                    };
+                </script>
+            </body>
+            </html>
+        """.trimIndent())
+
+        return html.toString()
+    }
+
+    fun saveAndPush(htmlContent: String): String {
+        val date = SimpleDateFormat("yyyyMMdd").format(Date())
+        val filename = "weekly_blog_$date.html"
 
         try {
+            File(filename).writeText(htmlContent)
+            println("💾 Blog saved locally as $filename")
+
+            if (!githubToken.isNullOrEmpty()) {
+                return pushToGitHub(filename, htmlContent)
+            } else {
+                println("⚠️ GitHub token not found, skipping GitHub upload")
+                return ""
+            }
+        } catch (e: Exception) {
+            println("❌ Error saving blog: ${e.message}")
+            return ""
+        }
+    }
+
+    private fun pushToGitHub(filename: String, htmlContent: String): String {
+        return try {
+            val apiUrl = "https://api.github.com/gists"
+            val requestBody = JSONObject().apply {
+                put("description", "Weekly Cyprus Blog ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("public", true)
+                put("files", JSONObject().apply {
+                    put(filename, JSONObject().apply {
+                        put("content", htmlContent)
+                    })
+                })
+            }
+
+            val request = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .post(RequestBody.create("application/json".toMediaType(), requestBody.toString()))
+                .build()
+
+            val response = client.newCall(request).execute()
+            if (response.isSuccessful) {
+                val responseJson = JSONObject(response.body?.string())
+                val gistUrl = responseJson.getString("html_url")
+
+                // Get the raw HTML URL for direct viewing
+                val gistId = gistUrl.split("/").last()
+                val rawUrl = "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
+
+                println("🚀 Blog uploaded as GitHub Gist: $gistUrl")
+                println("📖 Direct blog view: $rawUrl")
+                return rawUrl
+            } else {
+                println("❌ GitHub Gist upload failed: ${response.code}")
+                return ""
+            }
+        } catch (e: Exception) {
+            println("❌ GitHub upload error: ${e.message}")
+            ""
+        }
+    }
+
+    fun sendEmail(blogUrl: String, articleCount: Int) {
+        if (emailPassword.isNullOrEmpty()) {
+            println("⚠️ Email password not found, skipping email")
+            return
+        }
+
+        try {
+            val props = Properties().apply {
+                put("mail.smtp.host", "smtp.gmail.com")
+                put("mail.smtp.port", "587")
+                put("mail.smtp.auth", "true")
+                put("mail.smtp.starttls.enable", "true")
+            }
+
+            val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
+                override fun getPasswordAuthentication(): PasswordAuthentication {
+                    return PasswordAuthentication(fromEmail, emailPassword)
+                }
+            })
+
             val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(emailUser))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(emailUser))
-                subject = "🌐 Weekly Cyprus Blog – $count new articles"
-                setText("View the latest blog:\n\n$url")
+                setFrom(InternetAddress(fromEmail))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
+                subject = "🇨🇾 Weekly Cyprus Blog Ready - $articleCount New Articles"
+
+                val emailBody = if (blogUrl.isNotEmpty()) {
+                    """
+                    🇨🇾 Your Weekly Cyprus Blog is Ready!
+                    
+                    📊 $articleCount new articles processed
+                    🌍 Available in 4 languages: English, Hebrew, Russian, Greek
+                    🤖 Powered by AI translation
+                    
+                    📖 Read your blog: $blogUrl
+                    
+                    Features:
+                    • Real-time language switching
+                    • Categorized news sections
+                    • AI-powered translations
+                    • Mobile-friendly design
+                    
+                    Generated automatically on ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}
+                    
+                    —
+                    Cyprus News Aggregator
+                    """.trimIndent()
+                } else {
+                    """
+                    🇨🇾 Weekly Cyprus Blog Generated
+                    
+                    📊 $articleCount new articles processed
+                    💾 Blog saved locally (GitHub upload failed)
+                    
+                    Please check your local files for the latest blog.
+                    
+                    Generated on ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}
+                    """.trimIndent()
+                }
+
+                setText(emailBody)
             }
 
             Transport.send(message)
-            println("📬 Email sent successfully!")
+            println("📧 Email sent successfully to $toEmail")
         } catch (e: Exception) {
-            println("❌ Failed to send email: ${e.message}")
+            println("❌ Email sending failed: ${e.message}")
         }
     }
 }
 
 fun main() {
-    val force = true // ✅ override mode for debug/testing
+    println("🚀 Starting Weekly Cyprus Blog Generator...")
+    println("📅 ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}")
 
-    val blog = NewsAggregator()
-    val initialArticles = blog.aggregateNews()
+    val aggregator = NewsAggregator()
 
-    val finalArticles = if (initialArticles.isNotEmpty()) initialArticles else if (force) blog.aggregateNews() else emptyList()
+    val requiredEnvVars = listOf("OPENAI_API_KEY", "GITHUB_TOKEN", "EMAIL_PASSWORD", "FROM_EMAIL", "TO_EMAIL")
+    requiredEnvVars.forEach { envVar ->
+        val value = System.getenv(envVar)
+        if (value.isNullOrEmpty()) {
+            println("⚠️ $envVar not set")
+        } else {
+            println("✅ $envVar configured")
+        }
+    }
 
-    if (finalArticles.isNotEmpty()) {
-        val html = blog.generateHtmlBlog(finalArticles)
-        val url = blog.saveAndPush(html)
-        blog.sendEmail(url, finalArticles.size)
-    } else {
-        println("ℹ️ No new articles found.")
+    try {
+        val articles = aggregator.aggregateNews()
+
+        if (articles.isEmpty()) {
+            println("ℹ️ No new articles found.")
+            return
+        }
+
+        println("📝 Generating multilingual HTML blog...")
+        val html = aggregator.generateHtmlBlog(articles)
+
+        println("💾 Saving and uploading blog...")
+        val blogUrl = aggregator.saveAndPush(html)
+
+        println("📧 Sending notification email...")
+        aggregator.sendEmail(blogUrl, articles.size)
+
+        println("✅ Weekly Cyprus Blog generation complete!")
+        if (blogUrl.isNotEmpty()) {
+            println("🌐 Blog URL: $blogUrl")
+        }
+
+    } catch (e: Exception) {
+        println("❌ Error: ${e.message}")
+        e.printStackTrace()
     }
 }
