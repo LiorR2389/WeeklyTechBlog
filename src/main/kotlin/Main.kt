@@ -44,9 +44,12 @@ class NewsAggregator {
 
     // News sources with better selectors
     private val newsSources = mapOf(
-        "Cyprus Mail" to "https://cyprus-mail.com/category/news/",
+        "Cyprus Mail News" to "https://cyprus-mail.com/category/news/",
+        "Cyprus Mail Business" to "https://cyprus-mail.com/category/business/",
         "In-Cyprus Local" to "https://in-cyprus.philenews.com/local/",
-        "Financial Mirror" to "https://www.financialmirror.com/category/cyprus/",
+        "In-Cyprus Opinion" to "https://in-cyprus.philenews.com/opinion/",
+        "Financial Mirror Cyprus" to "https://www.financialmirror.com/category/cyprus/",
+        "Financial Mirror Business" to "https://www.financialmirror.com/category/business/",
         "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/",
         "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/gr/kypros/"
     )
@@ -97,13 +100,33 @@ class NewsAggregator {
     }
 
     private fun generateSummary(title: String): String {
+        val content = title.lowercase()
         return when {
-            title.contains("tech", true) ||
-                    title.contains("AI", true) ||
-                    title.contains("digital", true) ||
-                    title.contains("innovation", true) ||
-                    title.contains("startup", true) ->
-                "Technology sector advancement with implications for Cyprus digital economy."
+            content.contains("tech") || content.contains("ai") ||
+                    content.contains("digital") || content.contains("innovation") ||
+                    content.contains("startup") || content.contains("software") ->
+                "Technology advancement in Cyprus with potential economic impact."
+            content.contains("business") || content.contains("economy") ||
+                    content.contains("financial") || content.contains("bank") ||
+                    content.contains("market") || content.contains("euro") ||
+                    content.contains("gdp") || content.contains("investment") ||
+                    content.contains("cclei") || content.contains("imd") ->
+                "Economic development affecting Cyprus business environment."
+            content.contains("real estate") || content.contains("property") ||
+                    content.contains("housing") || content.contains("construction") ->
+                "Real estate market update impacting Cyprus property sector."
+            content.contains("travel") || content.contains("tourism") ||
+                    content.contains("holiday") || content.contains("hotel") ||
+                    content.contains("festival") || content.contains("culture") ->
+                "Tourism and cultural development in Cyprus region."
+            content.contains("politics") || content.contains("government") ||
+                    content.contains("parliament") || content.contains("minister") ||
+                    content.contains("talks") || content.contains("negotiation") ->
+                "Political development with implications for Cyprus governance."
+            content.contains("crime") || content.contains("arrest") ||
+                    content.contains("police") || content.contains("court") ||
+                    content.contains("fraud") || content.contains("theft") ->
+                "Legal matter affecting Cyprus public safety and justice."
             else -> "General news story relevant to Cyprus current affairs."
         }
     }
@@ -248,15 +271,23 @@ class NewsAggregator {
             content.contains("tech") || content.contains("ai") ||
                     content.contains("digital") || content.contains("innovation") ||
                     content.contains("startup") || content.contains("software") -> "Technology"
-            content.contains("real estate") || content.contains("property") ||
-                    content.contains("housing") || content.contains("construction") -> "Real Estate"
-            content.contains("travel") || content.contains("tourism") ||
-                    content.contains("holiday") || content.contains("hotel") -> "Holidays & Travel"
             content.contains("business") || content.contains("economy") ||
                     content.contains("financial") || content.contains("bank") ||
                     content.contains("market") || content.contains("euro") ||
-                    content.contains("gdp") || content.contains("investment") -> "Business & Economy"
-            else -> "Other"
+                    content.contains("gdp") || content.contains("investment") ||
+                    content.contains("cclei") || content.contains("imd") -> "Business & Economy"
+            content.contains("real estate") || content.contains("property") ||
+                    content.contains("housing") || content.contains("construction") -> "Real Estate"
+            content.contains("travel") || content.contains("tourism") ||
+                    content.contains("holiday") || content.contains("hotel") ||
+                    content.contains("festival") || content.contains("culture") -> "Holidays & Travel"
+            content.contains("politics") || content.contains("government") ||
+                    content.contains("parliament") || content.contains("minister") ||
+                    content.contains("talks") || content.contains("negotiation") -> "Politics"
+            content.contains("crime") || content.contains("arrest") ||
+                    content.contains("police") || content.contains("court") ||
+                    content.contains("fraud") || content.contains("theft") -> "Crime & Justice"
+            else -> "General News"
         }
     }
 
@@ -309,7 +340,7 @@ class NewsAggregator {
             if (linkElements.size > 0) {
                 println("  ✅ Found ${linkElements.size} article links with selector: $selector")
 
-                linkElements.take(10).forEach { linkElement ->
+                linkElements.take(12).forEach { linkElement ->
                     try {
                         val title = linkElement.text().trim()
                         var articleUrl = linkElement.attr("abs:href").ifEmpty {
@@ -374,7 +405,7 @@ class NewsAggregator {
             println("  ❌ No articles found for $sourceName")
         }
 
-        return articles.distinctBy { it.url }.take(8) // Limit to 8 per source
+        return articles.distinctBy { it.url }.take(10) // Limit to 10 per source
     }
 
     fun aggregateNews(): List<Article> {
