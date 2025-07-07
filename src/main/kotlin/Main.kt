@@ -20,7 +20,8 @@ data class Article(
     val summary: String,
     val category: String,
     val date: String,
-    val translations: Map<String, String> = emptyMap()
+    val titleTranslations: Map<String, String> = emptyMap(),
+    val summaryTranslations: Map<String, String> = emptyMap()
 )
 
 class NewsAggregator {
@@ -43,10 +44,10 @@ class NewsAggregator {
 
     // News sources with better selectors
     private val newsSources = mapOf(
-        "Cyprus Mail" to "https://cyprus-mail.com",
-        "In-Cyprus" to "https://in-cyprus.philenews.com/local/",
-        "Financial Mirror" to "https://www.financialmirror.com/",
-        "Alpha News" to "https://www.alphanews.live/cyprus/",
+        "Cyprus Mail" to "https://cyprus-mail.com/category/news/",
+        "In-Cyprus Local" to "https://in-cyprus.philenews.com/local/",
+        "Financial Mirror" to "https://www.financialmirror.com/category/cyprus/",
+        "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/",
         "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/gr/kypros/"
     )
 
@@ -107,17 +108,59 @@ class NewsAggregator {
         }
     }
 
-    private fun translateSummary(summary: String): Map<String, String> {
+    private fun translateText(text: String, targetLanguage: String): String {
         if (openAiApiKey.isNullOrEmpty()) {
-            return mapOf(
-                "en" to summary,
-                "he" to "חדשות כלליות מקפריסין.",
-                "ru" to "Общие новости Кипра.",
-                "el" to "Γενικές ειδήσεις Κύπρου."
-            )
+            return when (targetLanguage) {
+                "he" -> "כותרת בעברית"
+                "ru" -> "Заголовок на русском"
+                "el" -> "Τίτλος στα ελληνικά"
+                else -> text
+            }
         }
 
-        // Use OpenAI for better translations
+        return try {
+            val apiUrl = "https://api.openai.com/v1/chat/completions"
+            val requestBody = """
+                {
+                  "model": "gpt-4o-mini",
+                  "messages": [
+                    {"role": "system", "content": "You are a professional news translator. Translate headlines accurately while maintaining journalistic tone. Keep translations concise and natural."},
+                    {"role": "user", "content": "Translate this news headline to $targetLanguage:\n\n$text"}
+                  ],
+                  "temperature": 0.1,
+                  "max_tokens": 150
+                }
+            """.trimIndent()
+
+            val request = Request.Builder()
+                .url(apiUrl)
+                .addHeader("Authorization", "Bearer $openAiApiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(RequestBody.create("application/json".toMediaType(), requestBody))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return text
+                }
+
+                val json = JSONObject(response.body?.string())
+                val translatedText = json
+                    .getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .getString("content")
+                    .trim()
+
+                return translatedText
+            }
+        } catch (e: Exception) {
+            println("❌ Translation error: ${e.message}")
+            text
+        }
+    }
+
+    private fun translateSummary(summary: String): Map<String, String> {
         val translations = mutableMapOf<String, String>()
         translations["en"] = summary
 
@@ -128,9 +171,28 @@ class NewsAggregator {
         )
 
         for ((langCode, langName) in targetLanguages) {
-            val translated = callOpenAITranslation(summary, langName)
-            translations[langCode] = if (translated.isNotEmpty()) translated else "תרגום לא זמין"
-            Thread.sleep(200) // Shorter delay
+            val translated = translateText(summary, langName)
+            translations[langCode] = translated
+            Thread.sleep(200)
+        }
+
+        return translations
+    }
+
+    private fun translateTitle(title: String): Map<String, String> {
+        val translations = mutableMapOf<String, String>()
+        translations["en"] = title
+
+        val targetLanguages = mapOf(
+            "he" to "Hebrew",
+            "ru" to "Russian",
+            "el" to "Greek"
+        )
+
+        for ((langCode, langName) in targetLanguages) {
+            val translated = translateText(title, langName)
+            translations[langCode] = translated
+            Thread.sleep(200)
         }
 
         return translations
@@ -207,64 +269,55 @@ class NewsAggregator {
         // Improved selectors for each source
         val selectors = when {
             sourceName.contains("Cyprus Mail", true) -> listOf(
-                "article:not(.newsletter):not(.subscription)",
-                ".post:not(.newsletter):not(.subscription)",
-                ".news-item:not(.newsletter)"
+                ".post-item .post-title a",
+                "article .entry-title a",
+                ".news-item h2 a",
+                "h2 a[href*='/2025/']",
+                "h3 a[href*='/2025/']"
             )
             sourceName.contains("In-Cyprus", true) -> listOf(
-                ".post-item",
-                ".entry",
-                "article"
+                ".entry-title a",
+                ".post-title a",
+                "h2.entry-title a",
+                "article h2 a",
+                ".post-content h3 a"
             )
             sourceName.contains("Financial Mirror", true) -> listOf(
-                ".post",
-                "article",
-                ".entry"
+                ".entry-title a",
+                "h2.entry-title a",
+                ".post-title a",
+                "article h2 a"
             )
             sourceName.contains("Alpha News", true) -> listOf(
-                ".post",
-                ".news-item",
-                "article"
+                ".entry-title a",
+                ".post-title a",
+                "h2 a",
+                "article h3 a"
             )
             sourceName.contains("Kathimerini", true) -> listOf(
-                ".article-item",
-                ".post",
-                "article"
+                ".entry-title a",
+                "h2 a",
+                ".article-title a",
+                ".post-title a"
             )
-            else -> listOf("article", ".post", ".entry")
+            else -> listOf("h2 a", "h3 a", ".entry-title a")
         }
 
+        // First try to get articles directly by link selectors
         for (selector in selectors) {
-            val elements = doc.select(selector)
-            if (elements.size > 0) {
-                println("  ✅ Found ${elements.size} elements with selector: $selector")
+            val linkElements = doc.select(selector)
+            if (linkElements.size > 0) {
+                println("  ✅ Found ${linkElements.size} article links with selector: $selector")
 
-                elements.take(8).forEach { element ->
+                linkElements.take(10).forEach { linkElement ->
                     try {
-                        val titleSelectors = listOf(
-                            "h1 a", "h2 a", "h3 a",
-                            ".title a", ".headline a",
-                            ".post-title a", ".entry-title a",
-                            "a[href*='/20']", // Articles with dates
-                            "a"
-                        )
-
-                        var title: String? = null
-                        var articleUrl: String? = null
-
-                        for (titleSelector in titleSelectors) {
-                            val titleElement = element.select(titleSelector).first()
-                            if (titleElement != null) {
-                                title = titleElement.text().trim()
-                                articleUrl = titleElement.attr("abs:href").ifEmpty {
-                                    titleElement.attr("href")
-                                }
-                                if (title.isNotEmpty() && articleUrl.isNotEmpty()) break
-                            }
+                        val title = linkElement.text().trim()
+                        var articleUrl = linkElement.attr("abs:href").ifEmpty {
+                            linkElement.attr("href")
                         }
 
-                        // Clean and validate
-                        if (articleUrl != null && articleUrl.startsWith("/")) {
+                        // Clean and validate URL
+                        if (articleUrl.startsWith("/")) {
                             val baseUrl = when {
                                 sourceName.contains("cyprus-mail", true) -> "https://cyprus-mail.com"
                                 sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
@@ -276,18 +329,24 @@ class NewsAggregator {
                             articleUrl = baseUrl + articleUrl
                         }
 
-                        // Filter out unwanted content
-                        if (title != null && articleUrl != null &&
-                            title.length > 10 && articleUrl.startsWith("http") &&
-                            !articleUrl.contains("javascript:") &&
-                            !articleUrl.contains("mailto:") &&
+                        // Filter out unwanted content and validate
+                        if (title.isNotEmpty() &&
+                            articleUrl.startsWith("http") &&
+                            title.length > 15 &&
                             !title.contains("newsletter", true) &&
                             !title.contains("subscription", true) &&
                             !title.contains("top stories", true) &&
-                            !title.contains("delivered straight", true)) {
+                            !title.contains("delivered straight", true) &&
+                            !title.contains("read more", true) &&
+                            !articleUrl.contains("mailto:") &&
+                            !articleUrl.contains("javascript:") &&
+                            (articleUrl.contains("/2025/") || articleUrl.contains("/2024/"))) {
+
+                            println("  📰 Found article: ${title.take(50)}...")
 
                             val summary = generateSummary(title)
-                            val translations = translateSummary(summary)
+                            val titleTranslations = translateTitle(title)
+                            val summaryTranslations = translateSummary(summary)
 
                             articles.add(Article(
                                 title = title,
@@ -295,11 +354,12 @@ class NewsAggregator {
                                 summary = summary,
                                 category = categorizeArticle(title, summary),
                                 date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                                translations = translations
+                                titleTranslations = titleTranslations,
+                                summaryTranslations = summaryTranslations
                             ))
                         }
                     } catch (e: Exception) {
-                        // Silent fail for individual articles
+                        println("    ⚠️ Error processing link: ${e.message}")
                     }
                 }
 
@@ -314,7 +374,7 @@ class NewsAggregator {
             println("  ❌ No articles found for $sourceName")
         }
 
-        return articles.distinctBy { it.url }.take(5) // Limit to 5 per source
+        return articles.distinctBy { it.url }.take(8) // Limit to 8 per source
     }
 
     fun aggregateNews(): List<Article> {
@@ -458,14 +518,33 @@ class NewsAggregator {
         grouped.forEach { (category, items) ->
             html.append("\n                    <h2>$category</h2>")
             items.forEach { article ->
+                // Create Google Translate URLs for each language
+                val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${java.net.URLEncoder.encode(article.url, "UTF-8")}"
+                val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${java.net.URLEncoder.encode(article.url, "UTF-8")}"
+                val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${java.net.URLEncoder.encode(article.url, "UTF-8")}"
+
                 html.append("""
                     <div class="article">
-                        <div class="article-title">${article.title}</div>
-                        <div class="lang en active">${article.translations["en"] ?: article.summary}</div>
-                        <div class="lang he">${article.translations["he"] ?: "תרגום לא זמין"}</div>
-                        <div class="lang ru">${article.translations["ru"] ?: "Перевод недоступен"}</div>
-                        <div class="lang el">${article.translations["el"] ?: "Μετάφραση μη διαθέσιμη"}</div>
-                        <a href="${article.url}" class="article-link" target="_blank">Read more</a>
+                        <div class="lang en active">
+                            <div class="article-title">${article.titleTranslations["en"] ?: article.title}</div>
+                            <div class="article-summary">${article.summaryTranslations["en"] ?: article.summary}</div>
+                            <a href="${article.url}" class="article-link" target="_blank">Read more</a>
+                        </div>
+                        <div class="lang he">
+                            <div class="article-title">${article.titleTranslations["he"] ?: "כותרת בעברית"}</div>
+                            <div class="article-summary">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</div>
+                            <a href="$hebrewUrl" class="article-link" target="_blank">קרא עוד</a>
+                        </div>
+                        <div class="lang ru">
+                            <div class="article-title">${article.titleTranslations["ru"] ?: "Заголовок на русском"}</div>
+                            <div class="article-summary">${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</div>
+                            <a href="$russianUrl" class="article-link" target="_blank">Читать далее</a>
+                        </div>
+                        <div class="lang el">
+                            <div class="article-title">${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</div>
+                            <div class="article-summary">${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</div>
+                            <a href="$greekUrl" class="article-link" target="_blank">Διαβάστε περισσότερα</a>
+                        </div>
                     </div>
                 """.trimIndent())
             }
