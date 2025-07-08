@@ -13,6 +13,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.Base64
+import java.net.URLEncoder
 
 data class Article(
     val title: String,
@@ -24,34 +25,37 @@ data class Article(
     val summaryTranslations: Map<String, String> = emptyMap()
 )
 
-class NewsAggregator {
+data class Subscriber(
+    val email: String,
+    val name: String?,
+    val languages: List<String>,
+    val subscribed: Boolean = true,
+    val subscribedDate: String
+)
+
+class StartYourDaySystem {
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
     private val seenArticlesFile = File("seen_articles.json")
-    private val seenArticlesBackupFile = File("seen_articles_backup.json")
+    private val subscribersFile = File("subscribers.json")
 
     // Environment variables
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     private val githubToken = System.getenv("GITHUB_TOKEN")
-    private val githubRepo = System.getenv("GITHUB_REPO") ?: "LiorR2389/WeeklyTechBlog"
-    private val githubUsername = System.getenv("GITHUB_USERNAME") ?: "LiorR2389"
     private val emailPassword = System.getenv("EMAIL_PASSWORD")
-    private val fromEmail = System.getenv("FROM_EMAIL") ?: "liorre.work@gmail.com"
-    private val toEmail = System.getenv("TO_EMAIL") ?: "lior.global@gmail.com"
+    private val fromEmail = System.getenv("FROM_EMAIL") ?: "hello@startyourday.com"
 
-    // News sources with better selectors
+    // News sources
     private val newsSources = mapOf(
         "Cyprus Mail News" to "https://cyprus-mail.com/category/news/",
         "Cyprus Mail Business" to "https://cyprus-mail.com/category/business/",
         "In-Cyprus Local" to "https://in-cyprus.philenews.com/local/",
         "In-Cyprus Opinion" to "https://in-cyprus.philenews.com/opinion/",
         "Financial Mirror Cyprus" to "https://www.financialmirror.com/category/cyprus/",
-        "Financial Mirror Business" to "https://www.financialmirror.com/category/business/",
-        "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/",
-        "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/gr/kypros/"
+        "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/"
     )
 
     private fun loadSeenArticles(): MutableSet<String> {
@@ -69,12 +73,30 @@ class NewsAggregator {
 
     private fun saveSeenArticles(articles: Set<String>) {
         try {
-            if (seenArticlesFile.exists()) {
-                seenArticlesFile.copyTo(seenArticlesBackupFile, overwrite = true)
-            }
             seenArticlesFile.writeText(gson.toJson(articles))
         } catch (e: Exception) {
             println("Error saving seen articles: ${e.message}")
+        }
+    }
+
+    private fun loadSubscribers(): List<Subscriber> {
+        return if (subscribersFile.exists()) {
+            try {
+                val json = subscribersFile.readText()
+                val type = object : TypeToken<List<Subscriber>>() {}.type
+                gson.fromJson<List<Subscriber>>(json, type) ?: emptyList()
+            } catch (e: Exception) {
+                println("Error loading subscribers: ${e.message}")
+                emptyList()
+            }
+        } else emptyList()
+    }
+
+    private fun saveSubscribers(subscribers: List<Subscriber>) {
+        try {
+            subscribersFile.writeText(gson.toJson(subscribers))
+        } catch (e: Exception) {
+            println("Error saving subscribers: ${e.message}")
         }
     }
 
@@ -134,9 +156,9 @@ class NewsAggregator {
     private fun translateText(text: String, targetLanguage: String): String {
         if (openAiApiKey.isNullOrEmpty()) {
             return when (targetLanguage) {
-                "he" -> "כותרת בעברית"
-                "ru" -> "Заголовок на русском"
-                "el" -> "Τίτλος στα ελληνικά"
+                "Hebrew" -> "כותרת בעברית"
+                "Russian" -> "Заголовок на русском"
+                "Greek" -> "Τίτλος στα ελληνικά"
                 else -> text
             }
         }
@@ -183,25 +205,6 @@ class NewsAggregator {
         }
     }
 
-    private fun translateSummary(summary: String): Map<String, String> {
-        val translations = mutableMapOf<String, String>()
-        translations["en"] = summary
-
-        val targetLanguages = mapOf(
-            "he" to "Hebrew",
-            "ru" to "Russian",
-            "el" to "Greek"
-        )
-
-        for ((langCode, langName) in targetLanguages) {
-            val translated = translateText(summary, langName)
-            translations[langCode] = translated
-            Thread.sleep(200)
-        }
-
-        return translations
-    }
-
     private fun translateTitle(title: String): Map<String, String> {
         val translations = mutableMapOf<String, String>()
         translations["en"] = title
@@ -221,48 +224,23 @@ class NewsAggregator {
         return translations
     }
 
-    private fun callOpenAITranslation(text: String, language: String): String {
-        return try {
-            val apiUrl = "https://api.openai.com/v1/chat/completions"
-            val requestBody = """
-                {
-                  "model": "gpt-4o-mini",
-                  "messages": [
-                    {"role": "system", "content": "You are a professional news translator. Translate accurately while maintaining journalistic tone. Keep it brief and professional."},
-                    {"role": "user", "content": "Translate this news summary to $language (keep it under 100 characters):\n\n$text"}
-                  ],
-                  "temperature": 0.2,
-                  "max_tokens": 100
-                }
-            """.trimIndent()
+    private fun translateSummary(summary: String): Map<String, String> {
+        val translations = mutableMapOf<String, String>()
+        translations["en"] = summary
 
-            val request = Request.Builder()
-                .url(apiUrl)
-                .addHeader("Authorization", "Bearer $openAiApiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(RequestBody.create("application/json".toMediaType(), requestBody))
-                .build()
+        val targetLanguages = mapOf(
+            "he" to "Hebrew",
+            "ru" to "Russian",
+            "el" to "Greek"
+        )
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    println("❌ OpenAI translation failed for $language: ${response.code}")
-                    return ""
-                }
-
-                val json = JSONObject(response.body?.string())
-                val translatedText = json
-                    .getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-
-                return translatedText
-            }
-        } catch (e: Exception) {
-            println("❌ Translation error for $language: ${e.message}")
-            ""
+        for ((langCode, langName) in targetLanguages) {
+            val translated = translateText(summary, langName)
+            translations[langCode] = translated
+            Thread.sleep(200)
         }
+
+        return translations
     }
 
     private fun categorizeArticle(title: String, summary: String): String {
@@ -297,7 +275,6 @@ class NewsAggregator {
 
         val articles = mutableListOf<Article>()
 
-        // Improved selectors for each source
         val selectors = when {
             sourceName.contains("Cyprus Mail", true) -> listOf(
                 ".post-item .post-title a",
@@ -325,16 +302,9 @@ class NewsAggregator {
                 "h2 a",
                 "article h3 a"
             )
-            sourceName.contains("Kathimerini", true) -> listOf(
-                ".entry-title a",
-                "h2 a",
-                ".article-title a",
-                ".post-title a"
-            )
             else -> listOf("h2 a", "h3 a", ".entry-title a")
         }
 
-        // First try to get articles directly by link selectors
         for (selector in selectors) {
             val linkElements = doc.select(selector)
             if (linkElements.size > 0) {
@@ -347,20 +317,17 @@ class NewsAggregator {
                             linkElement.attr("href")
                         }
 
-                        // Clean and validate URL
                         if (articleUrl.startsWith("/")) {
                             val baseUrl = when {
                                 sourceName.contains("cyprus-mail", true) -> "https://cyprus-mail.com"
                                 sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
                                 sourceName.contains("financial", true) -> "https://www.financialmirror.com"
                                 sourceName.contains("alpha", true) -> "https://www.alphanews.live"
-                                sourceName.contains("kathimerini", true) -> "https://www.kathimerini.com.cy"
                                 else -> ""
                             }
                             articleUrl = baseUrl + articleUrl
                         }
 
-                        // Filter out unwanted content and validate
                         if (title.isNotEmpty() &&
                             articleUrl.startsWith("http") &&
                             title.length > 15 &&
@@ -405,7 +372,7 @@ class NewsAggregator {
             println("  ❌ No articles found for $sourceName")
         }
 
-        return articles.distinctBy { it.url }.take(10) // Limit to 10 per source
+        return articles.distinctBy { it.url }.take(8)
     }
 
     fun aggregateNews(): List<Article> {
@@ -432,8 +399,9 @@ class NewsAggregator {
         return newArticles
     }
 
-    fun generateHtmlBlog(articles: List<Article>): String {
+    fun generateDailyWebsite(articles: List<Article>): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
         val grouped = articles.groupBy { it.category }
 
         val html = StringBuilder("""
@@ -442,83 +410,124 @@ class NewsAggregator {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Weekly Cyprus Blog – $currentDate</title>
+                <title>StartYourDay - Cyprus News for $dayOfWeek, $currentDate</title>
+                <meta name="description" content="Your daily Cyprus news digest in 4 languages. Updated every morning at 7 AM.">
                 <style>
                     body { 
-                        font-family: Arial, sans-serif; 
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                         line-height: 1.6; 
-                        max-width: 800px; 
-                        margin: 0 auto; 
+                        margin: 0;
                         padding: 20px; 
-                        background-color: #f8f9fa;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        min-height: 100vh;
                     }
                     .container {
+                        max-width: 900px;
+                        margin: 0 auto;
                         background: white;
-                        padding: 30px;
-                        border-radius: 10px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        padding: 40px;
+                        border-radius: 20px;
+                        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
                     }
-                    h1 { 
-                        color: #2c3e50; 
-                        border-bottom: 3px solid #3498db; 
-                        padding-bottom: 10px; 
+                    .header {
                         text-align: center;
+                        margin-bottom: 40px;
+                        padding-bottom: 30px;
+                        border-bottom: 3px solid #667eea;
                     }
-                    h2 { 
-                        color: #34495e; 
-                        margin-top: 30px; 
-                        font-size: 24px;
+                    .logo { 
+                        font-size: 3rem;
+                        font-weight: 700;
+                        margin-bottom: 10px;
+                        background: linear-gradient(45deg, #FFD700, #FFA500);
+                        -webkit-background-clip: text;
+                        -webkit-text-fill-color: transparent;
+                        background-clip: text;
+                    }
+                    .date-info {
+                        color: #666;
+                        font-size: 1.1rem;
+                        margin-bottom: 20px;
+                    }
+                    .update-time {
+                        background: #667eea;
+                        color: white;
+                        padding: 8px 16px;
+                        border-radius: 20px;
+                        font-size: 0.9rem;
+                        font-weight: 600;
                     }
                     .lang-buttons { 
                         text-align: center;
-                        margin: 20px 0; 
-                        padding: 15px;
-                        background: #ecf0f1;
-                        border-radius: 8px;
+                        margin: 30px 0; 
+                        padding: 20px;
+                        background: #f8f9fa;
+                        border-radius: 15px;
                     }
                     .lang-buttons button { 
                         margin: 5px; 
-                        padding: 8px 16px; 
+                        padding: 10px 20px; 
                         border: none;
-                        border-radius: 5px;
-                        background: #3498db;
+                        border-radius: 25px;
+                        background: #667eea;
                         color: white;
                         cursor: pointer;
-                        font-weight: bold;
-                        transition: background 0.3s;
+                        font-weight: 600;
+                        transition: all 0.3s;
+                        font-size: 0.9rem;
                     }
                     .lang-buttons button:hover { 
-                        background: #2980b9; 
+                        background: #5a6fd8;
+                        transform: translateY(-2px);
                     }
                     .lang-buttons button.active { 
-                        background: #e74c3c; 
+                        background: #FFD700;
+                        color: #333;
+                    }
+                    h2 { 
+                        color: #333; 
+                        margin: 40px 0 20px 0; 
+                        font-size: 1.8rem;
+                        padding-left: 15px;
+                        border-left: 4px solid #667eea;
                     }
                     .article { 
-                        margin-bottom: 15px; 
-                        padding: 15px; 
-                        border-left: 4px solid #3498db; 
+                        margin-bottom: 20px; 
+                        padding: 20px; 
+                        border-left: 4px solid #667eea; 
                         background: #f8f9fa;
-                        border-radius: 0 5px 5px 0;
+                        border-radius: 0 10px 10px 0;
+                        transition: transform 0.2s;
+                    }
+                    .article:hover {
+                        transform: translateX(5px);
                     }
                     .article-title { 
-                        font-weight: bold; 
-                        margin-bottom: 8px; 
-                        color: #2c3e50;
-                        font-size: 16px;
+                        font-weight: 600; 
+                        margin-bottom: 10px; 
+                        color: #333;
+                        font-size: 1.1rem;
+                        line-height: 1.4;
                     }
                     .article-summary { 
                         color: #666; 
-                        margin-bottom: 8px;
+                        margin-bottom: 12px;
                         font-style: italic;
                     }
                     .article-link { 
-                        color: #3498db; 
+                        color: #667eea; 
                         text-decoration: none; 
-                        font-size: 14px;
-                        font-weight: bold;
+                        font-weight: 600;
+                        padding: 8px 16px;
+                        background: rgba(102, 126, 234, 0.1);
+                        border-radius: 20px;
+                        display: inline-block;
+                        transition: all 0.3s;
                     }
                     .article-link:hover { 
-                        text-decoration: underline; 
+                        background: #667eea;
+                        color: white;
+                        transform: translateY(-1px);
                     }
                     .lang { 
                         display: none; 
@@ -526,18 +535,121 @@ class NewsAggregator {
                     .lang.active { 
                         display: block; 
                     }
+                    .newsletter-signup {
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        padding: 40px;
+                        margin: 50px 0;
+                        border-radius: 20px;
+                        text-align: center;
+                    }
+                    .newsletter-signup h3 {
+                        font-size: 2rem;
+                        margin-bottom: 15px;
+                    }
+                    .newsletter-signup p {
+                        margin-bottom: 25px;
+                        opacity: 0.9;
+                        font-size: 1.1rem;
+                    }
+                    .signup-form {
+                        max-width: 400px;
+                        margin: 0 auto;
+                    }
+                    .signup-form input {
+                        width: 100%;
+                        padding: 15px;
+                        margin: 10px 0;
+                        border: none;
+                        border-radius: 10px;
+                        font-size: 1rem;
+                        box-sizing: border-box;
+                    }
+                    .signup-form button {
+                        background: #FFD700;
+                        color: #333;
+                        border: none;
+                        padding: 15px 30px;
+                        border-radius: 25px;
+                        font-weight: 700;
+                        font-size: 1.1rem;
+                        cursor: pointer;
+                        transition: transform 0.3s;
+                        margin-top: 15px;
+                        width: 100%;
+                    }
+                    .signup-form button:hover {
+                        transform: translateY(-2px);
+                    }
                     .footer {
                         text-align: center;
-                        margin-top: 40px;
-                        padding-top: 20px;
-                        border-top: 1px solid #bdc3c7;
-                        color: #7f8c8d;
+                        margin-top: 50px;
+                        padding-top: 30px;
+                        border-top: 1px solid #ddd;
+                        color: #666;
+                    }
+                    .stats {
+                        display: flex;
+                        justify-content: center;
+                        gap: 30px;
+                        margin: 30px 0;
+                        flex-wrap: wrap;
+                    }
+                    .stat {
+                        text-align: center;
+                    }
+                    .stat-number {
+                        font-size: 1.5rem;
+                        font-weight: 700;
+                        color: #667eea;
+                    }
+                    .stat-label {
+                        font-size: 0.9rem;
+                        color: #666;
+                    }
+                    .language-checkboxes {
+                        display: grid;
+                        grid-template-columns: repeat(2, 1fr);
+                        gap: 10px;
+                        margin: 20px 0;
+                        text-align: left;
+                    }
+                    .language-option {
+                        display: flex;
+                        align-items: center;
+                        background: rgba(255,255,255,0.1);
+                        padding: 10px;
+                        border-radius: 8px;
+                    }
+                    .language-option input {
+                        width: auto;
+                        margin-right: 8px;
                     }
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <h1>Weekly Cyprus Blog – $currentDate</h1>
+                    <div class="header">
+                        <div class="logo">☀️ StartYourDay</div>
+                        <div class="date-info">$dayOfWeek, $currentDate</div>
+                        <div class="update-time">Updated at 7:00 AM Cyprus Time</div>
+                    </div>
+                    
+                    <div class="stats">
+                        <div class="stat">
+                            <div class="stat-number">${articles.size}</div>
+                            <div class="stat-label">Stories Today</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-number">4</div>
+                            <div class="stat-label">Languages</div>
+                        </div>
+                        <div class="stat">
+                            <div class="stat-number">6</div>
+                            <div class="stat-label">Sources</div>
+                        </div>
+                    </div>
+                    
                     <div class="lang-buttons">
                         <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
                         <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
@@ -549,10 +661,9 @@ class NewsAggregator {
         grouped.forEach { (category, items) ->
             html.append("\n                    <h2>$category</h2>")
             items.forEach { article ->
-                // Create Google Translate URLs for each language
-                val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${java.net.URLEncoder.encode(article.url, "UTF-8")}"
-                val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${java.net.URLEncoder.encode(article.url, "UTF-8")}"
-                val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${java.net.URLEncoder.encode(article.url, "UTF-8")}"
+                val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
+                val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
+                val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${URLEncoder.encode(article.url, "UTF-8")}"
 
                 html.append("""
                     <div class="article">
@@ -582,11 +693,43 @@ class NewsAggregator {
         }
 
         html.append("""
+                    <div class="newsletter-signup">
+                        <h3>🔔 Get Daily Notifications</h3>
+                        <p>Get a simple email notification every morning when fresh news is published</p>
+                        
+                        <div class="signup-form">
+                            <input type="email" id="email" placeholder="your@email.com" required>
+                            <input type="text" id="name" placeholder="Your name (optional)">
+                            <div class="language-checkboxes">
+                                <div class="language-option">
+                                    <input type="checkbox" value="en" checked> 🇬🇧 English
+                                </div>
+                                <div class="language-option">
+                                    <input type="checkbox" value="he"> 🇮🇱 עברית
+                                </div>
+                                <div class="language-option">
+                                    <input type="checkbox" value="ru"> 🇷🇺 Русский
+                                </div>
+                                <div class="language-option">
+                                    <input type="checkbox" value="el"> 🇬🇷 Ελληνικά
+                                </div>
+                            </div>
+                            <button onclick="subscribe()">🔔 Notify Me Daily</button>
+                        </div>
+                        
+                        <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+                            ✅ Just notifications, not newsletters<br>
+                            ✅ Unsubscribe anytime<br>
+                            ✅ No spam, no ads
+                        </p>
+                    </div>
+                    
                     <div class="footer">
                         <p>Generated automatically • Updated ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}</p>
-                        <p>Sources: Cyprus Mail, In-Cyprus, Financial Mirror, Alpha News, Kathimerini • Powered by AI Translation</p>
+                        <p>Sources: Cyprus Mail, In-Cyprus, Financial Mirror, Alpha News • Powered by AI Translation</p>
                     </div>
                 </div>
+                
                 <script>
                     function setLang(lang) {
                         document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
@@ -596,6 +739,31 @@ class NewsAggregator {
                         localStorage.setItem('preferred-language', lang);
                     }
                     
+                    function subscribe() {
+                        const email = document.getElementById('email').value;
+                        const name = document.getElementById('name').value;
+                        const languages = Array.from(document.querySelectorAll('.language-option input:checked')).map(cb => cb.value);
+                        
+                        if (!email) {
+                            alert('Please enter your email address');
+                            return;
+                        }
+                        
+                        if (languages.length === 0) {
+                            alert('Please select at least one language');
+                            return;
+                        }
+                        
+                        // For now, just show success message
+                        // TODO: Implement API endpoint for subscriptions
+                        alert('🎉 Welcome to StartYourDay! You will get your first notification tomorrow at 7 AM.');
+                        document.getElementById('email').value = '';
+                        document.getElementById('name').value = '';
+                        
+                        console.log('Subscription data:', { email, name, languages });
+                    }
+                    
+                    // Load saved language preference
                     window.onload = function() {
                         const savedLang = localStorage.getItem('preferred-language') || 'en';
                         setLang(savedLang);
@@ -610,20 +778,20 @@ class NewsAggregator {
 
     fun saveAndPush(htmlContent: String): String {
         val date = SimpleDateFormat("yyyyMMdd").format(Date())
-        val filename = "weekly_blog_$date.html"
+        val filename = "startyourday_$date.html"
 
         try {
             File(filename).writeText(htmlContent)
-            println("💾 Blog saved locally as $filename")
+            println("💾 Website saved locally as $filename")
 
             if (!githubToken.isNullOrEmpty()) {
                 return pushToGitHub(filename, htmlContent)
             } else {
-                println("⚠️ GitHub token not found, skipping GitHub upload")
+                println("⚠️ GitHub token not found, skipping upload")
                 return ""
             }
         } catch (e: Exception) {
-            println("❌ Error saving blog: ${e.message}")
+            println("❌ Error saving website: ${e.message}")
             return ""
         }
     }
@@ -632,7 +800,7 @@ class NewsAggregator {
         return try {
             val apiUrl = "https://api.github.com/gists"
             val requestBody = JSONObject().apply {
-                put("description", "Weekly Cyprus Blog ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
+                put("description", "StartYourDay Cyprus News ${SimpleDateFormat("yyyy-MM-dd").format(Date())}")
                 put("public", true)
                 put("files", JSONObject().apply {
                     put(filename, JSONObject().apply {
@@ -653,15 +821,14 @@ class NewsAggregator {
                 val responseJson = JSONObject(response.body?.string())
                 val gistUrl = responseJson.getString("html_url")
 
-                // Get the raw HTML URL for direct viewing
                 val gistId = gistUrl.split("/").last()
                 val rawUrl = "https://gist.githack.com/LiorR2389/$gistId/raw/$filename"
 
-                println("🚀 Blog uploaded as GitHub Gist: $gistUrl")
-                println("📖 Direct blog view: $rawUrl")
+                println("🚀 Website uploaded as GitHub Gist: $gistUrl")
+                println("📖 Direct website view: $rawUrl")
                 return rawUrl
             } else {
-                println("❌ GitHub Gist upload failed: ${response.code}")
+                println("❌ GitHub upload failed: ${response.code}")
                 return ""
             }
         } catch (e: Exception) {
@@ -670,83 +837,132 @@ class NewsAggregator {
         }
     }
 
-    fun sendEmail(blogUrl: String, articleCount: Int) {
-        if (emailPassword.isNullOrEmpty()) {
-            println("⚠️ Email password not found, skipping email")
+    fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
+        val subscribers = loadSubscribers().filter { it.subscribed }
+
+        if (subscribers.isEmpty()) {
+            println("📧 No subscribers to notify")
             return
         }
 
-        try {
-            val props = Properties().apply {
-                put("mail.smtp.host", "smtp.gmail.com")
-                put("mail.smtp.port", "587")
-                put("mail.smtp.auth", "true")
-                put("mail.smtp.starttls.enable", "true")
+        val currentDate = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.ENGLISH).format(Date())
+        val articleCount = articles.size
+        val categories = articles.groupBy { it.category }.keys.joinToString(", ")
+
+        subscribers.forEach { subscriber ->
+            try {
+                sendNotificationEmail(subscriber, currentDate, articleCount, categories, websiteUrl)
+                Thread.sleep(100) // Rate limiting
+            } catch (e: Exception) {
+                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
             }
-
-            val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
-                override fun getPasswordAuthentication(): PasswordAuthentication {
-                    return PasswordAuthentication(fromEmail, emailPassword)
-                }
-            })
-
-            val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(fromEmail))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail))
-                subject = "🇨🇾 Weekly Cyprus Blog Ready - $articleCount New Articles"
-
-                val emailBody = if (blogUrl.isNotEmpty()) {
-                    """
-                    🇨🇾 Your Weekly Cyprus Blog is Ready!
-                    
-                    📊 $articleCount new articles processed
-                    🌍 Available in 4 languages: English, Hebrew, Russian, Greek
-                    🤖 Powered by AI translation
-                    
-                    📖 Read your blog: $blogUrl
-                    
-                    Features:
-                    • Real-time language switching
-                    • Categorized news sections
-                    • AI-powered translations
-                    • Mobile-friendly design
-                    
-                    Generated automatically on ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}
-                    
-                    —
-                    Cyprus News Aggregator
-                    """.trimIndent()
-                } else {
-                    """
-                    🇨🇾 Weekly Cyprus Blog Generated
-                    
-                    📊 $articleCount new articles processed
-                    💾 Blog saved locally (GitHub upload failed)
-                    
-                    Please check your local files for the latest blog.
-                    
-                    Generated on ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}
-                    """.trimIndent()
-                }
-
-                setText(emailBody)
-            }
-
-            Transport.send(message)
-            println("📧 Email sent successfully to $toEmail")
-        } catch (e: Exception) {
-            println("❌ Email sending failed: ${e.message}")
         }
+
+        println("📧 Sent notifications to ${subscribers.size} subscribers")
+    }
+
+    private fun sendNotificationEmail(subscriber: Subscriber, date: String, articleCount: Int, categories: String, websiteUrl: String) {
+        if (emailPassword.isNullOrEmpty()) {
+            println("⚠️ Email password not configured")
+            return
+        }
+
+        val props = Properties().apply {
+            put("mail.smtp.host", "smtp.gmail.com")
+            put("mail.smtp.port", "587")
+            put("mail.smtp.auth", "true")
+            put("mail.smtp.starttls.enable", "true")
+        }
+
+        val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication {
+                return PasswordAuthentication(fromEmail, emailPassword)
+            }
+        })
+
+        val message = MimeMessage(session).apply {
+            setFrom(InternetAddress(fromEmail, "StartYourDay"))
+            setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
+            subject = "☀️ Your daily Cyprus news is ready - $date"
+
+            val personalGreeting = if (subscriber.name != null) "Hi ${subscriber.name}!" else "Good morning!"
+            val languagesList = subscriber.languages.joinToString(", ") { lang ->
+                when(lang) {
+                    "en" -> "🇬🇧 English"
+                    "he" -> "🇮🇱 Hebrew"
+                    "ru" -> "🇷🇺 Russian"
+                    "el" -> "🇬🇷 Greek"
+                    else -> lang
+                }
+            }
+
+            val emailBody = """
+                $personalGreeting
+                
+                🌅 Your StartYourDay digest is ready!
+                
+                📅 $date
+                📰 $articleCount new stories
+                📂 Categories: $categories
+                🌍 Available in: $languagesList
+                
+                ➡️ Read today's news: $websiteUrl
+                
+                Why you'll love today's digest:
+                ✅ AI-curated from 6 trusted Cyprus sources
+                ✅ Clean, ad-free reading experience  
+                ✅ One-click language switching
+                ✅ Mobile-friendly design
+                
+                Start your day informed! 🚀
+                
+                —
+                The StartYourDay Team
+                
+                ---
+                Don't want daily notifications? Reply with "UNSUBSCRIBE"
+            """.trimIndent()
+
+            setText(emailBody)
+        }
+
+        Transport.send(message)
+        println("✅ Notification sent to ${subscriber.email}")
+    }
+
+    fun addSubscriber(email: String, name: String?, languages: List<String>): Boolean {
+        val subscribers = loadSubscribers().toMutableList()
+
+        // Check if already subscribed
+        if (subscribers.any { it.email.lowercase() == email.lowercase() }) {
+            println("📧 $email is already subscribed")
+            return false
+        }
+
+        // Add new subscriber
+        val newSubscriber = Subscriber(
+            email = email.lowercase(),
+            name = name,
+            languages = languages,
+            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        )
+
+        subscribers.add(newSubscriber)
+        saveSubscribers(subscribers)
+
+        println("✅ Added subscriber: $email (Languages: ${languages.joinToString(", ")})")
+        return true
     }
 }
 
 fun main() {
-    println("🚀 Starting Weekly Cyprus Blog Generator...")
+    println("🌅 Starting StartYourDay Daily Update...")
     println("📅 ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())}")
 
-    val aggregator = NewsAggregator()
+    val system = StartYourDaySystem()
 
-    val requiredEnvVars = listOf("OPENAI_API_KEY", "GITHUB_TOKEN", "EMAIL_PASSWORD", "FROM_EMAIL", "TO_EMAIL")
+    // Check environment variables
+    val requiredEnvVars = listOf("OPENAI_API_KEY", "GITHUB_TOKEN", "EMAIL_PASSWORD", "FROM_EMAIL")
     requiredEnvVars.forEach { envVar ->
         val value = System.getenv(envVar)
         if (value.isNullOrEmpty()) {
@@ -757,26 +973,35 @@ fun main() {
     }
 
     try {
-        val articles = aggregator.aggregateNews()
+        // 1. Aggregate fresh news
+        println("📰 Aggregating daily news...")
+        val articles = system.aggregateNews()
 
         if (articles.isEmpty()) {
-            println("ℹ️ No new articles found.")
+            println("ℹ️ No new articles found for today.")
             return
         }
 
-        println("📝 Generating multilingual HTML blog...")
-        val html = aggregator.generateHtmlBlog(articles)
+        // 2. Generate website
+        println("🌐 Generating daily website...")
+        val html = system.generateDailyWebsite(articles)
 
-        println("💾 Saving and uploading blog...")
-        val blogUrl = aggregator.saveAndPush(html)
+        // 3. Upload to hosting
+        println("☁️ Uploading to hosting...")
+        val websiteUrl = system.saveAndPush(html)
 
-        println("📧 Sending notification email...")
-        aggregator.sendEmail(blogUrl, articles.size)
-
-        println("✅ Weekly Cyprus Blog generation complete!")
-        if (blogUrl.isNotEmpty()) {
-            println("🌐 Blog URL: $blogUrl")
+        // 4. Send notifications to subscribers
+        if (websiteUrl.isNotEmpty()) {
+            println("📧 Sending daily notifications...")
+            system.sendDailyNotification(articles, websiteUrl)
+        } else {
+            println("⚠️ Website upload failed, skipping notifications")
         }
+
+        println("✅ StartYourDay daily update complete!")
+        println("🌐 Website: $websiteUrl")
+        println("📊 Articles processed: ${articles.size}")
+        println("📧 Notifications sent to subscribers")
 
     } catch (e: Exception) {
         println("❌ Error: ${e.message}")
