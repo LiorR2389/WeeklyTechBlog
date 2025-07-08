@@ -128,27 +128,33 @@ class StartYourDaySystem {
                     content.contains("digital") || content.contains("innovation") ||
                     content.contains("startup") || content.contains("software") ->
                 "Technology advancement in Cyprus with potential economic impact."
+
             content.contains("business") || content.contains("economy") ||
                     content.contains("financial") || content.contains("bank") ||
                     content.contains("market") || content.contains("euro") ||
                     content.contains("gdp") || content.contains("investment") ||
                     content.contains("cclei") || content.contains("imd") ->
                 "Economic development affecting Cyprus business environment."
+
             content.contains("real estate") || content.contains("property") ||
                     content.contains("housing") || content.contains("construction") ->
                 "Real estate market update impacting Cyprus property sector."
+
             content.contains("travel") || content.contains("tourism") ||
                     content.contains("holiday") || content.contains("hotel") ||
                     content.contains("festival") || content.contains("culture") ->
                 "Tourism and cultural development in Cyprus region."
+
             content.contains("politics") || content.contains("government") ||
                     content.contains("parliament") || content.contains("minister") ||
                     content.contains("talks") || content.contains("negotiation") ->
                 "Political development with implications for Cyprus governance."
+
             content.contains("crime") || content.contains("arrest") ||
                     content.contains("police") || content.contains("court") ||
                     content.contains("fraud") || content.contains("theft") ->
                 "Legal matter affecting Cyprus public safety and justice."
+
             else -> "General news story relevant to Cyprus current affairs."
         }
     }
@@ -249,22 +255,28 @@ class StartYourDaySystem {
             content.contains("tech") || content.contains("ai") ||
                     content.contains("digital") || content.contains("innovation") ||
                     content.contains("startup") || content.contains("software") -> "Technology"
+
             content.contains("business") || content.contains("economy") ||
                     content.contains("financial") || content.contains("bank") ||
                     content.contains("market") || content.contains("euro") ||
                     content.contains("gdp") || content.contains("investment") ||
                     content.contains("cclei") || content.contains("imd") -> "Business & Economy"
+
             content.contains("real estate") || content.contains("property") ||
                     content.contains("housing") || content.contains("construction") -> "Real Estate"
+
             content.contains("travel") || content.contains("tourism") ||
                     content.contains("holiday") || content.contains("hotel") ||
                     content.contains("festival") || content.contains("culture") -> "Holidays & Travel"
+
             content.contains("politics") || content.contains("government") ||
                     content.contains("parliament") || content.contains("minister") ||
                     content.contains("talks") || content.contains("negotiation") -> "Politics"
+
             content.contains("crime") || content.contains("arrest") ||
                     content.contains("police") || content.contains("court") ||
                     content.contains("fraud") || content.contains("theft") -> "Crime & Justice"
+
             else -> "General News"
         }
     }
@@ -283,6 +295,7 @@ class StartYourDaySystem {
                 "h2 a[href*='/2025/']",
                 "h3 a[href*='/2025/']"
             )
+
             sourceName.contains("In-Cyprus", true) -> listOf(
                 ".entry-title a",
                 ".post-title a",
@@ -290,18 +303,21 @@ class StartYourDaySystem {
                 "article h2 a",
                 ".post-content h3 a"
             )
+
             sourceName.contains("Financial Mirror", true) -> listOf(
                 ".entry-title a",
                 "h2.entry-title a",
                 ".post-title a",
                 "article h2 a"
             )
+
             sourceName.contains("Alpha News", true) -> listOf(
                 ".entry-title a",
                 ".post-title a",
                 "h2 a",
                 "article h3 a"
             )
+
             else -> listOf("h2 a", "h3 a", ".entry-title a")
         }
 
@@ -338,7 +354,8 @@ class StartYourDaySystem {
                             !title.contains("read more", true) &&
                             !articleUrl.contains("mailto:") &&
                             !articleUrl.contains("javascript:") &&
-                            (articleUrl.contains("/2025/") || articleUrl.contains("/2024/"))) {
+                            (articleUrl.contains("/2025/") || articleUrl.contains("/2024/"))
+                        ) {
 
                             println("  📰 Found article: ${title.take(50)}...")
 
@@ -346,15 +363,17 @@ class StartYourDaySystem {
                             val titleTranslations = translateTitle(title)
                             val summaryTranslations = translateSummary(summary)
 
-                            articles.add(Article(
-                                title = title,
-                                url = articleUrl,
-                                summary = summary,
-                                category = categorizeArticle(title, summary),
-                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                                titleTranslations = titleTranslations,
-                                summaryTranslations = summaryTranslations
-                            ))
+                            articles.add(
+                                Article(
+                                    title = title,
+                                    url = articleUrl,
+                                    summary = summary,
+                                    category = categorizeArticle(title, summary),
+                                    date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                                    titleTranslations = titleTranslations,
+                                    summaryTranslations = summaryTranslations
+                                )
+                            )
                         }
                     } catch (e: Exception) {
                         println("    ⚠️ Error processing link: ${e.message}")
@@ -398,12 +417,14 @@ class StartYourDaySystem {
         println("📊 Found ${allArticles.size} total articles, ${newArticles.size} new articles")
         return newArticles
     }
+
     fun generateDailyWebsite(articles: List<Article>): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
         val grouped = articles.groupBy { it.category }
 
-        val html = StringBuilder("""
+        val html = StringBuilder(
+            """
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -671,17 +692,22 @@ class StartYourDaySystem {
                     <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
                     <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
                 </div>
-    """.trimIndent())
+    """.trimIndent()
+        )
 
         // Add articles grouped by category
         grouped.forEach { (category, items) ->
             html.append("\n                <h2>$category</h2>")
             items.forEach { article ->
-                val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
-                val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
-                val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${URLEncoder.encode(article.url, "UTF-8")}"
+                val hebrewUrl =
+                    "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
+                val russianUrl =
+                    "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
+                val greekUrl =
+                    "https://translate.google.com/translate?sl=auto&tl=el&u=${URLEncoder.encode(article.url, "UTF-8")}"
 
-                html.append("""
+                html.append(
+                    """
                 <div class="article">
                     <div class="lang en active">
                         <div class="article-title">${escapeHtml(article.titleTranslations["en"] ?: article.title)}</div>
@@ -704,12 +730,14 @@ class StartYourDaySystem {
                         <a href="$greekUrl" class="article-link" target="_blank">Διαβάστε περισσότερα</a>
                     </div>
                 </div>
-            """.trimIndent())
+            """.trimIndent()
+                )
             }
         }
 
         // Complete the HTML with newsletter signup, JavaScript, and closing tags
-        html.append("""
+        html.append(
+            """
                 <div class="newsletter-signup">
                     <h3>🔔 Get Daily Notifications</h3>
                     <p>Get a simple email notification every morning when fresh news is published</p>
@@ -846,7 +874,8 @@ class StartYourDaySystem {
             </script>
         </body>
         </html>
-    """.trimIndent())
+    """.trimIndent()
+        )
 
         return html.toString()
     }
@@ -860,3 +889,4 @@ class StartYourDaySystem {
             .replace("\"", "&quot;")
             .replace("'", "&#39;")
     }
+}
