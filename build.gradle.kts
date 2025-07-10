@@ -1,33 +1,35 @@
 plugins {
-    kotlin("jvm") version "1.9.23"
+    kotlin("jvm") version "1.9.25"
     application
 }
 
-group = "tech.blog"
-version = "1.0"
+group = "com.startyourday"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation("org.jsoup:jsoup:1.17.2") // HTML scraping
-    implementation("org.xerial:sqlite-jdbc:3.45.2.0") // store URLs
-    implementation("com.squareup.okhttp3:okhttp:4.12.0") // HTTP requests
-    implementation("com.google.code.gson:gson:2.10.1") // JSON parsing
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.json:json:20240303")
-    implementation("com.sun.mail:jakarta.mail:2.0.1") // Email functionality
+    implementation("com.sun.mail:jakarta.mail:2.0.1")
 }
 
 application {
     mainClass.set("MainKt")
 }
 
-kotlin {
-    jvmToolchain(17) // Changed from 21 to 17 for better Render compatibility
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
 }
 
-// Disable tests to prevent build failures
-tasks.test {
-    enabled = false
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }
