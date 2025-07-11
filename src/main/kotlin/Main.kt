@@ -14,6 +14,8 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.Base64
 import java.net.URLEncoder
+import javax.mail.Authenticator
+import javax.mail.PasswordAuthentication
 
 data class Article(
     val title: String,
