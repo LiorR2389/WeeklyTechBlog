@@ -998,9 +998,11 @@ ${generateArticlesHtml(grouped)}
             put("mail.smtp.port", "587")
         }
 
-        val session = Session.getInstance(properties) { _, _ ->
-            PasswordAuthentication(fromEmail, emailPassword)
-        }
+        val session = Session.getInstance(properties, object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication {
+                return PasswordAuthentication(fromEmail, emailPassword)
+            }
+        })
 
         val greeting = if (subscriber.name != null) "Hi ${subscriber.name}" else "Hello"
         val languageList = subscriber.languages.joinToString(", ") { lang ->
