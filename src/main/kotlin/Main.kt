@@ -16,11 +16,8 @@ import java.util.Properties
 import jakarta.mail.*
 import jakarta.mail.internet.*
 import com.sun.net.httpserver.HttpServer
-import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpExchange
-import java.io.OutputStream
 import java.net.InetSocketAddress
-import java.nio.charset.StandardCharsets
 import kotlin.concurrent.thread
 
 data class Article(
@@ -109,6 +106,26 @@ class AINewsSystem {
         }
     }
 
+    fun addSubscriber(email: String, name: String?, languages: List<String>) {
+        val subscribers = loadSubscribers().toMutableList()
+        val existingSubscriber = subscribers.find { it.email == email }
+
+        if (existingSubscriber == null) {
+            val newSubscriber = Subscriber(
+                email = email,
+                name = name,
+                languages = languages,
+                subscribed = true,
+                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+            )
+            subscribers.add(newSubscriber)
+            saveSubscribers(subscribers)
+            println("✅ Added new subscriber: $email")
+        } else {
+            println("⚠️ Subscriber already exists: $email")
+        }
+    }
+
     private fun fetchPage(url: String): Document? {
         return try {
             val request = Request.Builder()
@@ -133,11 +150,9 @@ class AINewsSystem {
     }
 
     private fun generateSummary(title: String): String {
-        // Extract a more specific summary from the title itself
         val content = title.lowercase()
         val words = title.split(" ")
 
-        // Create a more descriptive summary based on the actual title content
         return when {
             content.contains("ai") || content.contains("artificial intelligence") ||
                     content.contains("tech") || content.contains("digital") ||
@@ -158,7 +173,6 @@ class AINewsSystem {
                 "Legal development: $keyWords"
             }
             else -> {
-                // Create a meaningful summary from the title itself
                 val keyWords = words.filter { it.length > 3 }.take(5).joinToString(" ")
                 keyWords.ifEmpty { title.take(60) + if (title.length > 60) "..." else "" }
             }
@@ -484,6 +498,64 @@ class AINewsSystem {
         return newArticles
     }
 
+    fun startSubscriptionServer(port: Int = 8080) {
+        val server = HttpServer.create(InetSocketAddress(port), 0)
+
+        server.createContext("/subscribe") { exchange ->
+            exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
+            exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+            exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
+
+            when (exchange.requestMethod) {
+                "OPTIONS" -> {
+                    exchange.sendResponseHeaders(200, -1)
+                }
+                "POST" -> {
+                    try {
+                        val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
+                        val json = JSONObject(requestBody)
+
+                        val email = json.getString("email")
+                        val name = json.optString("name", null)
+                        val languagesArray = json.getJSONArray("languages")
+                        val languages = mutableListOf<String>()
+
+                        for (i in 0 until languagesArray.length()) {
+                            languages.add(languagesArray.getString(i))
+                        }
+
+                        addSubscriber(email, name, languages)
+
+                        val response = """{"success": true, "message": "Subscription successful!"}"""
+                        exchange.responseHeaders.add("Content-Type", "application/json")
+                        exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
+                        exchange.responseBody.write(response.toByteArray())
+                        exchange.responseBody.close()
+
+                        println("✅ New subscriber added via API: $email")
+
+                    } catch (e: Exception) {
+                        val response = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
+                        exchange.responseHeaders.add("Content-Type", "application/json")
+                        exchange.sendResponseHeaders(400, response.toByteArray().size.toLong())
+                        exchange.responseBody.write(response.toByteArray())
+                        exchange.responseBody.close()
+
+                        println("❌ Subscription error: ${e.message}")
+                    }
+                }
+                else -> {
+                    exchange.sendResponseHeaders(405, -1)
+                }
+            }
+        }
+
+        server.executor = null
+        server.start()
+        println("🚀 Subscription API server started on port $port")
+        println("📡 API endpoint: http://localhost:$port/subscribe")
+    }
+
     fun uploadToGitHubPages(html: String): String {
         val repoName = "ainews-website"
         val fileName = "index.html"
@@ -645,6 +717,21 @@ class AINewsSystem {
     private fun generateEmailHtml(subscriber: Subscriber, articles: List<Article>, websiteUrl: String): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
 
+        val articlesHtml = StringBuilder()
+        articles.take(5).forEach { article ->
+            val primaryLang = subscriber.languages.firstOrNull() ?: "en"
+            val title = article.titleTranslations[primaryLang] ?: article.title
+            val summary = article.summaryTranslations[primaryLang] ?: article.summary
+
+            articlesHtml.append("""
+                <div style="border-left: 4px solid #667eea; padding: 15px; margin: 15px 0; background: #f8f9fa;">
+                    <h3 style="margin: 0 0 10px 0; color: #333; font-size: 1.1rem;">${escapeHtml(title)}</h3>
+                    <p style="margin: 0 0 10px 0; color: #666; font-style: italic;">${escapeHtml(summary)}</p>
+                    <a href="${article.url}" style="color: #667eea; text-decoration: none; font-weight: 600;">Read more →</a>
+                </div>
+            """.trimIndent())
+        }
+
         return """<!DOCTYPE html>
 <html>
 <head>
@@ -660,747 +747,636 @@ class AINewsSystem {
         <div style="padding: 30px;">
             <h2 style="margin: 0 0 20px 0; color: #333;">Hello ${subscriber.name ?: "there"}!</h2>
             <p style="margin: 0 0 25px 0; color: #666;">Here are your fresh Cyprus news updates for $currentDate:</p>
+            
+            $articlesHtml
+            
             <div style="text-align: center; margin: 30px 0;">
                 <a href="$websiteUrl" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; padding: 15px 30px; border-radius: 25px; font-weight: 600;">📖 View Full Website</a>
             </div>
-            <div style="border-top: 1px solid #ddd; padding-top: 20px; margin-top: 30px; text-align: center; color: #666; font-size: 0.9rem;">
-                <p>This is your daily notification from <a href="$websiteUrl" style="color: #667eea;">ainews.eu.com</a></p>
-            </div>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding-top: 20px; margin-top: 30px; text-align: center; color: #666; font-size: 0.9rem;">
+            <p>This is your daily notification from <a href="$websiteUrl" style="color: #667eea;">ainews.eu.com</a></p>
         </div>
     </div>
 </body>
 </html>""".trimIndent()
     }
 
-    fun startSubscriptionServer(port: Int = 8080) {
-        val server = HttpServer.create(InetSocketAddress(port), 0)
+    fun generateDailyWebsite(articles: List<Article>): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
+        val grouped = articles.groupBy { it.category }
+        val articlesHtml = generateArticlesHtml(grouped)
 
-        // CORS headers for web requests
-        server.createContext("/subscribe") { exchange ->
-            // Add CORS headers
-            exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-            exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-            exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
-
-            when (exchange.requestMethod) {
-                "OPTIONS" -> {
-                    // Handle preflight request
-                    exchange.sendResponseHeaders(200, -1)
-                }
-                "POST" -> {
-                    try {
-                        // Read request body
-                        val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
-                        val json = JSONObject(requestBody)
-
-                        val email = json.getString("email")
-                        val name = json.optString("name", null)
-                        val languagesArray = json.getJSONArray("languages")
-                        val languages = mutableListOf<String>()
-
-                        for (i in 0 until languagesArray.length()) {
-                            languages.add(languagesArray.getString(i))
-                        }
-
-                        // Add subscriber
-                        addSubscriber(email, name, languages)
-
-                        // Send success response
-                        val response = """{"success": true, "message": "Subscription successful!"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
-                        exchange.responseBody.write(response.toByteArray())
-                        exchange.responseBody.close()
-
-                        println("✅ New subscriber added via API: $email")
-
-                    } catch (e: Exception) {
-                        // Send error response
-                        val response = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(400, response.toByteArray().size.toLong())
-                        exchange.responseBody.write(response.toByteArray())
-                        exchange.responseBody.close()
-
-                        println("❌ Subscription error: ${e.message}")
-                    }
-                }
-                else -> {
-                    exchange.sendResponseHeaders(405, -1) // Method not allowed
-                }
-            }
-        }
-
-        server.executor = null // Use default executor
-        server.start()
-        println("🚀 Subscription API server started on port $port")
-        println("📡 API endpoint: http://localhost:$port/subscribe")
-    }
-    val subscribers = loadSubscribers().toMutableList()
-    val existingSubscriber = subscribers.find { it.email == email }
-
-    if (existingSubscriber == null) {
-        val newSubscriber = Subscriber(
-            email = email,
-            name = name,
-            languages = languages,
-            subscribed = true,
-            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        )
-        subscribers.add(newSubscriber)
-        saveSubscribers(subscribers)
-        println("✅ Added new subscriber: $email")
-    } else {
-        println("⚠️ Subscriber already exists: $email")
-    }
-}
-
-fun generateDailyWebsite(articles: List<Article>): String {
-    val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-    val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
-    val grouped = articles.groupBy { it.category }
-    val articlesHtml = generateArticlesHtml(grouped)
-
-    return """<!DOCTYPE html>
+        return """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI News - Cyprus Daily Digest for $dayOfWeek, $currentDate</title>
-    <meta name="description" content="Your daily Cyprus AI-powered news digest in 4 languages. Updated every morning at 7 AM.">
-    <style>
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6; 
-            margin: 0;
-            padding: 20px; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-        }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            background: white;
-            padding: 40px;
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            padding-bottom: 30px;
-            border-bottom: 3px solid #667eea;
-        }
-        .logo { 
-            font-size: 3rem;
-            font-weight: 700;
-            margin-bottom: 10px;
-            background: linear-gradient(45deg, #667eea, #764ba2);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .tagline {
-            color: #666;
-            font-size: 1.2rem;
-            margin-bottom: 20px;
-            font-style: italic;
-        }
-        .date-info {
-            color: #666;
-            font-size: 1.1rem;
-            margin-bottom: 20px;
-        }
-        .update-time {
-            background: #667eea;
-            color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            font-weight: 600;
-        }
-        .lang-buttons { 
-            text-align: center;
-            margin: 30px 0; 
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 15px;
-        }
-        .lang-buttons button { 
-            margin: 5px; 
-            padding: 10px 20px; 
-            border: none;
-            border-radius: 25px;
-            background: #667eea;
-            color: white;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s;
-            font-size: 0.9rem;
-        }
-        .lang-buttons button:hover { 
-            background: #5a6fd8;
-            transform: translateY(-2px);
-        }
-        .lang-buttons button.active { 
-            background: #764ba2;
-            color: white;
-        }
-        h2 { 
-            color: #333; 
-            margin: 40px 0 20px 0; 
-            font-size: 1.8rem;
-            padding-left: 15px;
-            border-left: 4px solid #667eea;
-        }
-        h2 .lang { 
-            display: none; 
-        }
-        h2 .lang.active { 
-            display: inline; 
-        }
-        .article { 
-            margin-bottom: 20px; 
-            padding: 20px; 
-            border-left: 4px solid #667eea; 
-            background: #f8f9fa;
-            border-radius: 0 10px 10px 0;
-            transition: transform 0.2s;
-        }
-        .article:hover {
-            transform: translateX(5px);
-        }
-        .article-title { 
-            font-weight: 600; 
-            margin-bottom: 10px; 
-            color: #333;
-            font-size: 1.1rem;
-            line-height: 1.4;
-        }
-        .article-summary { 
-            color: #666; 
-            margin-bottom: 12px;
-            font-style: italic;
-        }
-        .article-link { 
-            color: #667eea; 
-            text-decoration: none; 
-            font-weight: 600;
-            padding: 8px 16px;
-            background: rgba(102, 126, 234, 0.1);
-            border-radius: 20px;
-            display: inline-block;
-            transition: all 0.3s;
-        }
-        .article-link:hover { 
-            background: #667eea;
-            color: white;
-            transform: translateY(-1px);
-        }
-        .lang { 
-            display: none; 
-        }
-        .lang.active { 
-            display: block; 
-        }
-        .newsletter-signup {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 40px;
-            margin: 50px 0;
-            border-radius: 20px;
-            text-align: center;
-        }
-        .newsletter-signup h3 {
-            font-size: 2rem;
-            margin-bottom: 15px;
-        }
-        .newsletter-signup p {
-            margin-bottom: 25px;
-            opacity: 0.9;
-            font-size: 1.1rem;
-        }
-        .signup-form {
-            max-width: 400px;
-            margin: 0 auto;
-        }
-        .signup-form input {
-            width: 100%;
-            padding: 15px;
-            margin: 10px 0;
-            border: none;
-            border-radius: 10px;
-            font-size: 1rem;
-            box-sizing: border-box;
-        }
-        .signup-form button {
-            background: #FFD700;
-            color: #333;
-            border: none;
-            padding: 15px 30px;
-            border-radius: 25px;
-            font-weight: 700;
-            font-size: 1.1rem;
-            cursor: pointer;
-            transition: transform 0.3s;
-            margin-top: 15px;
-            width: 100%;
-        }
-        .signup-form button:hover {
-            transform: translateY(-2px);
-        }
-        .footer {
-            text-align: center;
-            margin-top: 50px;
-            padding-top: 30px;
-            border-top: 1px solid #ddd;
-            color: #666;
-        }
-        .stats {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            margin: 30px 0;
-            flex-wrap: wrap;
-        }
-        .stat {
-            text-align: center;
-        }
-        .stat-number {
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: #667eea;
-        }
-        .stat-label {
-            font-size: 0.9rem;
-            color: #666;
-        }
-        .language-checkboxes {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            margin: 20px 0;
-            text-align: left;
-        }
-        .language-option {
-            display: flex;
-            align-items: center;
-            background: rgba(255,255,255,0.1);
-            padding: 10px;
-            border-radius: 8px;
-        }
-        .language-option input {
-            width: auto;
-            margin-right: 8px;
-        }
-        .success-message {
-            background: #28a745;
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-            display: none;
-        }
-        .error-message {
-            background: #dc3545;
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            margin-top: 20px;
-            display: none;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI News - Cyprus Daily Digest for ${dayOfWeek}, ${currentDate}</title>
+<meta name="description" content="Your daily Cyprus AI-powered news digest in 4 languages. Updated every morning at 7 AM.">
+<style>
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+}
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    background: white;
+    padding: 40px;
+    border-radius: 20px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+}
+.header {
+    text-align: center;
+    margin-bottom: 40px;
+    padding-bottom: 30px;
+    border-bottom: 3px solid #667eea;
+}
+.logo {
+    font-size: 3rem;
+    font-weight: 700;
+    margin-bottom: 10px;
+    background: linear-gradient(45deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.tagline {
+    color: #666;
+    font-size: 1.2rem;
+    margin-bottom: 20px;
+    font-style: italic;
+}
+.date-info {
+    color: #666;
+    font-size: 1.1rem;
+    margin-bottom: 20px;
+}
+.update-time {
+    background: #667eea;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+.lang-buttons {
+    text-align: center;
+    margin: 30px 0;
+    padding: 20px;
+    background: #f8f9fa;
+    border-radius: 15px;
+}
+.lang-buttons button {
+    margin: 5px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 25px;
+    background: #667eea;
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s;
+    font-size: 0.9rem;
+}
+.lang-buttons button:hover {
+    background: #5a6fd8;
+    transform: translateY(-2px);
+}
+.lang-buttons button.active {
+    background: #764ba2;
+    color: white;
+}
+h2 {
+    color: #333;
+    margin: 40px 0 20px 0;
+    font-size: 1.8rem;
+    padding-left: 15px;
+    border-left: 4px solid #667eea;
+}
+h2 .lang {
+    display: none;
+}
+h2 .lang.active {
+    display: inline;
+}
+.article {
+    margin-bottom: 20px;
+    padding: 20px;
+    border-left: 4px solid #667eea;
+    background: #f8f9fa;
+    border-radius: 0 10px 10px 0;
+    transition: transform 0.2s;
+}
+.article:hover {
+    transform: translateX(5px);
+}
+.article-title {
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #333;
+    font-size: 1.1rem;
+    line-height: 1.4;
+}
+.article-summary {
+    color: #666;
+    margin-bottom: 12px;
+    font-style: italic;
+}
+.article-link {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+    padding: 8px 16px;
+    background: rgba(102, 126, 234, 0.1);
+    border-radius: 20px;
+    display: inline-block;
+    transition: all 0.3s;
+}
+.article-link:hover {
+    background: #667eea;
+    color: white;
+    transform: translateY(-1px);
+}
+.lang {
+    display: none;
+}
+.lang.active {
+    display: block;
+}
+.newsletter-signup {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 40px;
+    margin: 50px 0;
+    border-radius: 20px;
+    text-align: center;
+}
+.newsletter-signup h3 {
+    font-size: 2rem;
+    margin-bottom: 15px;
+}
+.newsletter-signup p {
+    margin-bottom: 25px;
+    opacity: 0.9;
+    font-size: 1.1rem;
+}
+.signup-form {
+    max-width: 400px;
+    margin: 0 auto;
+}
+.signup-form input {
+    width: 100%;
+    padding: 15px;
+    margin: 10px 0;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+.signup-form button {
+    background: #FFD700;
+    color: #333;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 25px;
+    font-weight: 700;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: transform 0.3s;
+    margin-top: 15px;
+    width: 100%;
+}
+.signup-form button:hover {
+    transform: translateY(-2px);
+}
+.footer {
+    text-align: center;
+    margin-top: 50px;
+    padding-top: 30px;
+    border-top: 1px solid #ddd;
+    color: #666;
+}
+.stats {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin: 30px 0;
+    flex-wrap: wrap;
+}
+.stat {
+    text-align: center;
+}
+.stat-number {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #667eea;
+}
+.stat-label {
+    font-size: 0.9rem;
+    color: #666;
+}
+.language-checkboxes {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin: 20px 0;
+    text-align: left;
+}
+.language-option {
+    display: flex;
+    align-items: center;
+    background: rgba(255,255,255,0.1);
+    padding: 10px;
+    border-radius: 8px;
+}
+.language-option input {
+    width: auto;
+    margin-right: 8px;
+}
+.success-message {
+    background: #28a745;
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    margin-top: 20px;
+    display: none;
+}
+.error-message {
+    background: #dc3545;
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    margin-top: 20px;
+    display: none;
+}
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">🤖 AI News</div>
-            <div class="tagline">Cyprus Daily Digest • Powered by AI</div>
-            <div class="date-info">$dayOfWeek, $currentDate</div>
-            <div class="update-time">Updated at 7:00 AM Cyprus Time</div>
-        </div>
-        
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-number">${articles.size}</div>
-                <div class="stat-label">Stories Today</div>
-            </div>
-            <div class="stat">
-                <div class="stat-number">4</div>
-                <div class="stat-label">Languages</div>
-            </div>
-            <div class="stat">
-                <div class="stat-number">6</div>
-                <div class="stat-label">Sources</div>
-            </div>
-        </div>
-        
-        <div class="lang-buttons">
-            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-        </div>
+<div class="container">
+<div class="header">
+<div class="logo">🤖 AI News</div>
+<div class="tagline">Cyprus Daily Digest • Powered by AI</div>
+<div class="date-info">${dayOfWeek}, ${currentDate}</div>
+<div class="update-time">Updated at 7:00 AM Cyprus Time</div>
+</div>
 
-        $articlesHtml
+<div class="stats">
+<div class="stat">
+<div class="stat-number">${articles.size}</div>
+<div class="stat-label">Stories Today</div>
+</div>
+<div class="stat">
+<div class="stat-number">4</div>
+<div class="stat-label">Languages</div>
+</div>
+<div class="stat">
+<div class="stat-number">6</div>
+<div class="stat-label">Sources</div>
+</div>
+</div>
 
-        <div class="newsletter-signup">
-            <div class="lang en active">
-                <h3>🔔 Get Daily Notifications</h3>
-                <p>Get a simple email notification every morning when fresh news is published on ainews.eu.com</p>
-                <div class="signup-form">
-                    <input type="email" id="email" placeholder="your@email.com" required>
-                    <input type="text" id="name" placeholder="Your name (optional)">
-                    <div class="language-checkboxes">
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-en" value="en" checked> 🇬🇧 English
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-he" value="he"> 🇮🇱 עברית
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-ru" value="ru"> 🇷🇺 Русский
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-el" value="el"> 🇬🇷 Ελληνικά
-                        </div>
-                    </div>
-                    <button onclick="subscribe()">🔔 Notify Me Daily</button>
-                    <div id="success-message" class="success-message"></div>
-                    <div id="error-message" class="error-message"></div>
-                </div>
-                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
-                    ✅ Just notifications, not newsletters<br>
-                    ✅ Unsubscribe anytime
-                </p>
-            </div>
-            
-            <div class="lang he">
-                <h3>🔔 קבלו התראות יומיות</h3>
-                <p>קבלו התראה פשוטה כל בוקר כאשר חדשות טריות מתפרסמות ב-ainews.eu.com</p>
-                <div class="signup-form">
-                    <input type="email" id="email-he" placeholder="הדוא״ל שלכם" required>
-                    <input type="text" id="name-he" placeholder="השם שלכם (אופציונלי)">
-                    <div class="language-checkboxes">
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-en-he" value="en"> 🇬🇧 English
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-he-he" value="he" checked> 🇮🇱 עברית
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-ru-he" value="ru"> 🇷🇺 Русский
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-el-he" value="el"> 🇬🇷 Ελληνικά
-                        </div>
-                    </div>
-                    <button onclick="subscribe()">🔔 הודיעו לי יומית</button>
-                    <div id="success-message-he" class="success-message"></div>
-                    <div id="error-message-he" class="error-message"></div>
-                </div>
-                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
-                    ✅ רק התראות, לא ניוזלטרים<br>
-                    ✅ ביטול מנוי בכל עת
-                </p>
-            </div>
-            
-            <div class="lang ru">
-                <h3>🔔 Получайте ежедневные уведомления</h3>
-                <p>Получайте простое уведомление каждое утро, когда свежие новости публикуются на ainews.eu.com</p>
-                <div class="signup-form">
-                    <input type="email" id="email-ru" placeholder="ваш@email.com" required>
-                    <input type="text" id="name-ru" placeholder="Ваше имя (необязательно)">
-                    <div class="language-checkboxes">
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-en-ru" value="en"> 🇬🇧 English
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-he-ru" value="he"> 🇮🇱 עברית
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-ru-ru" value="ru" checked> 🇷🇺 Русский
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-el-ru" value="el"> 🇬🇷 Ελληνικά
-                        </div>
-                    </div>
-                    <button onclick="subscribe()">🔔 Уведомлять меня ежедневно</button>
-                    <div id="success-message-ru" class="success-message"></div>
-                    <div id="error-message-ru" class="error-message"></div>
-                </div>
-                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
-                    ✅ Только уведомления, не рассылки<br>
-                    ✅ Отписаться в любое время
-                </p>
-            </div>
-            
-            <div class="lang el">
-                <h3>🔔 Λάβετε καθημερινές ειδοποιήσεις</h3>
-                <p>Λάβετε μια απλή ειδοποίηση κάθε πρωί όταν νέα νέα δημοσιεύονται στο ainews.eu.com</p>
-                <div class="signup-form">
-                    <input type="email" id="email-el" placeholder="το@email.σας" required>
-                    <input type="text" id="name-el" placeholder="Το όνομά σας (προαιρετικό)">
-                    <div class="language-checkboxes">
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-en-el" value="en"> 🇬🇧 English
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-he-el" value="he"> 🇮🇱 עברית
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-ru-el" value="ru"> 🇷🇺 Русский
-                        </div>
-                        <div class="language-option">
-                            <input type="checkbox" id="lang-el-el" value="el" checked> 🇬🇷 Ελληνικά
-                        </div>
-                    </div>
-                    <button onclick="subscribe()">🔔 Ειδοποιήστε με καθημερινά</button>
-                    <div id="success-message-el" class="success-message"></div>
-                    <div id="error-message-el" class="error-message"></div>
-                </div>
-                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
-                    ✅ Μόνο ειδοποιήσεις, όχι newsletters<br>
-                    ✅ Κατάργηση εγγραφής ανά πάσα στιγμή
-                </p>
-            </div>
-        </div>
-        
-        <div class="footer">
-            <p>Generated automatically • Updated ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}</p>
-            <p>Sources: Financial Mirror, In-Cyprus, Alpha News, StockWatch • Powered by AI Translation</p>
-            <p><a href="https://ainews.eu.com" style="color: #667eea;">ainews.eu.com</a> - Your daily Cyprus news digest</p>
-        </div>
-    </div>
+<div class="lang-buttons">
+<button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+<button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+<button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+<button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+</div>
 
-    <script>
-        let currentLang = 'en';
+${articlesHtml}
 
-        function setLang(lang) {
-            document.querySelectorAll('.lang').forEach(el => {
-                el.classList.remove('active');
-            });
-            
-            document.querySelectorAll('.lang.' + lang).forEach(el => {
-                el.classList.add('active');
-            });
-            
-            document.querySelectorAll('.lang-buttons button').forEach(btn => {
-                btn.classList.remove('active');
-            });
-            document.getElementById('btn-' + lang).classList.add('active');
-            
-            currentLang = lang;
+<div class="newsletter-signup">
+<div class="lang en active">
+<h3>🔔 Get Daily Notifications</h3>
+<p>Get a simple email notification every morning when fresh news is published on ainews.eu.com</p>
+<div class="signup-form">
+<input type="email" id="email" placeholder="your@email.com" required>
+<input type="text" id="name" placeholder="Your name (optional)">
+<div class="language-checkboxes">
+<div class="language-option">
+<input type="checkbox" id="lang-en" value="en" checked> 🇬🇧 English
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-he" value="he"> 🇮🇱 עברית
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-ru" value="ru"> 🇷🇺 Русский
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-el" value="el"> 🇬🇷 Ελληνικά
+</div>
+</div>
+<button onclick="subscribe()">🔔 Notify Me Daily</button>
+<div id="success-message" class="success-message"></div>
+<div id="error-message" class="error-message"></div>
+</div>
+<p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+✅ Just notifications, not newsletters<br>
+✅ Unsubscribe anytime
+</p>
+</div>
+
+<div class="lang he">
+<h3>🔔 קבלו התראות יומיות</h3>
+<p>קבלו התראה פשוטה כל בוקר כאשר חדשות טריות מתפרסמות ב-ainews.eu.com</p>
+<div class="signup-form">
+<input type="email" id="email-he" placeholder="הדוא״ל שלכם" required>
+<input type="text" id="name-he" placeholder="השם שלכם (אופציונלי)">
+<div class="language-checkboxes">
+<div class="language-option">
+<input type="checkbox" id="lang-en-he" value="en"> 🇬🇧 English
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-he-he" value="he" checked> 🇮🇱 עברית
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-ru-he" value="ru"> 🇷🇺 Русский
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-el-he" value="el"> 🇬🇷 Ελληνικά
+</div>
+</div>
+<button onclick="subscribe()">🔔 הודיעו לי יומית</button>
+<div id="success-message-he" class="success-message"></div>
+<div id="error-message-he" class="error-message"></div>
+</div>
+<p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+✅ רק התראות, לא ניוזלטרים<br>
+✅ ביטול מנוי בכל עת
+</p>
+</div>
+
+<div class="lang ru">
+<h3>🔔 Получайте ежедневные уведомления</h3>
+<p>Получайте простое уведомление каждое утро, когда свежие новости публикуются на ainews.eu.com</p>
+<div class="signup-form">
+<input type="email" id="email-ru" placeholder="ваш@email.com" required>
+<input type="text" id="name-ru" placeholder="Ваше имя (необязательно)">
+<div class="language-checkboxes">
+<div class="language-option">
+<input type="checkbox" id="lang-en-ru" value="en"> 🇬🇧 English
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-he-ru" value="he"> 🇮🇱 עברית
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-ru-ru" value="ru" checked> 🇷🇺 Русский
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-el-ru" value="el"> 🇬🇷 Ελληνικά
+</div>
+</div>
+<button onclick="subscribe()">🔔 Уведомлять меня ежедневно</button>
+<div id="success-message-ru" class="success-message"></div>
+<div id="error-message-ru" class="error-message"></div>
+</div>
+<p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+✅ Только уведомления, не рассылки<br>
+✅ Отписаться в любое время
+</p>
+</div>
+
+<div class="lang el">
+<h3>🔔 Λάβετε καθημερινές ειδοποιήσεις</h3>
+<p>Λάβετε μια απλή ειδοποίηση κάθε πρωί όταν νέα νέα δημοσιεύονται στο ainews.eu.com</p>
+<div class="signup-form">
+<input type="email" id="email-el" placeholder="το@email.σας" required>
+<input type="text" id="name-el" placeholder="Το όνομά σας (προαιρετικό)">
+<div class="language-checkboxes">
+<div class="language-option">
+<input type="checkbox" id="lang-en-el" value="en"> 🇬🇧 English
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-he-el" value="he"> 🇮🇱 עברית
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-ru-el" value="ru"> 🇷🇺 Русский
+</div>
+<div class="language-option">
+<input type="checkbox" id="lang-el-el" value="el" checked> 🇬🇷 Ελληνικά
+</div>
+</div>
+<button onclick="subscribe()">🔔 Ειδοποιήστε με καθημερινά</button>
+<div id="success-message-el" class="success-message"></div>
+<div id="error-message-el" class="error-message"></div>
+</div>
+<p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+✅ Μόνο ειδοποιήσεις, όχι newsletters<br>
+✅ Κατάργηση εγγραφής ανά πάσα στιγμή
+</p>
+</div>
+</div>
+
+<div class="footer">
+<p>Generated automatically • Updated ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}</p>
+<p>Sources: Financial Mirror, In-Cyprus, Alpha News, StockWatch • Powered by AI Translation</p>
+<p><a href="https://ainews.eu.com" style="color: #667eea;">ainews.eu.com</a> - Your daily Cyprus news digest</p>
+</div>
+</div>
+
+<script>
+let currentLang = 'en';
+
+function setLang(lang) {
+    document.querySelectorAll('.lang').forEach(el => {
+        el.classList.remove('active');
+    });
+
+    document.querySelectorAll('.lang.' + lang).forEach(el => {
+        el.classList.add('active');
+    });
+
+    document.querySelectorAll('.lang-buttons button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.getElementById('btn-' + lang).classList.add('active');
+
+    currentLang = lang;
+}
+
+function subscribe() {
+    const activeButton = document.querySelector('.lang-buttons button.active');
+    const currentLanguage = activeButton ? activeButton.id.replace('btn-', '') : 'en';
+
+    const emailSelector = currentLanguage === 'en' ? '#email' : '#email-' + currentLanguage;
+    const nameSelector = currentLanguage === 'en' ? '#name' : '#name-' + currentLanguage;
+    const successSelector = currentLanguage === 'en' ? '#success-message' : '#success-message-' + currentLanguage;
+    const errorSelector = currentLanguage === 'en' ? '#error-message' : '#error-message-' + currentLanguage;
+
+    const emailElement = document.querySelector(emailSelector);
+    const nameElement = document.querySelector(nameSelector);
+    const successElement = document.querySelector(successSelector);
+    const errorElement = document.querySelector(errorSelector);
+
+    const email = emailElement ? emailElement.value.trim() : document.querySelector('#email').value.trim();
+    const name = nameElement ? nameElement.value.trim() : document.querySelector('#name').value.trim();
+    const successDiv = successElement || document.querySelector('#success-message');
+    const errorDiv = errorElement || document.querySelector('#error-message');
+
+    document.querySelectorAll('.success-message, .error-message').forEach(div => {
+        div.style.display = 'none';
+    });
+
+    const errorMessages = {
+        'en': {
+            'email_required': 'Please enter your email address.',
+            'email_invalid': 'Please enter a valid email address.',
+            'language_required': 'Please select at least one language.'
+        },
+        'he': {
+            'email_required': 'אנא הזינו את כתובת הדוא״ל שלכם.',
+            'email_invalid': 'אנא הזינו כתובת דוא״ל תקינה.',
+            'language_required': 'אנא בחרו לפחות שפה אחת.'
+        },
+        'ru': {
+            'email_required': 'Пожалуйста, введите ваш email адрес.',
+            'email_invalid': 'Пожалуйста, введите корректный email адрес.',
+            'language_required': 'Пожалуйста, выберите хотя бы один язык.'
+        },
+        'el': {
+            'email_required': 'Παρακαλώ εισάγετε τη διεύθυνση email σας.',
+            'email_invalid': 'Παρακαλώ εισάγετε μια έγκυρη διεύθυνση email.',
+            'language_required': 'Παρακαλώ επιλέξτε τουλάχιστον μία γλώσσα.'
         }
+    };
 
-        function subscribe() {
-            const activeButton = document.querySelector('.lang-buttons button.active');
-            const currentLanguage = activeButton ? activeButton.id.replace('btn-', '') : 'en';
-            
-            const emailSelector = currentLanguage === 'en' ? '#email' : '#email-' + currentLanguage;
-            const nameSelector = currentLanguage === 'en' ? '#name' : '#name-' + currentLanguage;
-            const successSelector = currentLanguage === 'en' ? '#success-message' : '#success-message-' + currentLanguage;
-            const errorSelector = currentLanguage === 'en' ? '#error-message' : '#error-message-' + currentLanguage;
-            
-            const emailElement = document.querySelector(emailSelector);
-            const nameElement = document.querySelector(nameSelector);
-            const successElement = document.querySelector(successSelector);
-            const errorElement = document.querySelector(errorSelector);
-            
-            const email = emailElement ? emailElement.value.trim() : document.querySelector('#email').value.trim();
-            const name = nameElement ? nameElement.value.trim() : document.querySelector('#name').value.trim();
-            const successDiv = successElement || document.querySelector('#success-message');
-            const errorDiv = errorElement || document.querySelector('#error-message');
-            
-            document.querySelectorAll('.success-message, .error-message').forEach(div => {
-                div.style.display = 'none';
-            });
-            
-            const errorMessages = {
-                'en': {
-                    'email_required': 'Please enter your email address.',
-                    'email_invalid': 'Please enter a valid email address.',
-                    'language_required': 'Please select at least one language.'
-                },
-                'he': {
-                    'email_required': 'אנא הזינו את כתובת הדוא״ל שלכם.',
-                    'email_invalid': 'אנא הזינו כתובת דוא״ל תקינה.',
-                    'language_required': 'אנא בחרו לפחות שפה אחת.'
-                },
-                'ru': {
-                    'email_required': 'Пожалуйста, введите ваш email адрес.',
-                    'email_invalid': 'Пожалуйста, введите корректный email адрес.',
-                    'language_required': 'Пожалуйста, выберите хотя бы один язык.'
-                },
-                'el': {
-                    'email_required': 'Παρακαλώ εισάγετε τη διεύθυνση email σας.',
-                    'email_invalid': 'Παρακαλώ εισάγετε μια έγκυρη διεύθυνση email.',
-                    'language_required': 'Παρακαλώ επιλέξτε τουλάχιστον μία γλώσσα.'
-                }
-            };
-            
-            const successMessages = {
-                'en': '🎉 Success! You will receive daily notifications at ' + email + ' when ainews.eu.com updates!',
-                'he': '🎉 הצלחה! תקבלו התראות יומיות ב-' + email + ' כאשר ainews.eu.com מתעדכן!',
-                'ru': '🎉 Успех! Вы будете получать ежедневные уведомления на ' + email + ' когда ainews.eu.com обновляется!',
-                'el': '🎉 Επιτυχία! Θα λαμβάνετε καθημερινές ειδοποιήσεις στο ' + email + ' όταν ενημερώνεται το ainews.eu.com!'
-            };
-            
-            if (!email) {
-                errorDiv.textContent = errorMessages[currentLanguage]['email_required'];
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(email)) {
-                errorDiv.textContent = errorMessages[currentLanguage]['email_invalid'];
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            const selectedLanguages = [];
-            const activeForm = document.querySelector('.lang.' + currentLanguage + ' .language-checkboxes');
-            if (activeForm) {
-                activeForm.querySelectorAll('input:checked').forEach(checkbox => {
-                    selectedLanguages.push(checkbox.value);
-                });
-            } else {
-                document.querySelectorAll('.language-option input:checked').forEach(checkbox => {
-                    selectedLanguages.push(checkbox.value);
-                });
-            }
-            
-            if (selectedLanguages.length === 0) {
-                errorDiv.textContent = errorMessages[currentLanguage]['language_required'];
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            const subscriberData = {
-                email: email,
-                name: name || null,
-                languages: selectedLanguages,
-                subscribed: true,
-                subscribedDate: new Date().toISOString().split('T')[0]
-            };
-            
-            console.log('Subscriber data:', subscriberData);
-            
-            // Send subscription data to API
-            fetch('/subscribe', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(subscriberData)
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    successDiv.textContent = successMessages[currentLanguage];
-                    successDiv.style.display = 'block';
-                    
-                    // Clear form
-                    if (emailElement) emailElement.value = '';
-                    if (nameElement) nameElement.value = '';
-                    
-                    if (activeForm) {
-                        activeForm.querySelectorAll('input').forEach(checkbox => {
-                            checkbox.checked = checkbox.value === currentLanguage;
-                        });
-                    }
-                } else {
-                    errorDiv.textContent = data.message || errorMessages[currentLanguage]['email_required'];
-                    errorDiv.style.display = 'block';
-                }
-            })
-            .catch(error => {
-                console.error('Subscription error:', error);
-                errorDiv.textContent = 'Network error. Please try again.';
-                errorDiv.style.display = 'block';
-            });
-            
-            return; // Don't execute the old code below
-            
+    const successMessages = {
+        'en': '🎉 Success! You will receive daily notifications at ' + email + ' when ainews.eu.com updates!',
+        'he': '🎉 הצלחה! תקבלו התראות יומיות ב-' + email + ' כאשר ainews.eu.com מתעדכן!',
+        'ru': '🎉 Успех! Вы будете получать ежедневные уведомления на ' + email + ' когда ainews.eu.com обновляется!',
+        'el': '🎉 Επιτυχία! Θα λαμβάνετε καθημερινές ειδοποιήσεις στο ' + email + ' όταν ενημερώνεται το ainews.eu.com!'
+    };
+
+    if (!email) {
+        errorDiv.textContent = errorMessages[currentLanguage]['email_required'];
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        errorDiv.textContent = errorMessages[currentLanguage]['email_invalid'];
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    const selectedLanguages = [];
+    const activeForm = document.querySelector('.lang.' + currentLanguage + ' .language-checkboxes');
+    if (activeForm) {
+        activeForm.querySelectorAll('input:checked').forEach(checkbox => {
+            selectedLanguages.push(checkbox.value);
+        });
+    } else {
+        document.querySelectorAll('.language-option input:checked').forEach(checkbox => {
+            selectedLanguages.push(checkbox.value);
+        });
+    }
+
+    if (selectedLanguages.length === 0) {
+        errorDiv.textContent = errorMessages[currentLanguage]['language_required'];
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    const subscriberData = {
+        email: email,
+        name: name || null,
+        languages: selectedLanguages,
+        subscribed: true,
+        subscribedDate: new Date().toISOString().split('T')[0]
+    };
+
+    // Send subscription data to API
+    fetch('/subscribe', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(subscriberData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
             successDiv.textContent = successMessages[currentLanguage];
             successDiv.style.display = 'block';
-            
+
+            // Clear form
             if (emailElement) emailElement.value = '';
             if (nameElement) nameElement.value = '';
-            
+
             if (activeForm) {
                 activeForm.querySelectorAll('input').forEach(checkbox => {
                     checkbox.checked = checkbox.value === currentLanguage;
                 });
             }
+        } else {
+            errorDiv.textContent = data.message || errorMessages[currentLanguage]['email_required'];
+            errorDiv.style.display = 'block';
         }
+    })
+    .catch(error => {
+        console.error('Subscription error:', error);
+        errorDiv.textContent = 'Network error. Please try again.';
+        errorDiv.style.display = 'block';
+    });
+}
 
-        document.addEventListener('DOMContentLoaded', function() {
-            setLang('en');
-        });
-    </script>
+document.addEventListener('DOMContentLoaded', function() {
+    setLang('en');
+});
+</script>
 </body>
 </html>""".trimIndent()
-}
-
-private fun generateArticlesHtml(grouped: Map<String, List<Article>>): String {
-    val html = StringBuilder()
-
-    grouped.forEach { (category, items) ->
-        val categoryTranslations = items.firstOrNull()?.categoryTranslations ?: emptyMap()
-
-        html.append("""
-        <h2>
-            <span class="lang en active">${escapeHtml(categoryTranslations["en"] ?: category)}</span>
-            <span class="lang he">${escapeHtml(categoryTranslations["he"] ?: category)}</span>
-            <span class="lang ru">${escapeHtml(categoryTranslations["ru"] ?: category)}</span>
-            <span class="lang el">${escapeHtml(categoryTranslations["el"] ?: category)}</span>
-        </h2>""")
-
-        items.forEach { article ->
-            val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
-            val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
-            val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${URLEncoder.encode(article.url, "UTF-8")}"
-
-            html.append("""
-        <div class="article">
-            <div class="lang en active">
-                <div class="article-title">${escapeHtml(article.titleTranslations["en"] ?: article.title)}</div>
-                <div class="article-summary">${escapeHtml(article.summaryTranslations["en"] ?: article.summary)}</div>
-                <a href="${article.url}" class="article-link" target="_blank">Read more</a>
-            </div>
-            <div class="lang he">
-                <div class="article-title">${escapeHtml(article.titleTranslations["he"] ?: "כותרת בעברית")}</div>
-                <div class="article-summary">${escapeHtml(article.summaryTranslations["he"] ?: "תקציר בעברית")}</div>
-                <a href="$hebrewUrl" class="article-link" target="_blank">קרא עוד</a>
-            </div>
-            <div class="lang ru">
-                <div class="article-title">${escapeHtml(article.titleTranslations["ru"] ?: "Заголовок на русском")}</div>
-                <div class="article-summary">${escapeHtml(article.summaryTranslations["ru"] ?: "Краткое изложение на русском")}</div>
-                <a href="$russianUrl" class="article-link" target="_blank">Читать далее</a>
-            </div>
-            <div class="lang el">
-                <div class="article-title">${escapeHtml(article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά")}</div>
-                <div class="article-summary">${escapeHtml(article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά")}</div>
-                <a href="$greekUrl" class="article-link" target="_blank">Διαβάστε περισσότερα</a>
-            </div>
-        </div>
-                """.trimIndent())
-        }
     }
 
-    return html.toString()
-}
+    private fun generateArticlesHtml(grouped: Map<String, List<Article>>): String {
+        val html = StringBuilder()
 
-private fun escapeHtml(text: String): String {
-    return text
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;")
-}
+        grouped.forEach { (category, items) ->
+            val categoryTranslations = items.firstOrNull()?.categoryTranslations ?: emptyMap()
+
+            html.append("""
+<h2>
+<span class="lang en active">${escapeHtml(categoryTranslations["en"] ?: category)}</span>
+<span class="lang he">${escapeHtml(categoryTranslations["he"] ?: category)}</span>
+<span class="lang ru">${escapeHtml(categoryTranslations["ru"] ?: category)}</span>
+<span class="lang el">${escapeHtml(categoryTranslations["el"] ?: category)}</span>
+</h2>""")
+
+            items.forEach { article ->
+                val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=" + URLEncoder.encode(article.url, "UTF-8")
+                val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=" + URLEncoder.encode(article.url, "UTF-8")
+                val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=" + URLEncoder.encode(article.url, "UTF-8")
+
+                html.append("""
+<div class="article">
+<div class="lang en active">
+<div class="article-title">${escapeHtml(article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά")}</div>
+<div class="article-summary">${escapeHtml(article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά")}</div>
+<a href="$greekUrl" class="article-link" target="_blank">Διαβάστε περισσότερα</a>
+</div>
+</div>
+""".trimIndent())
+            }
+        }
+
+        return html.toString()
+    }
+
+    private fun escapeHtml(text: String): String {
+        return text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;")
+    }
 }
 
 fun main() {
@@ -1468,4 +1444,34 @@ fun main() {
     // Keep the program running to serve the API
     println("🔄 Program will continue running to serve subscription API...")
     println("🛑 Press Ctrl+C to stop")
+
+    // Prevent program from exiting
+    while (true) {
+        Thread.sleep(60000) // Sleep for 1 minute intervals
+    }
+    val html = """
+<div class="lang en">
+    <div class="article-title">${escapeHtml(article.titleTranslations["en"] ?: article.title)}</div>
+    <div class="article-summary">${escapeHtml(article.summaryTranslations["en"] ?: article.summary)}</div>
+    <a href="${escapeHtml(article.url)}" class="article-link" target="_blank">Read more</a>
+</div>
+
+<div class="lang he">
+    <div class="article-title">${escapeHtml(article.titleTranslations["he"] ?: "כותרת בעברית")}</div>
+    <div class="article-summary">${escapeHtml(article.summaryTranslations["he"] ?: "תקציר בעברית")}</div>
+    <a href="${escapeHtml(hebrewUrl ?: article.url)}" class="article-link" target="_blank">קרא עוד</a>
+</div>
+
+<div class="lang ru">
+    <div class="article-title">${escapeHtml(article.titleTranslations["ru"] ?: "Заголовок на русском")}</div>
+    <div class="article-summary">${escapeHtml(article.summaryTranslations["ru"] ?: "Краткое изложение на русском")}</div>
+    <a href="${escapeHtml(russianUrl ?: article.url)}" class="article-link" target="_blank">Читать далее</a>
+</div>
+
+<div class="lang el">
+    <div class="article-title">${escapeHtml(article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά")}</div>
+    <div class="article-summary">${escapeHtml(article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά")}</div>
+    <a href="${escapeHtml(greekUrl ?: article.url)}" class="article-link" target="_blank">Διαβάστε περισσότερα</a>
+</div>
+""".trimIndent()
 }
