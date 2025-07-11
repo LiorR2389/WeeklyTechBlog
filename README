@@ -1,0 +1,272 @@
+# 🤖 AI News Cyprus
+
+**Your daily Cyprus news digest powered by AI** - Automatically aggregates, translates, and publishes Cyprus news in 4 languages every morning at 7 AM.
+
+🌐 **Live Site:** [ainews.eu.com](https://ainews.eu.com)
+
+## 📋 Overview
+
+AI News Cyprus is an automated news aggregation system that:
+- **Scrapes** 6 major Cyprus news sources daily
+- **Translates** headlines and summaries to 4 languages (English, Hebrew, Russian, Greek)
+- **Categorizes** articles by topic (Business, Technology, Politics, etc.)
+- **Publishes** a beautiful responsive website daily
+- **Hosts** directly on your custom domain via GitHub Pages
+- **Manages** email subscribers (functionality ready, temporarily disabled)
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   News Sources  │───▶│  Kotlin Scraper  │───▶│  GitHub Pages   │
+│                 │    │  (Render.com)    │    │  (ainews.eu.com)│
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+        │                       │                       │
+        ▼                       ▼                       ▼
+   • Cyprus Mail          • Web Scraping           • index.html
+   • Financial Mirror     • OpenAI Translation     • CNAME file
+   • In-Cyprus           • Article Processing      • Custom domain
+   • Alpha News          • HTML Generation
+   • StockWatch          • GitHub API Upload
+```
+
+## ✨ Features
+
+### 🔄 **Automated Daily Updates**
+- Runs every day at 7:00 AM Cyprus time
+- Aggregates fresh news from 6 sources
+- Filters duplicate articles automatically
+- Updates website with new content
+
+### 🌍 **Multi-Language Support**
+- **English** (original)
+- **עברית** (Hebrew)
+- **Русский** (Russian)
+- **Ελληνικά** (Greek)
+- Real-time language switching on website
+
+### 📊 **Smart Categorization**
+- **Technology** - AI, digital innovation, startups
+- **Business & Economy** - Financial news, markets, GDP
+- **Politics** - Government, parliament, negotiations
+- **Crime & Justice** - Legal matters, police reports
+- **Real Estate** - Property market, construction
+- **Holidays & Travel** - Tourism, cultural events
+
+### 🎨 **Beautiful Website**
+- Modern responsive design
+- Gradient backgrounds and smooth animations
+- Professional typography and spacing
+- Mobile-optimized interface
+- Dark/light theme compatible
+
+## 🛠️ Tech Stack
+
+- **Backend:** Kotlin + Gradle
+- **Web Scraping:** JSoup + OkHttp
+- **Translation:** OpenAI GPT-4o-mini
+- **Hosting:** Render.com (cron jobs) + GitHub Pages
+- **Domain:** Custom DNS pointing to GitHub Pages
+- **Data Storage:** JSON files (subscribers, seen articles)
+
+## 📁 Project Structure
+
+```
+ainews-cyprus/
+├── src/main/kotlin/
+│   └── Main.kt                 # Main application logic
+├── build.gradle.kts            # Kotlin/Gradle configuration
+├── Dockerfile                  # Container configuration
+├── render.yaml                 # Render.com deployment config
+├── subscribers.json            # Email subscriber data
+├── seen_articles.json          # Duplicate prevention
+└── ainews_YYYYMMDD.html       # Generated website files
+```
+
+## ⚙️ Environment Variables
+
+```bash
+# Required
+OPENAI_API_KEY=sk-...          # OpenAI API for translations
+GITHUB_TOKEN=ghp_...           # GitHub API for file uploads
+
+# Optional
+FROM_EMAIL=hello@ainews.eu.com # Email sender address (future use)
+EMAIL_PASSWORD=...             # Gmail app password (future use)
+```
+
+## 🚀 Deployment Guide
+
+### **Step 1: GitHub Repository Setup**
+1. Create repository: `ainews-website`
+2. Make it **public** (required for GitHub Pages)
+3. Enable GitHub Pages: Settings → Pages → Deploy from main branch
+
+### **Step 2: Domain Configuration**
+1. **DNS Setup** (for ainews.eu.com):
+   ```
+   Type: A Record
+   Host: @ (blank)
+   Value: 185.199.108.153, 185.199.109.153, 185.199.110.153, 185.199.111.153
+
+   Type: CNAME
+   Host: www
+   Value: yourusername.github.io
+   ```
+
+### **Step 3: Render.com Deployment**
+1. Connect GitHub repository
+2. Set environment variables
+3. Configure cron schedule:
+   ```yaml
+   services:
+     - type: cron
+       name: ai-news-daily
+       env: docker
+       schedule: "0 4 * * *"  # 7:00 AM Cyprus time (UTC+3)
+       plan: free
+   ```
+
+### **Step 4: Verification**
+- Check Render logs for successful runs
+- Verify GitHub repository gets updated with `index.html` and `CNAME`
+- Test website at your custom domain
+
+## 📰 News Sources
+
+| Source | URL | Content Type |
+|--------|-----|--------------|
+| Financial Mirror Cyprus | financialmirror.com/category/cyprus/ | Business & Economy |
+| Financial Mirror Business | financialmirror.com/category/business/ | Financial News |
+| In-Cyprus Local | in-cyprus.philenews.com/local/ | Local Affairs |
+| In-Cyprus Opinion | in-cyprus.philenews.com/opinion/ | Editorial Content |
+| Alpha News Cyprus | alphanews.live/cyprus/ | General News |
+| StockWatch Cyprus | stockwatch.com.cy/en/news | Financial Markets |
+
+## 🔧 Configuration
+
+### **Adding New News Sources**
+```kotlin
+private val newsSources = mapOf(
+    "Source Name" to "https://source-url.com/category/",
+    // Add new sources here
+)
+```
+
+### **Modifying Categories**
+```kotlin
+private fun categorizeArticle(title: String, summary: String): String {
+    val content = "$title $summary".lowercase()
+    return when {
+        content.contains("your-keyword") -> "Your Category"
+        // Add new categorization rules
+        else -> "General News"
+    }
+}
+```
+
+### **Changing Update Schedule**
+```yaml
+# In render.yaml
+schedule: "0 4 * * *"  # Daily at 4 AM UTC (7 AM Cyprus)
+schedule: "0 */6 * * *"  # Every 6 hours
+schedule: "0 4 * * 1"   # Weekly on Mondays
+```
+
+## 📊 Analytics & Monitoring
+
+### **Logs to Monitor**
+- `📰 Starting news aggregation from X sources...`
+- `📊 Found X total articles, Y new articles`
+- `🚀 Website uploaded to GitHub Pages: URL`
+- `✅ AI News daily update complete!`
+
+### **Common Issues**
+- **No articles found:** Check if news sources changed their HTML structure
+- **GitHub upload failed:** Verify GITHUB_TOKEN permissions
+- **Domain not working:** Check DNS propagation (can take 24 hours)
+- **Translation errors:** Check OPENAI_API_KEY balance and limits
+
+## 📧 Email Notifications (Future)
+
+The system includes subscriber management ready for email notifications:
+
+```kotlin
+// Add subscriber
+system.addSubscriber("user@example.com", "User Name", listOf("en", "he"))
+
+// Send notifications (currently disabled)
+system.sendDailyNotification(articles, "https://ainews.eu.com")
+```
+
+**Subscriber Data Structure:**
+```json
+{
+  "email": "user@example.com",
+  "name": "User Name",
+  "languages": ["en", "he"],
+  "subscribed": true,
+  "subscribedDate": "2025-07-11"
+}
+```
+
+## 🔒 Security & Privacy
+
+- **API Keys:** Stored as environment variables
+- **Subscriber Data:** Local JSON files (consider database for production)
+- **Rate Limiting:** Built-in delays between API calls
+- **Error Handling:** Graceful failures don't stop the entire process
+
+## 🤝 Contributing
+
+### **Adding Features**
+1. Fork the repository
+2. Create feature branch: `git checkout -b feature/new-feature`
+3. Make changes and test locally
+4. Submit pull request
+
+### **Reporting Issues**
+- Check logs first for error messages
+- Include full error output and configuration
+- Specify which component is failing (scraping, translation, upload)
+
+## 📈 Roadmap
+
+- [ ] **Email Notifications** - Restore email functionality with proper Jakarta Mail setup
+- [ ] **Database Integration** - Replace JSON files with PostgreSQL
+- [ ] **Admin Dashboard** - Web interface for subscriber management
+- [ ] **Mobile App** - React Native app for push notifications
+- [ ] **RSS Feed** - Standard RSS/Atom feed generation
+- [ ] **Social Media** - Auto-posting to Twitter/LinkedIn
+- [ ] **Analytics** - Website traffic and engagement metrics
+- [ ] **AI Summaries** - Generate article summaries instead of using patterns
+
+## 🆘 Support
+
+### **Quick Fixes**
+```bash
+# Check if cron job is running
+curl -X POST https://your-render-app.onrender.com
+
+# Test news aggregation locally
+gradle run
+
+# Verify domain DNS
+nslookup ainews.eu.com
+```
+
+### **Getting Help**
+- **Render.com Issues:** Check Render dashboard and logs
+- **GitHub Pages:** GitHub Pages documentation
+- **Domain Problems:** Your domain registrar support
+- **Code Issues:** Create GitHub issue with full error details
+
+## 📜 License
+
+MIT License - Feel free to use this code for your own news aggregation projects!
+
+---
+
+**Built with ❤️ for the Cyprus community**
+
+*Keeping Cyprus informed, one automated update at a time.* 🌅
