@@ -1,8 +1,5 @@
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import jakarta.mail.*
-import jakarta.mail.internet.InternetAddress
-import jakarta.mail.internet.MimeMessage
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import org.jsoup.Jsoup
@@ -45,7 +42,6 @@ class AINewsSystem {
     // Environment variables
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     private val githubToken = System.getenv("GITHUB_TOKEN")
-    private val emailPassword = System.getenv("EMAIL_PASSWORD")
     private val fromEmail = System.getenv("FROM_EMAIL") ?: "hello@ainews.eu.com"
 
     // Updated news sources
@@ -183,7 +179,7 @@ class AINewsSystem {
                 .url(apiUrl)
                 .addHeader("Authorization", "Bearer $openAiApiKey")
                 .addHeader("Content-Type", "application/json")
-                .post(RequestBody.create("application/json".toMediaType(), requestBody))
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -428,7 +424,7 @@ class AINewsSystem {
                 .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$fileName")
                 .addHeader("Authorization", "token $githubToken")
                 .addHeader("Content-Type", "application/json")
-                .put(RequestBody.create("application/json".toMediaType(), requestBody.toString()))
+                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
             client.newCall(putRequest).execute().use { response ->
@@ -476,7 +472,7 @@ class AINewsSystem {
                 .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$fileName")
                 .addHeader("Authorization", "token $githubToken")
                 .addHeader("Content-Type", "application/json")
-                .put(RequestBody.create("application/json".toMediaType(), requestBody.toString()))
+                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
                 .build()
 
             client.newCall(putRequest).execute().use { response ->
@@ -973,81 +969,9 @@ ${generateArticlesHtml(grouped)}
             return
         }
 
-        subscribers.forEach { subscriber ->
-            try {
-                sendNotificationEmail(subscriber, articles, websiteUrl)
-                Thread.sleep(1000)
-            } catch (e: Exception) {
-                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
-            }
-        }
-
-        println("📧 Notifications sent to ${subscribers.size} subscribers")
-    }
-
-    private fun sendNotificationEmail(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
-        if (emailPassword.isNullOrEmpty()) {
-            println("⚠️ Email password not configured, skipping email")
-            return
-        }
-
-        val properties = Properties().apply {
-            put("mail.smtp.auth", "true")
-            put("mail.smtp.starttls.enable", "true")
-            put("mail.smtp.host", "smtp.gmail.com")
-            put("mail.smtp.port", "587")
-        }
-
-        val session = Session.getInstance(properties, object : Authenticator() {
-            override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(fromEmail, emailPassword)
-            }
-        })
-
-        val greeting = if (subscriber.name != null) "Hi ${subscriber.name}" else "Hello"
-        val languageList = subscriber.languages.joinToString(", ") { lang ->
-            when(lang) {
-                "en" -> "English"
-                "he" -> "Hebrew"
-                "ru" -> "Russian"
-                "el" -> "Greek"
-                else -> lang
-            }
-        }
-
-        val categorySummary = articles.groupBy { it.category }
-            .map { (category, items) -> "$category (${items.size})" }
-            .joinToString(", ")
-
-        val emailContent = """
-            $greeting!
-            
-            🤖 Your daily AI News Cyprus digest is ready with ${articles.size} fresh stories.
-            
-            📊 Today's Categories: $categorySummary
-            
-            🌐 Read the full digest with 4-language support: $websiteUrl
-            
-            📱 Your language preferences: $languageList
-            
-            ─────────────────────────────
-            
-            ✅ This is an automated notification from AI News
-            🔗 Visit: ainews.eu.com
-            📧 Unsubscribe: Reply with "UNSUBSCRIBE"
-            
-            Powered by AI • Updated daily at 7 AM Cyprus time
-        """.trimIndent()
-
-        val message = MimeMessage(session).apply {
-            setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
-            setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-            subject = "🤖 AI News Cyprus - ${articles.size} stories for ${SimpleDateFormat("MMM d").format(Date())}"
-            setText(emailContent)
-        }
-
-        Transport.send(message)
-        println("📧 Email sent successfully to ${subscriber.email}")
+        // Email functionality temporarily disabled - will add back later
+        println("📧 Email notifications temporarily disabled")
+        println("📧 Would notify ${subscribers.size} subscribers about ${articles.size} articles")
     }
 }
 
@@ -1059,12 +983,10 @@ fun main() {
 
     val openAiKey = System.getenv("OPENAI_API_KEY")
     val githubToken = System.getenv("GITHUB_TOKEN")
-    val emailPassword = System.getenv("EMAIL_PASSWORD")
     val fromEmail = System.getenv("FROM_EMAIL")
 
     println(if (openAiKey != null) "✅ OPENAI_API_KEY configured" else "❌ OPENAI_API_KEY missing")
     println(if (githubToken != null) "✅ GITHUB_TOKEN configured" else "❌ GITHUB_TOKEN missing")
-    println(if (emailPassword != null) "✅ EMAIL_PASSWORD configured" else "❌ EMAIL_PASSWORD missing")
     println(if (fromEmail != null) "✅ FROM_EMAIL configured" else "✅ FROM_EMAIL using default")
 
     try {
@@ -1095,7 +1017,7 @@ fun main() {
                 println("✅ AI News daily update complete!")
                 println("🌐 Website: https://ainews.eu.com")
                 println("📊 Articles processed: ${articles.size}")
-                println("📧 Notifications sent to subscribers")
+                println("📧 Notifications ready (email temporarily disabled)")
             } else {
                 println("❌ Failed to upload website")
             }
