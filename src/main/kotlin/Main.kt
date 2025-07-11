@@ -1070,7 +1070,7 @@ ${generateArticlesHtml(grouped)}
             put("mail.smtp.ssl.protocols", "TLSv1.2")
         }
 
-        val session = Session.getInstance(props, object : Authenticator() {
+        val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
             override fun getPasswordAuthentication(): PasswordAuthentication {
                 return PasswordAuthentication(fromEmail, emailPassword)
             }
