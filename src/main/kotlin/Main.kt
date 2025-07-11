@@ -302,25 +302,55 @@ class AINewsSystem {
     private fun categorizeArticle(title: String, summary: String): String {
         val content = "$title $summary".lowercase()
         return when {
-            content.contains("tech") || content.contains("ai") ||
-                    content.contains("digital") || content.contains("innovation") ||
-                    content.contains("startup") || content.contains("software") -> "Technology"
-            content.contains("business") || content.contains("economy") ||
-                    content.contains("financial") || content.contains("bank") ||
-                    content.contains("market") || content.contains("euro") ||
-                    content.contains("gdp") || content.contains("investment") ||
-                    content.contains("cclei") || content.contains("imd") -> "Business & Economy"
-            content.contains("real estate") || content.contains("property") ||
-                    content.contains("housing") || content.contains("construction") -> "Real Estate"
-            content.contains("travel") || content.contains("tourism") ||
-                    content.contains("holiday") || content.contains("hotel") ||
-                    content.contains("festival") || content.contains("culture") -> "Holidays & Travel"
-            content.contains("politics") || content.contains("government") ||
-                    content.contains("parliament") || content.contains("minister") ||
-                    content.contains("talks") || content.contains("negotiation") -> "Politics"
-            content.contains("crime") || content.contains("arrest") ||
-                    content.contains("police") || content.contains("court") ||
-                    content.contains("fraud") || content.contains("theft") -> "Crime & Justice"
+            // Technology - be more specific about tech keywords
+            content.contains("ai ") || content.contains("artificial intelligence") ||
+                    content.contains("tech startup") || content.contains("software") ||
+                    content.contains("digital innovation") || content.contains("blockchain") ||
+                    content.contains("cryptocurrency") || content.contains("tech company") ||
+                    content.contains("app ") || content.contains("platform") ||
+                    content.contains("cyber") || content.contains("data") -> "Technology"
+
+            // Business & Economy - broader business terms
+            content.contains("business") || content.contains("economy") || content.contains("economic") ||
+                    content.contains("financial") || content.contains("bank") || content.contains("banking") ||
+                    content.contains("market") || content.contains("euro") || content.contains("million") ||
+                    content.contains("billion") || content.contains("gdp") || content.contains("investment") ||
+                    content.contains("cclei") || content.contains("imd") || content.contains("stock") ||
+                    content.contains("company") || content.contains("corp") || content.contains("revenue") ||
+                    content.contains("profit") || content.contains("sales") || content.contains("finance") ||
+                    content.contains("holding") || content.contains("acquisition") || content.contains("merger") ||
+                    content.contains("enterprise") || content.contains("startup") || content.contains("fund") ||
+                    content.contains("capital") || content.contains("shares") || content.contains("earnings") ||
+                    content.contains("trade") || content.contains("import") || content.contains("export") -> "Business & Economy"
+
+            // Real Estate
+            content.contains("real estate") || content.contains("property") || content.contains("properties") ||
+                    content.contains("housing") || content.contains("construction") || content.contains("building") ||
+                    content.contains("development") || content.contains("apartment") || content.contains("home") -> "Real Estate"
+
+            // Politics - government and political terms
+            content.contains("politics") || content.contains("political") || content.contains("government") ||
+                    content.contains("parliament") || content.contains("minister") || content.contains("mp ") ||
+                    content.contains("mep ") || content.contains("president") || content.contains("election") ||
+                    content.contains("talks") || content.contains("negotiation") || content.contains("policy") ||
+                    content.contains("law") || content.contains("bill") || content.contains("vote") ||
+                    content.contains("democracy") || content.contains("eu ") || content.contains("european") -> "Politics"
+
+            // Crime & Justice
+            content.contains("crime") || content.contains("criminal") || content.contains("arrest") ||
+                    content.contains("police") || content.contains("court") || content.contains("judge") ||
+                    content.contains("fraud") || content.contains("theft") || content.contains("scam") ||
+                    content.contains("illegal") || content.contains("trial") || content.contains("sentence") ||
+                    content.contains("prison") || content.contains("jail") || content.contains("investigation") ||
+                    content.contains("victim") || content.contains("suspect") -> "Crime & Justice"
+
+            // Holidays & Travel
+            content.contains("travel") || content.contains("tourism") || content.contains("tourist") ||
+                    content.contains("holiday") || content.contains("vacation") || content.contains("hotel") ||
+                    content.contains("resort") || content.contains("festival") || content.contains("culture") ||
+                    content.contains("cultural") || content.contains("heritage") || content.contains("museum") ||
+                    content.contains("art") || content.contains("music") || content.contains("entertainment") -> "Holidays & Travel"
+
             else -> "General News"
         }
     }
@@ -646,6 +676,12 @@ class AINewsSystem {
             padding-left: 15px;
             border-left: 4px solid #667eea;
         }
+        h2 .lang { 
+            display: none; 
+        }
+        h2 .lang.active { 
+            display: inline; 
+        }
         .article { 
             margin-bottom: 20px; 
             padding: 20px; 
@@ -832,36 +868,129 @@ class AINewsSystem {
 ${generateArticlesHtml(grouped)}
 
         <div class="newsletter-signup">
-            <h3>🔔 Get Daily Notifications</h3>
-            <p>Get a simple email notification every morning when fresh news is published on ainews.eu.com</p>
-            
-            <div class="signup-form">
-                <input type="email" id="email" placeholder="your@email.com" required>
-                <input type="text" id="name" placeholder="Your name (optional)">
-                <div class="language-checkboxes">
-                    <div class="language-option">
-                        <input type="checkbox" id="lang-en" value="en" checked> 🇬🇧 English
+            <div class="lang en active">
+                <h3>🔔 Get Daily Notifications</h3>
+                <p>Get a simple email notification every morning when fresh news is published on ainews.eu.com</p>
+                <div class="signup-form">
+                    <input type="email" id="email" placeholder="your@email.com" required>
+                    <input type="text" id="name" placeholder="Your name (optional)">
+                    <div class="language-checkboxes">
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-en" value="en" checked> 🇬🇧 English
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-he" value="he"> 🇮🇱 עברית
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-ru" value="ru"> 🇷🇺 Русский
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-el" value="el"> 🇬🇷 Ελληνικά
+                        </div>
                     </div>
-                    <div class="language-option">
-                        <input type="checkbox" id="lang-he" value="he"> 🇮🇱 עברית
-                    </div>
-                    <div class="language-option">
-                        <input type="checkbox" id="lang-ru" value="ru"> 🇷🇺 Русский
-                    </div>
-                    <div class="language-option">
-                        <input type="checkbox" id="lang-el" value="el"> 🇬🇷 Ελληνικά
-                    </div>
+                    <button onclick="subscribe()">🔔 Notify Me Daily</button>
+                    <div id="success-message" class="success-message"></div>
+                    <div id="error-message" class="error-message"></div>
                 </div>
-                <button onclick="subscribe()">🔔 Notify Me Daily</button>
-                <div id="success-message" class="success-message"></div>
-                <div id="error-message" class="error-message"></div>
+                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+                    ✅ Just notifications, not newsletters<br>
+                    ✅ Unsubscribe anytime<br>
+                    ✅ No spam, no ads
+                </p>
             </div>
             
-            <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
-                ✅ Just notifications, not newsletters<br>
-                ✅ Unsubscribe anytime<br>
-                ✅ No spam, no ads
-            </p>
+            <div class="lang he">
+                <h3>🔔 קבלו התראות יומיות</h3>
+                <p>קבלו התראה פשוטה כל בוקר כאשר חדשות טריות מתפרסמות ב-ainews.eu.com</p>
+                <div class="signup-form">
+                    <input type="email" id="email-he" placeholder="הדוא״ל שלכם" required>
+                    <input type="text" id="name-he" placeholder="השם שלכם (אופציונלי)">
+                    <div class="language-checkboxes">
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-en-he" value="en"> 🇬🇧 English
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-he-he" value="he" checked> 🇮🇱 עברית
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-ru-he" value="ru"> 🇷🇺 Русский
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-el-he" value="el"> 🇬🇷 Ελληνικά
+                        </div>
+                    </div>
+                    <button onclick="subscribe()">🔔 הודיעו לי יומית</button>
+                    <div id="success-message-he" class="success-message"></div>
+                    <div id="error-message-he" class="error-message"></div>
+                </div>
+                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+                    ✅ רק התראות, לא ניוזלטרים<br>
+                    ✅ ביטול מנוי בכל עת<br>
+                    ✅ ללא ספאם, ללא פרסומות
+                </p>
+            </div>
+            
+            <div class="lang ru">
+                <h3>🔔 Получайте ежедневные уведомления</h3>
+                <p>Получайте простое уведомление каждое утро, когда свежие новости публикуются на ainews.eu.com</p>
+                <div class="signup-form">
+                    <input type="email" id="email-ru" placeholder="ваш@email.com" required>
+                    <input type="text" id="name-ru" placeholder="Ваше имя (необязательно)">
+                    <div class="language-checkboxes">
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-en-ru" value="en"> 🇬🇧 English
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-he-ru" value="he"> 🇮🇱 עברית
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-ru-ru" value="ru" checked> 🇷🇺 Русский
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-el-ru" value="el"> 🇬🇷 Ελληνικά
+                        </div>
+                    </div>
+                    <button onclick="subscribe()">🔔 Уведомлять меня ежедневно</button>
+                    <div id="success-message-ru" class="success-message"></div>
+                    <div id="error-message-ru" class="error-message"></div>
+                </div>
+                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+                    ✅ Только уведомления, не рассылки<br>
+                    ✅ Отписаться в любое время<br>
+                    ✅ Без спама, без рекламы
+                </p>
+            </div>
+            
+            <div class="lang el">
+                <h3>🔔 Λάβετε καθημερινές ειδοποιήσεις</h3>
+                <p>Λάβετε μια απλή ειδοποίηση κάθε πρωί όταν νέα νέα δημοσιεύονται στο ainews.eu.com</p>
+                <div class="signup-form">
+                    <input type="email" id="email-el" placeholder="το@email.σας" required>
+                    <input type="text" id="name-el" placeholder="Το όνομά σας (προαιρετικό)">
+                    <div class="language-checkboxes">
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-en-el" value="en"> 🇬🇧 English
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-he-el" value="he"> 🇮🇱 עברית
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-ru-el" value="ru"> 🇷🇺 Русский
+                        </div>
+                        <div class="language-option">
+                            <input type="checkbox" id="lang-el-el" value="el" checked> 🇬🇷 Ελληνικά
+                        </div>
+                    </div>
+                    <button onclick="subscribe()">🔔 Ειδοποιήστε με καθημερινά</button>
+                    <div id="success-message-el" class="success-message"></div>
+                    <div id="error-message-el" class="error-message"></div>
+                </div>
+                <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
+                    ✅ Μόνο ειδοποιήσεις, όχι newsletters<br>
+                    ✅ Κατάργηση εγγραφής ανά πάσα στιγμή<br>
+                    ✅ Χωρίς spam, χωρίς διαφημίσεις
+                </p>
+            </div>
         </div>
         
         <div class="footer">
@@ -883,6 +1012,15 @@ ${generateArticlesHtml(grouped)}
                 el.classList.add('active');
             });
             
+            // Also handle category headers
+            document.querySelectorAll('h2 .lang').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            document.querySelectorAll('h2 .lang.' + lang).forEach(el => {
+                el.classList.add('active');
+            });
+            
             document.querySelectorAll('.lang-buttons button').forEach(btn => {
                 btn.classList.remove('active');
             });
@@ -892,34 +1030,78 @@ ${generateArticlesHtml(grouped)}
         }
 
         function subscribe() {
-            const email = document.getElementById('email').value.trim();
-            const name = document.getElementById('name').value.trim();
-            const successDiv = document.getElementById('success-message');
-            const errorDiv = document.getElementById('error-message');
+            const currentLang = document.querySelector('.lang-buttons button.active').id.replace('btn-', '');
             
-            successDiv.style.display = 'none';
-            errorDiv.style.display = 'none';
+            // Get form elements based on current language
+            const emailId = currentLang === 'en' ? 'email' : `email-${currentLang}`;
+            const nameId = currentLang === 'en' ? 'name' : `name-${currentLang}`;
+            const successId = currentLang === 'en' ? 'success-message' : `success-message-${currentLang}`;
+            const errorId = currentLang === 'en' ? 'error-message' : `error-message-${currentLang}`;
+            
+            const email = document.getElementById(emailId).value.trim();
+            const name = document.getElementById(nameId).value.trim();
+            const successDiv = document.getElementById(successId);
+            const errorDiv = document.getElementById(errorId);
+            
+            // Hide all messages first
+            document.querySelectorAll('.success-message, .error-message').forEach(div => {
+                div.style.display = 'none';
+            });
+            
+            // Error messages by language
+            const errorMessages = {
+                'en': {
+                    'email_required': 'Please enter your email address.',
+                    'email_invalid': 'Please enter a valid email address.',
+                    'language_required': 'Please select at least one language.'
+                },
+                'he': {
+                    'email_required': 'אנא הזינו את כתובת הדוא״ל שלכם.',
+                    'email_invalid': 'אנא הזינו כתובת דוא״ל תקינה.',
+                    'language_required': 'אנא בחרו לפחות שפה אחת.'
+                },
+                'ru': {
+                    'email_required': 'Пожалуйста, введите ваш email адрес.',
+                    'email_invalid': 'Пожалуйста, введите корректный email адрес.',
+                    'language_required': 'Пожалуйста, выберите хотя бы один язык.'
+                },
+                'el': {
+                    'email_required': 'Παρακαλώ εισάγετε τη διεύθυνση email σας.',
+                    'email_invalid': 'Παρακαλώ εισάγετε μια έγκυρη διεύθυνση email.',
+                    'language_required': 'Παρακαλώ επιλέξτε τουλάχιστον μία γλώσσα.'
+                }
+            };
+            
+            // Success messages by language
+            const successMessages = {
+                'en': `🎉 Success! You will receive daily notifications at ${email} when ainews.eu.com updates!`,
+                'he': `🎉 הצלחה! תקבלו התראות יומיות ב-${email} כאשר ainews.eu.com מתעדכן!`,
+                'ru': `🎉 Успех! Вы будете получать ежедневные уведомления на ${email} когда ainews.eu.com обновляется!`,
+                'el': `🎉 Επιτυχία! Θα λαμβάνετε καθημερινές ειδοποιήσεις στο ${email} όταν ενημερώνεται το ainews.eu.com!`
+            };
             
             if (!email) {
-                errorDiv.textContent = 'Please enter your email address.';
+                errorDiv.textContent = errorMessages[currentLang]['email_required'];
                 errorDiv.style.display = 'block';
                 return;
             }
             
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(email)) {
-                errorDiv.textContent = 'Please enter a valid email address.';
+                errorDiv.textContent = errorMessages[currentLang]['email_invalid'];
                 errorDiv.style.display = 'block';
                 return;
             }
             
+            // Get selected languages (use suffix for non-English languages)
+            const suffix = currentLang === 'en' ? '' : `-${currentLang}`;
             const selectedLanguages = [];
-            document.querySelectorAll('.language-option input:checked').forEach(checkbox => {
+            document.querySelectorAll(`.lang.${currentLang} .language-option input:checked`).forEach(checkbox => {
                 selectedLanguages.push(checkbox.value);
             });
             
             if (selectedLanguages.length === 0) {
-                errorDiv.textContent = 'Please select at least one language.';
+                errorDiv.textContent = errorMessages[currentLang]['language_required'];
                 errorDiv.style.display = 'block';
                 return;
             }
@@ -934,13 +1116,14 @@ ${generateArticlesHtml(grouped)}
             
             console.log('Subscriber data:', subscriberData);
             
-            successDiv.textContent = '🎉 Success! You will receive daily notifications at ' + email + ' when ainews.eu.com updates!';
+            successDiv.textContent = successMessages[currentLang];
             successDiv.style.display = 'block';
             
-            document.getElementById('email').value = '';
-            document.getElementById('name').value = '';
-            document.querySelectorAll('.language-option input').forEach(checkbox => {
-                checkbox.checked = checkbox.value === 'en';
+            // Clear form
+            document.getElementById(emailId).value = '';
+            document.getElementById(nameId).value = '';
+            document.querySelectorAll(`.lang.${currentLang} .language-option input`).forEach(checkbox => {
+                checkbox.checked = checkbox.value === currentLang;
             });
         }
 
@@ -1001,156 +1184,172 @@ ${generateArticlesHtml(grouped)}
         }
 
         return html.toString()
-    }
-
-    private fun escapeHtml(text: String): String {
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&#39;")
-    }
-
-    fun addSubscriber(email: String, name: String?, languages: List<String>) {
-        val subscribers = loadSubscribers().toMutableList()
-        val existingSubscriber = subscribers.find { it.email == email }
-
-        if (existingSubscriber == null) {
-            val newSubscriber = Subscriber(
-                email = email,
-                name = name,
-                languages = languages,
-                subscribed = true,
-                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-            )
-            subscribers.add(newSubscriber)
-            saveSubscribers(subscribers)
-            println("✅ Added new subscriber: $email")
-        } else {
-            println("⚠️ Subscriber already exists: $email")
-        }
-    }
-
-    fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
-        val subscribers = loadSubscribers().filter { it.subscribed }
-
-        if (subscribers.isEmpty()) {
-            println("📧 No subscribers to notify")
-            return
-        }
-
-        if (emailPassword.isNullOrEmpty()) {
-            println("📧 Email password not configured - notifications disabled")
-            println("📧 Would notify ${subscribers.size} subscribers about ${articles.size} articles")
-            return
-        }
-
-        println("📧 Sending notifications to ${subscribers.size} subscribers...")
-
-        subscribers.forEach { subscriber ->
-            try {
-                sendEmailNotification(subscriber, articles, websiteUrl)
-                println("✅ Email sent to ${subscriber.email}")
-                Thread.sleep(1000) // Rate limiting
-            } catch (e: Exception) {
-                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+    }ισσότερα</a>
+    </div>
+    </div>
+    """.trimIndent())
             }
         }
 
-        println("📧 Daily notifications complete!")
+        return html.toString()
+    }ισσότερα</a>
+            </div>
+        </div>
+                """.trimIndent())
+}
+}
+
+return html.toString()
+}
+
+private fun escapeHtml(text: String): String {
+    return text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#39;")
+}
+
+fun addSubscriber(email: String, name: String?, languages: List<String>) {
+    val subscribers = loadSubscribers().toMutableList()
+    val existingSubscriber = subscribers.find { it.email == email }
+
+    if (existingSubscriber == null) {
+        val newSubscriber = Subscriber(
+            email = email,
+            name = name,
+            languages = languages,
+            subscribed = true,
+            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        )
+        subscribers.add(newSubscriber)
+        saveSubscribers(subscribers)
+        println("✅ Added new subscriber: $email")
+    } else {
+        println("⚠️ Subscriber already exists: $email")
+    }
+}
+
+fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
+    val subscribers = loadSubscribers().filter { it.subscribed }
+
+    if (subscribers.isEmpty()) {
+        println("📧 No subscribers to notify")
+        return
     }
 
-    private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
-        val props = Properties().apply {
-            put("mail.smtp.auth", "true")
-            put("mail.smtp.starttls.enable", "true")
-            put("mail.smtp.host", smtpHost)
-            put("mail.smtp.port", smtpPort)
-            put("mail.smtp.ssl.protocols", "TLSv1.2")
-        }
-
-        val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
-            override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(fromEmail, emailPassword)
-            }
-        })
-
-        val message = MimeMessage(session).apply {
-            setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
-            setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-
-            // Multilingual subject
-            val subjectTranslations = mapOf(
-                "en" to "🤖 Your Daily Cyprus News Update - ${articles.size} new stories",
-                "he" to "🤖 עדכון החדשות היומי שלך מקפריסין - ${articles.size} סיפורים חדשים",
-                "ru" to "🤖 Ваши ежедневные новости Кипра - ${articles.size} новых историй",
-                "el" to "🤖 Η καθημερινή ενημέρωσή σας για την Κύπρο - ${articles.size} νέες ιστορίες"
-            )
-
-            subject = subjectTranslations[subscriber.languages.firstOrNull()]
-                ?: subjectTranslations["en"]!!
-
-            val htmlContent = generateEmailHtml(subscriber, articles, websiteUrl)
-            setContent(htmlContent, "text/html; charset=utf-8")
-        }
-
-        Transport.send(message)
+    if (emailPassword.isNullOrEmpty()) {
+        println("📧 Email password not configured - notifications disabled")
+        println("📧 Would notify ${subscribers.size} subscribers about ${articles.size} articles")
+        return
     }
 
-    private fun generateEmailHtml(subscriber: Subscriber, articles: List<Article>, websiteUrl: String): String {
-        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        val primaryLang = subscriber.languages.firstOrNull() ?: "en"
+    println("📧 Sending notifications to ${subscribers.size} subscribers...")
 
-        val greetingTranslations = mapOf(
-            "en" to "Hello ${subscriber.name ?: "there"}!",
-            "he" to "שלום ${subscriber.name ?: ""}!",
-            "ru" to "Привет ${subscriber.name ?: ""}!",
-            "el" to "Γεια σας ${subscriber.name ?: ""}!"
+    subscribers.forEach { subscriber ->
+        try {
+            sendEmailNotification(subscriber, articles, websiteUrl)
+            println("✅ Email sent to ${subscriber.email}")
+            Thread.sleep(1000) // Rate limiting
+        } catch (e: Exception) {
+            println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+        }
+    }
+
+    println("📧 Daily notifications complete!")
+}
+
+private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
+    val props = Properties().apply {
+        put("mail.smtp.auth", "true")
+        put("mail.smtp.starttls.enable", "true")
+        put("mail.smtp.host", smtpHost)
+        put("mail.smtp.port", smtpPort)
+        put("mail.smtp.ssl.protocols", "TLSv1.2")
+    }
+
+    val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
+        override fun getPasswordAuthentication(): PasswordAuthentication {
+            return PasswordAuthentication(fromEmail, emailPassword)
+        }
+    })
+
+    val message = MimeMessage(session).apply {
+        setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
+        setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
+
+        // Multilingual subject
+        val subjectTranslations = mapOf(
+            "en" to "🤖 Your Daily Cyprus News Update - ${articles.size} new stories",
+            "he" to "🤖 עדכון החדשות היומי שלך מקפריסין - ${articles.size} סיפורים חדשים",
+            "ru" to "🤖 Ваши ежедневные новости Кипра - ${articles.size} новых историй",
+            "el" to "🤖 Η καθημερινή ενημέρωσή σας για την Κύπρο - ${articles.size} νέες ιστορίες"
         )
 
-        val introTranslations = mapOf(
-            "en" to "Here are your fresh Cyprus news updates for $currentDate:",
-            "he" to "הנה עדכוני החדשות הטריים שלך מקפריסין עבור $currentDate:",
-            "ru" to "Вот ваши свежие новости Кипра на $currentDate:",
-            "el" to "Εδώ είναι οι νέες ειδήσεις σας από την Κύπρο για $currentDate:"
-        )
+        subject = subjectTranslations[subscriber.languages.firstOrNull()]
+            ?: subjectTranslations["en"]!!
 
-        val viewWebsiteTranslations = mapOf(
-            "en" to "📖 View Full Website",
-            "he" to "📖 צפה באתר המלא",
-            "ru" to "📖 Посмотреть полный сайт",
-            "el" to "📖 Δείτε την πλήρη ιστοσελίδα"
-        )
+        val htmlContent = generateEmailHtml(subscriber, articles, websiteUrl)
+        setContent(htmlContent, "text/html; charset=utf-8")
+    }
 
-        val greeting = greetingTranslations[primaryLang] ?: greetingTranslations["en"]!!
-        val intro = introTranslations[primaryLang] ?: introTranslations["en"]!!
-        val viewWebsite = viewWebsiteTranslations[primaryLang] ?: viewWebsiteTranslations["en"]!!
+    Transport.send(message)
+}
 
-        val grouped = articles.groupBy { it.category }
-        val articlesHtml = StringBuilder()
+private fun generateEmailHtml(subscriber: Subscriber, articles: List<Article>, websiteUrl: String): String {
+    val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+    val primaryLang = subscriber.languages.firstOrNull() ?: "en"
 
-        grouped.forEach { (category, items) ->
-            val categoryName = items.firstOrNull()?.categoryTranslations?.get(primaryLang) ?: category
-            articlesHtml.append("""
+    val greetingTranslations = mapOf(
+        "en" to "Hello ${subscriber.name ?: "there"}!",
+        "he" to "שלום ${subscriber.name ?: ""}!",
+        "ru" to "Привет ${subscriber.name ?: ""}!",
+        "el" to "Γεια σας ${subscriber.name ?: ""}!"
+    )
+
+    val introTranslations = mapOf(
+        "en" to "Here are your fresh Cyprus news updates for $currentDate:",
+        "he" to "הנה עדכוני החדשות הטריים שלך מקפריסין עבור $currentDate:",
+        "ru" to "Вот ваши свежие новости Кипра на $currentDate:",
+        "el" to "Εδώ είναι οι νέες ειδήσεις σας από την Κύπρο για $currentDate:"
+    )
+
+    val viewWebsiteTranslations = mapOf(
+        "en" to "📖 View Full Website",
+        "he" to "📖 צפה באתר המלא",
+        "ru" to "📖 Посмотреть полный сайт",
+        "el" to "📖 Δείτε την πλήρη ιστοσελίδα"
+    )
+
+    val greeting = greetingTranslations[primaryLang] ?: greetingTranslations["en"]!!
+    val intro = introTranslations[primaryLang] ?: introTranslations["en"]!!
+    val viewWebsite = viewWebsiteTranslations[primaryLang] ?: viewWebsiteTranslations["en"]!!
+
+    val grouped = articles.groupBy { it.category }
+    val articlesHtml = StringBuilder()
+
+    grouped.forEach { (category, items) ->
+        val categoryName = items.firstOrNull()?.categoryTranslations?.get(primaryLang) ?: category
+        articlesHtml.append("""
                 <h3 style="color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 5px;">$categoryName</h3>
             """)
 
-            items.take(3).forEach { article -> // Limit to 3 articles per category for email
-                val title = article.titleTranslations[primaryLang] ?: article.title
-                val summary = article.summaryTranslations[primaryLang] ?: article.summary
+        items.take(3).forEach { article -> // Limit to 3 articles per category for email
+            val title = article.titleTranslations[primaryLang] ?: article.title
+            val summary = article.summaryTranslations[primaryLang] ?: article.summary
 
-                articlesHtml.append("""
+            articlesHtml.append("""
                     <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-left: 4px solid #667eea;">
                         <h4 style="margin: 0 0 8px 0; color: #333;"><a href="${article.url}" style="color: #333; text-decoration: none;">${escapeHtml(title)}</a></h4>
                         <p style="margin: 0 0 10px 0; color: #666; font-style: italic;">${escapeHtml(summary)}</p>
                         <a href="${article.url}" style="color: #667eea; text-decoration: none; font-weight: 600;">Read more →</a>
                     </div>
                 """)
-            }
         }
+    }
 
-        return """
+    return """
 <!DOCTYPE html>
 <html>
 <head>
@@ -1193,7 +1392,7 @@ ${generateArticlesHtml(grouped)}
 </body>
 </html>
         """.trimIndent()
-    }
+}
 }
 
 fun main() {
