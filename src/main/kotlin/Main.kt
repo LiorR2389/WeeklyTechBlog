@@ -15,6 +15,13 @@ import java.net.URLEncoder
 import java.util.Properties
 import jakarta.mail.*
 import jakarta.mail.internet.*
+import com.sun.net.httpserver.HttpServer
+import com.sun.net.httpserver.HttpHandler
+import com.sun.net.httpserver.HttpExchange
+import java.io.OutputStream
+import java.net.InetSocketAddress
+import java.nio.charset.StandardCharsets
+import kotlin.concurrent.thread
 
 data class Article(
     val title: String,
@@ -665,33 +672,96 @@ class AINewsSystem {
 </html>""".trimIndent()
     }
 
-    fun addSubscriber(email: String, name: String?, languages: List<String>) {
-        val subscribers = loadSubscribers().toMutableList()
-        val existingSubscriber = subscribers.find { it.email == email }
+    fun startSubscriptionServer(port: Int = 8080) {
+        val server = HttpServer.create(InetSocketAddress(port), 0)
 
-        if (existingSubscriber == null) {
-            val newSubscriber = Subscriber(
-                email = email,
-                name = name,
-                languages = languages,
-                subscribed = true,
-                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-            )
-            subscribers.add(newSubscriber)
-            saveSubscribers(subscribers)
-            println("✅ Added new subscriber: $email")
-        } else {
-            println("⚠️ Subscriber already exists: $email")
+        // CORS headers for web requests
+        server.createContext("/subscribe") { exchange ->
+            // Add CORS headers
+            exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
+            exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+            exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
+
+            when (exchange.requestMethod) {
+                "OPTIONS" -> {
+                    // Handle preflight request
+                    exchange.sendResponseHeaders(200, -1)
+                }
+                "POST" -> {
+                    try {
+                        // Read request body
+                        val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
+                        val json = JSONObject(requestBody)
+
+                        val email = json.getString("email")
+                        val name = json.optString("name", null)
+                        val languagesArray = json.getJSONArray("languages")
+                        val languages = mutableListOf<String>()
+
+                        for (i in 0 until languagesArray.length()) {
+                            languages.add(languagesArray.getString(i))
+                        }
+
+                        // Add subscriber
+                        addSubscriber(email, name, languages)
+
+                        // Send success response
+                        val response = """{"success": true, "message": "Subscription successful!"}"""
+                        exchange.responseHeaders.add("Content-Type", "application/json")
+                        exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
+                        exchange.responseBody.write(response.toByteArray())
+                        exchange.responseBody.close()
+
+                        println("✅ New subscriber added via API: $email")
+
+                    } catch (e: Exception) {
+                        // Send error response
+                        val response = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
+                        exchange.responseHeaders.add("Content-Type", "application/json")
+                        exchange.sendResponseHeaders(400, response.toByteArray().size.toLong())
+                        exchange.responseBody.write(response.toByteArray())
+                        exchange.responseBody.close()
+
+                        println("❌ Subscription error: ${e.message}")
+                    }
+                }
+                else -> {
+                    exchange.sendResponseHeaders(405, -1) // Method not allowed
+                }
+            }
         }
+
+        server.executor = null // Use default executor
+        server.start()
+        println("🚀 Subscription API server started on port $port")
+        println("📡 API endpoint: http://localhost:$port/subscribe")
     }
+    val subscribers = loadSubscribers().toMutableList()
+    val existingSubscriber = subscribers.find { it.email == email }
 
-    fun generateDailyWebsite(articles: List<Article>): String {
-        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
-        val grouped = articles.groupBy { it.category }
-        val articlesHtml = generateArticlesHtml(grouped)
+    if (existingSubscriber == null) {
+        val newSubscriber = Subscriber(
+            email = email,
+            name = name,
+            languages = languages,
+            subscribed = true,
+            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        )
+        subscribers.add(newSubscriber)
+        saveSubscribers(subscribers)
+        println("✅ Added new subscriber: $email")
+    } else {
+        println("⚠️ Subscriber already exists: $email")
+    }
+}
 
-        return """<!DOCTYPE html>
+fun generateDailyWebsite(articles: List<Article>): String {
+    val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+    val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
+    val grouped = articles.groupBy { it.category }
+    val articlesHtml = generateArticlesHtml(grouped)
+
+    return """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1001,8 +1071,7 @@ class AINewsSystem {
                 </div>
                 <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
                     ✅ Just notifications, not newsletters<br>
-                    ✅ Unsubscribe anytime<br>
-                    ✅ No spam, no ads
+                    ✅ Unsubscribe anytime
                 </p>
             </div>
             
@@ -1032,8 +1101,7 @@ class AINewsSystem {
                 </div>
                 <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
                     ✅ רק התראות, לא ניוזלטרים<br>
-                    ✅ ביטול מנוי בכל עת<br>
-                    ✅ ללא ספאם, ללא פרסומות
+                    ✅ ביטול מנוי בכל עת
                 </p>
             </div>
             
@@ -1063,8 +1131,7 @@ class AINewsSystem {
                 </div>
                 <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
                     ✅ Только уведомления, не рассылки<br>
-                    ✅ Отписаться в любое время<br>
-                    ✅ Без спама, без рекламы
+                    ✅ Отписаться в любое время
                 </p>
             </div>
             
@@ -1094,8 +1161,7 @@ class AINewsSystem {
                 </div>
                 <p style="font-size: 0.9rem; opacity: 0.8; margin-top: 20px;">
                     ✅ Μόνο ειδοποιήσεις, όχι newsletters<br>
-                    ✅ Κατάργηση εγγραφής ανά πάσα στιγμή<br>
-                    ✅ Χωρίς spam, χωρίς διαφημίσεις
+                    ✅ Κατάργηση εγγραφής ανά πάσα στιγμή
                 </p>
             </div>
         </div>
@@ -1221,6 +1287,42 @@ class AINewsSystem {
             
             console.log('Subscriber data:', subscriberData);
             
+            // Send subscription data to API
+            fetch('/subscribe', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(subscriberData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    successDiv.textContent = successMessages[currentLanguage];
+                    successDiv.style.display = 'block';
+                    
+                    // Clear form
+                    if (emailElement) emailElement.value = '';
+                    if (nameElement) nameElement.value = '';
+                    
+                    if (activeForm) {
+                        activeForm.querySelectorAll('input').forEach(checkbox => {
+                            checkbox.checked = checkbox.value === currentLanguage;
+                        });
+                    }
+                } else {
+                    errorDiv.textContent = data.message || errorMessages[currentLanguage]['email_required'];
+                    errorDiv.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                console.error('Subscription error:', error);
+                errorDiv.textContent = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+            });
+            
+            return; // Don't execute the old code below
+            
             successDiv.textContent = successMessages[currentLanguage];
             successDiv.style.display = 'block';
             
@@ -1240,15 +1342,15 @@ class AINewsSystem {
     </script>
 </body>
 </html>""".trimIndent()
-    }
+}
 
-    private fun generateArticlesHtml(grouped: Map<String, List<Article>>): String {
-        val html = StringBuilder()
+private fun generateArticlesHtml(grouped: Map<String, List<Article>>): String {
+    val html = StringBuilder()
 
-        grouped.forEach { (category, items) ->
-            val categoryTranslations = items.firstOrNull()?.categoryTranslations ?: emptyMap()
+    grouped.forEach { (category, items) ->
+        val categoryTranslations = items.firstOrNull()?.categoryTranslations ?: emptyMap()
 
-            html.append("""
+        html.append("""
         <h2>
             <span class="lang en active">${escapeHtml(categoryTranslations["en"] ?: category)}</span>
             <span class="lang he">${escapeHtml(categoryTranslations["he"] ?: category)}</span>
@@ -1256,12 +1358,12 @@ class AINewsSystem {
             <span class="lang el">${escapeHtml(categoryTranslations["el"] ?: category)}</span>
         </h2>""")
 
-            items.forEach { article ->
-                val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
-                val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
-                val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${URLEncoder.encode(article.url, "UTF-8")}"
+        items.forEach { article ->
+            val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
+            val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
+            val greekUrl = "https://translate.google.com/translate?sl=auto&tl=el&u=${URLEncoder.encode(article.url, "UTF-8")}"
 
-                html.append("""
+            html.append("""
         <div class="article">
             <div class="lang en active">
                 <div class="article-title">${escapeHtml(article.titleTranslations["en"] ?: article.title)}</div>
@@ -1285,20 +1387,20 @@ class AINewsSystem {
             </div>
         </div>
                 """.trimIndent())
-            }
         }
-
-        return html.toString()
     }
 
-    private fun escapeHtml(text: String): String {
-        return text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&#39;")
-    }
+    return html.toString()
+}
+
+private fun escapeHtml(text: String): String {
+    return text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&#39;")
+}
 }
 
 fun main() {
@@ -1316,6 +1418,11 @@ fun main() {
     println(if (githubToken != null) "✅ GITHUB_TOKEN configured" else "❌ GITHUB_TOKEN missing")
     println(if (fromEmail != null) "✅ FROM_EMAIL configured" else "✅ FROM_EMAIL using default")
     println(if (emailPassword != null) "✅ EMAIL_PASSWORD configured" else "⚠️ EMAIL_PASSWORD missing - email notifications disabled")
+
+    // Start subscription API server in background
+    thread {
+        system.startSubscriptionServer(8080)
+    }
 
     try {
         println("📰 Aggregating daily news...")
@@ -1346,6 +1453,7 @@ fun main() {
                 println("🌐 Website: https://ainews.eu.com")
                 println("📊 Articles processed: ${articles.size}")
                 println("📧 Notifications ready")
+                println("🔔 Subscription API running on port 8080")
             } else {
                 println("❌ Failed to upload website")
             }
@@ -1356,4 +1464,8 @@ fun main() {
         println("❌ Error in daily update: ${e.message}")
         e.printStackTrace()
     }
+
+    // Keep the program running to serve the API
+    println("🔄 Program will continue running to serve subscription API...")
+    println("🛑 Press Ctrl+C to stop")
 }
