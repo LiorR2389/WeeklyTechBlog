@@ -126,34 +126,35 @@ class AINewsSystem {
     }
 
     private fun generateSummary(title: String): String {
+        // Extract a more specific summary from the title itself
         val content = title.lowercase()
+        val words = title.split(" ")
+
+        // Create a more descriptive summary based on the actual title content
         return when {
-            content.contains("tech") || content.contains("ai") ||
-                    content.contains("digital") || content.contains("innovation") ||
-                    content.contains("startup") || content.contains("software") ->
-                "Technology advancement in Cyprus with potential economic impact."
+            content.contains("ai") || content.contains("artificial intelligence") ||
+                    content.contains("tech") || content.contains("digital") ||
+                    content.contains("startup") || content.contains("software") -> {
+                val keyWords = words.filter { it.length > 3 }.take(4).joinToString(" ")
+                "Technology development: $keyWords"
+            }
             content.contains("business") || content.contains("economy") ||
                     content.contains("financial") || content.contains("bank") ||
-                    content.contains("market") || content.contains("euro") ||
-                    content.contains("gdp") || content.contains("investment") ||
-                    content.contains("cclei") || content.contains("imd") ->
-                "Economic development affecting Cyprus business environment."
-            content.contains("real estate") || content.contains("property") ||
-                    content.contains("housing") || content.contains("construction") ->
-                "Real estate market update impacting Cyprus property sector."
-            content.contains("travel") || content.contains("tourism") ||
-                    content.contains("holiday") || content.contains("hotel") ||
-                    content.contains("festival") || content.contains("culture") ->
-                "Tourism and cultural development in Cyprus region."
-            content.contains("politics") || content.contains("government") ||
-                    content.contains("parliament") || content.contains("minister") ||
-                    content.contains("talks") || content.contains("negotiation") ->
-                "Political development with implications for Cyprus governance."
+                    content.contains("market") || content.contains("investment") -> {
+                val keyWords = words.filter { it.length > 3 }.take(4).joinToString(" ")
+                "Economic update: $keyWords"
+            }
             content.contains("crime") || content.contains("arrest") ||
                     content.contains("police") || content.contains("court") ||
-                    content.contains("fraud") || content.contains("theft") ->
-                "Legal matter affecting Cyprus public safety and justice."
-            else -> "General news story relevant to Cyprus current affairs."
+                    content.contains("fraud") -> {
+                val keyWords = words.filter { it.length > 3 }.take(4).joinToString(" ")
+                "Legal development: $keyWords"
+            }
+            else -> {
+                // Create a meaningful summary from the title itself
+                val keyWords = words.filter { it.length > 3 }.take(5).joinToString(" ")
+                keyWords.ifEmpty { title.take(60) + if (title.length > 60) "..." else "" }
+            }
         }
     }
 
