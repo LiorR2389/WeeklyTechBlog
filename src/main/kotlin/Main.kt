@@ -1030,18 +1030,26 @@ ${generateArticlesHtml(grouped)}
         }
 
         function subscribe() {
-            const currentLang = document.querySelector('.lang-buttons button.active').id.replace('btn-', '');
+            // Get current language from the active button
+            const activeButton = document.querySelector('.lang-buttons button.active');
+            const currentLanguage = activeButton ? activeButton.id.replace('btn-', '') : 'en';
             
             // Get form elements based on current language
-            const emailId = currentLang === 'en' ? 'email' : `email-${currentLang}`;
-            const nameId = currentLang === 'en' ? 'name' : `name-${currentLang}`;
-            const successId = currentLang === 'en' ? 'success-message' : `success-message-${currentLang}`;
-            const errorId = currentLang === 'en' ? 'error-message' : `error-message-${currentLang}`;
+            const emailSelector = currentLanguage === 'en' ? '#email' : '#email-' + currentLanguage;
+            const nameSelector = currentLanguage === 'en' ? '#name' : '#name-' + currentLanguage;
+            const successSelector = currentLanguage === 'en' ? '#success-message' : '#success-message-' + currentLanguage;
+            const errorSelector = currentLanguage === 'en' ? '#error-message' : '#error-message-' + currentLanguage;
             
-            const email = document.getElementById(emailId).value.trim();
-            const name = document.getElementById(nameId).value.trim();
-            const successDiv = document.getElementById(successId);
-            const errorDiv = document.getElementById(errorId);
+            const emailElement = document.querySelector(emailSelector);
+            const nameElement = document.querySelector(nameSelector);
+            const successElement = document.querySelector(successSelector);
+            const errorElement = document.querySelector(errorSelector);
+            
+            // Fallback to English if elements not found
+            const email = emailElement ? emailElement.value.trim() : document.querySelector('#email').value.trim();
+            const name = nameElement ? nameElement.value.trim() : document.querySelector('#name').value.trim();
+            const successDiv = successElement || document.querySelector('#success-message');
+            const errorDiv = errorElement || document.querySelector('#error-message');
             
             // Hide all messages first
             document.querySelectorAll('.success-message, .error-message').forEach(div => {
@@ -1074,34 +1082,41 @@ ${generateArticlesHtml(grouped)}
             
             // Success messages by language
             const successMessages = {
-                'en': `🎉 Success! You will receive daily notifications at ${email} when ainews.eu.com updates!`,
-                'he': `🎉 הצלחה! תקבלו התראות יומיות ב-${email} כאשר ainews.eu.com מתעדכן!`,
-                'ru': `🎉 Успех! Вы будете получать ежедневные уведомления на ${email} когда ainews.eu.com обновляется!`,
-                'el': `🎉 Επιτυχία! Θα λαμβάνετε καθημερινές ειδοποιήσεις στο ${email} όταν ενημερώνεται το ainews.eu.com!`
+                'en': '🎉 Success! You will receive daily notifications at ' + email + ' when ainews.eu.com updates!',
+                'he': '🎉 הצלחה! תקבלו התראות יומיות ב-' + email + ' כאשר ainews.eu.com מתעדכן!',
+                'ru': '🎉 Успех! Вы будете получать ежедневные уведомления на ' + email + ' когда ainews.eu.com обновляется!',
+                'el': '🎉 Επιτυχία! Θα λαμβάνετε καθημερινές ειδοποιήσεις στο ' + email + ' όταν ενημερώνεται το ainews.eu.com!'
             };
             
             if (!email) {
-                errorDiv.textContent = errorMessages[currentLang]['email_required'];
+                errorDiv.textContent = errorMessages[currentLanguage]['email_required'];
                 errorDiv.style.display = 'block';
                 return;
             }
             
             const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
             if (!emailRegex.test(email)) {
-                errorDiv.textContent = errorMessages[currentLang]['email_invalid'];
+                errorDiv.textContent = errorMessages[currentLanguage]['email_invalid'];
                 errorDiv.style.display = 'block';
                 return;
             }
             
-            // Get selected languages (use suffix for non-English languages)
-            const suffix = currentLang === 'en' ? '' : `-${currentLang}`;
+            // Get selected languages from the active language form
             const selectedLanguages = [];
-            document.querySelectorAll(`.lang.${currentLang} .language-option input:checked`).forEach(checkbox => {
-                selectedLanguages.push(checkbox.value);
-            });
+            const activeForm = document.querySelector('.lang.' + currentLanguage + ' .language-checkboxes');
+            if (activeForm) {
+                activeForm.querySelectorAll('input:checked').forEach(checkbox => {
+                    selectedLanguages.push(checkbox.value);
+                });
+            } else {
+                // Fallback to English form
+                document.querySelectorAll('.language-option input:checked').forEach(checkbox => {
+                    selectedLanguages.push(checkbox.value);
+                });
+            }
             
             if (selectedLanguages.length === 0) {
-                errorDiv.textContent = errorMessages[currentLang]['language_required'];
+                errorDiv.textContent = errorMessages[currentLanguage]['language_required'];
                 errorDiv.style.display = 'block';
                 return;
             }
@@ -1116,15 +1131,19 @@ ${generateArticlesHtml(grouped)}
             
             console.log('Subscriber data:', subscriberData);
             
-            successDiv.textContent = successMessages[currentLang];
+            successDiv.textContent = successMessages[currentLanguage];
             successDiv.style.display = 'block';
             
             // Clear form
-            document.getElementById(emailId).value = '';
-            document.getElementById(nameId).value = '';
-            document.querySelectorAll(`.lang.${currentLang} .language-option input`).forEach(checkbox => {
-                checkbox.checked = checkbox.value === currentLang;
-            });
+            if (emailElement) emailElement.value = '';
+            if (nameElement) nameElement.value = '';
+            
+            // Reset checkboxes to current language only
+            if (activeForm) {
+                activeForm.querySelectorAll('input').forEach(checkbox => {
+                    checkbox.checked = checkbox.value === currentLanguage;
+                });
+            }
         }
 
         document.addEventListener('DOMContentLoaded', function() {
