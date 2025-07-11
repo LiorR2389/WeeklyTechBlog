@@ -12,6 +12,9 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.Base64
 import java.net.URLEncoder
+import java.util.Properties
+import jakarta.mail.*
+import jakarta.mail.internet.*
 
 data class Article(
     val title: String,
@@ -20,7 +23,8 @@ data class Article(
     val category: String,
     val date: String,
     val titleTranslations: Map<String, String> = emptyMap(),
-    val summaryTranslations: Map<String, String> = emptyMap()
+    val summaryTranslations: Map<String, String> = emptyMap(),
+    val categoryTranslations: Map<String, String> = emptyMap()
 )
 
 data class Subscriber(
@@ -44,6 +48,9 @@ class AINewsSystem {
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     private val githubToken = System.getenv("GITHUB_TOKEN")
     private val fromEmail = System.getenv("FROM_EMAIL") ?: "hello@ainews.eu.com"
+    private val emailPassword = System.getenv("EMAIL_PASSWORD") // Gmail App Password
+    private val smtpHost = System.getenv("SMTP_HOST") ?: "smtp.gmail.com"
+    private val smtpPort = System.getenv("SMTP_PORT") ?: "587"
 
     // Updated news sources
     private val newsSources = mapOf(
@@ -242,6 +249,56 @@ class AINewsSystem {
         return translations
     }
 
+    private fun translateCategory(category: String): Map<String, String> {
+        val translations = mutableMapOf<String, String>()
+        translations["en"] = category
+
+        // Predefined category translations for consistency
+        val categoryTranslations = mapOf(
+            "Technology" to mapOf(
+                "he" to "טכנולוגיה",
+                "ru" to "Технологии",
+                "el" to "Τεχνολογία"
+            ),
+            "Business & Economy" to mapOf(
+                "he" to "עסקים וכלכלה",
+                "ru" to "Бизнес и экономика",
+                "el" to "Επιχειρήσεις και Οικονομία"
+            ),
+            "Real Estate" to mapOf(
+                "he" to "נדלן",
+                "ru" to "Недвижимость",
+                "el" to "Ακίνητα"
+            ),
+            "Holidays & Travel" to mapOf(
+                "he" to "חופשות ונסיעות",
+                "ru" to "Отдых и путешествия",
+                "el" to "Διακοπές και Ταξίδια"
+            ),
+            "Politics" to mapOf(
+                "he" to "פוליטיקה",
+                "ru" to "Политика",
+                "el" to "Πολιτική"
+            ),
+            "Crime & Justice" to mapOf(
+                "he" to "פשע וצדק",
+                "ru" to "Преступность и правосудие",
+                "el" to "Έγκλημα και Δικαιοσύνη"
+            ),
+            "General News" to mapOf(
+                "he" to "חדשות כלליות",
+                "ru" to "Общие новости",
+                "el" to "Γενικά Νέα"
+            )
+        )
+
+        categoryTranslations[category]?.let { predefinedTranslations ->
+            translations.putAll(predefinedTranslations)
+        }
+
+        return translations
+    }
+
     private fun categorizeArticle(title: String, summary: String): String {
         val content = "$title $summary".lowercase()
         return when {
@@ -341,15 +398,18 @@ class AINewsSystem {
                             val summary = generateSummary(title)
                             val titleTranslations = translateTitle(title)
                             val summaryTranslations = translateSummary(summary)
+                            val category = categorizeArticle(title, summary)
+                            val categoryTranslations = translateCategory(category)
 
                             articles.add(Article(
                                 title = title,
                                 url = articleUrl,
                                 summary = summary,
-                                category = categorizeArticle(title, summary),
+                                category = category,
                                 date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
                                 titleTranslations = titleTranslations,
-                                summaryTranslations = summaryTranslations
+                                summaryTranslations = summaryTranslations,
+                                categoryTranslations = categoryTranslations
                             ))
                         }
                     } catch (e: Exception) {
@@ -897,7 +957,17 @@ ${generateArticlesHtml(grouped)}
         val html = StringBuilder()
 
         grouped.forEach { (category, items) ->
-            html.append("\n        <h2>$category</h2>")
+            // Get category translation for the first article (they all have the same category)
+            val categoryTranslations = items.firstOrNull()?.categoryTranslations ?: emptyMap()
+
+            html.append("""
+        <h2>
+            <span class="lang en active">${escapeHtml(categoryTranslations["en"] ?: category)}</span>
+            <span class="lang he">${escapeHtml(categoryTranslations["he"] ?: category)}</span>
+            <span class="lang ru">${escapeHtml(categoryTranslations["ru"] ?: category)}</span>
+            <span class="lang el">${escapeHtml(categoryTranslations["el"] ?: category)}</span>
+        </h2>""")
+
             items.forEach { article ->
                 val hebrewUrl = "https://translate.google.com/translate?sl=auto&tl=he&u=${URLEncoder.encode(article.url, "UTF-8")}"
                 val russianUrl = "https://translate.google.com/translate?sl=auto&tl=ru&u=${URLEncoder.encode(article.url, "UTF-8")}"
@@ -970,9 +1040,159 @@ ${generateArticlesHtml(grouped)}
             return
         }
 
-        // Email functionality temporarily disabled - will add back later
-        println("📧 Email notifications temporarily disabled")
-        println("📧 Would notify ${subscribers.size} subscribers about ${articles.size} articles")
+        if (emailPassword.isNullOrEmpty()) {
+            println("📧 Email password not configured - notifications disabled")
+            println("📧 Would notify ${subscribers.size} subscribers about ${articles.size} articles")
+            return
+        }
+
+        println("📧 Sending notifications to ${subscribers.size} subscribers...")
+
+        subscribers.forEach { subscriber ->
+            try {
+                sendEmailNotification(subscriber, articles, websiteUrl)
+                println("✅ Email sent to ${subscriber.email}")
+                Thread.sleep(1000) // Rate limiting
+            } catch (e: Exception) {
+                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+            }
+        }
+
+        println("📧 Daily notifications complete!")
+    }
+
+    private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
+        val props = Properties().apply {
+            put("mail.smtp.auth", "true")
+            put("mail.smtp.starttls.enable", "true")
+            put("mail.smtp.host", smtpHost)
+            put("mail.smtp.port", smtpPort)
+            put("mail.smtp.ssl.protocols", "TLSv1.2")
+        }
+
+        val session = Session.getInstance(props, object : Authenticator() {
+            override fun getPasswordAuthentication(): PasswordAuthentication {
+                return PasswordAuthentication(fromEmail, emailPassword)
+            }
+        })
+
+        val message = MimeMessage(session).apply {
+            setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
+            setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
+
+            // Multilingual subject
+            val subjectTranslations = mapOf(
+                "en" to "🤖 Your Daily Cyprus News Update - ${articles.size} new stories",
+                "he" to "🤖 עדכון החדשות היומי שלך מקפריסין - ${articles.size} סיפורים חדשים",
+                "ru" to "🤖 Ваши ежедневные новости Кипра - ${articles.size} новых историй",
+                "el" to "🤖 Η καθημερινή ενημέρωσή σας για την Κύπρο - ${articles.size} νέες ιστορίες"
+            )
+
+            subject = subjectTranslations[subscriber.languages.firstOrNull()]
+                ?: subjectTranslations["en"]!!
+
+            val htmlContent = generateEmailHtml(subscriber, articles, websiteUrl)
+            setContent(htmlContent, "text/html; charset=utf-8")
+        }
+
+        Transport.send(message)
+    }
+
+    private fun generateEmailHtml(subscriber: Subscriber, articles: List<Article>, websiteUrl: String): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val primaryLang = subscriber.languages.firstOrNull() ?: "en"
+
+        val greetingTranslations = mapOf(
+            "en" to "Hello ${subscriber.name ?: "there"}!",
+            "he" to "שלום ${subscriber.name ?: ""}!",
+            "ru" to "Привет ${subscriber.name ?: ""}!",
+            "el" to "Γεια σας ${subscriber.name ?: ""}!"
+        )
+
+        val introTranslations = mapOf(
+            "en" to "Here are your fresh Cyprus news updates for $currentDate:",
+            "he" to "הנה עדכוני החדשות הטריים שלך מקפריסין עבור $currentDate:",
+            "ru" to "Вот ваши свежие новости Кипра на $currentDate:",
+            "el" to "Εδώ είναι οι νέες ειδήσεις σας από την Κύπρο για $currentDate:"
+        )
+
+        val viewWebsiteTranslations = mapOf(
+            "en" to "📖 View Full Website",
+            "he" to "📖 צפה באתר המלא",
+            "ru" to "📖 Посмотреть полный сайт",
+            "el" to "📖 Δείτε την πλήρη ιστοσελίδα"
+        )
+
+        val greeting = greetingTranslations[primaryLang] ?: greetingTranslations["en"]!!
+        val intro = introTranslations[primaryLang] ?: introTranslations["en"]!!
+        val viewWebsite = viewWebsiteTranslations[primaryLang] ?: viewWebsiteTranslations["en"]!!
+
+        val grouped = articles.groupBy { it.category }
+        val articlesHtml = StringBuilder()
+
+        grouped.forEach { (category, items) ->
+            val categoryName = items.firstOrNull()?.categoryTranslations?.get(primaryLang) ?: category
+            articlesHtml.append("""
+                <h3 style="color: #667eea; border-bottom: 2px solid #667eea; padding-bottom: 5px;">$categoryName</h3>
+            """)
+
+            items.take(3).forEach { article -> // Limit to 3 articles per category for email
+                val title = article.titleTranslations[primaryLang] ?: article.title
+                val summary = article.summaryTranslations[primaryLang] ?: article.summary
+
+                articlesHtml.append("""
+                    <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-left: 4px solid #667eea;">
+                        <h4 style="margin: 0 0 8px 0; color: #333;"><a href="${article.url}" style="color: #333; text-decoration: none;">${escapeHtml(title)}</a></h4>
+                        <p style="margin: 0 0 10px 0; color: #666; font-style: italic;">${escapeHtml(summary)}</p>
+                        <a href="${article.url}" style="color: #667eea; text-decoration: none; font-weight: 600;">Read more →</a>
+                    </div>
+                """)
+            }
+        }
+
+        return """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI News Cyprus - Daily Update</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; margin: 0; padding: 20px; background: #f5f5f5;">
+    <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+            <h1 style="margin: 0; font-size: 2rem;">🤖 AI News</h1>
+            <p style="margin: 5px 0 0 0; opacity: 0.9;">Cyprus Daily Digest</p>
+        </div>
+        
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <h2 style="margin: 0 0 20px 0; color: #333;">$greeting</h2>
+            <p style="margin: 0 0 25px 0; color: #666;">$intro</p>
+            
+            $articlesHtml
+            
+            <!-- View Website Button -->
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="$websiteUrl" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; padding: 15px 30px; border-radius: 25px; font-weight: 600;">$viewWebsite</a>
+            </div>
+            
+            <!-- Footer -->
+            <div style="border-top: 1px solid #ddd; padding-top: 20px; margin-top: 30px; text-align: center; color: #666; font-size: 0.9rem;">
+                <p>This is your daily notification from <a href="$websiteUrl" style="color: #667eea;">ainews.eu.com</a></p>
+                <p>Powered by AI • Updated daily at 7:00 AM Cyprus Time</p>
+                <p style="font-size: 0.8rem; margin-top: 15px;">
+                    <a href="$websiteUrl" style="color: #667eea;">Unsubscribe</a> • 
+                    <a href="$websiteUrl" style="color: #667eea;">Manage preferences</a>
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+        """.trimIndent()
     }
 }
 
@@ -985,10 +1205,12 @@ fun main() {
     val openAiKey = System.getenv("OPENAI_API_KEY")
     val githubToken = System.getenv("GITHUB_TOKEN")
     val fromEmail = System.getenv("FROM_EMAIL")
+    val emailPassword = System.getenv("EMAIL_PASSWORD")
 
     println(if (openAiKey != null) "✅ OPENAI_API_KEY configured" else "❌ OPENAI_API_KEY missing")
     println(if (githubToken != null) "✅ GITHUB_TOKEN configured" else "❌ GITHUB_TOKEN missing")
     println(if (fromEmail != null) "✅ FROM_EMAIL configured" else "✅ FROM_EMAIL using default")
+    println(if (emailPassword != null) "✅ EMAIL_PASSWORD configured" else "⚠️ EMAIL_PASSWORD missing - email notifications disabled")
 
     try {
         println("📰 Aggregating daily news...")

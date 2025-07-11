@@ -26,8 +26,9 @@ dependencies {
     // JSON processing
     implementation("org.json:json:20231013")
 
-    // Jakarta Mail for email (if needed later)
+    // Jakarta Mail for email functionality
     implementation("com.sun.mail:jakarta.mail:2.0.1")
+    implementation("jakarta.mail:jakarta.mail-api:2.1.2")
 }
 
 application {
