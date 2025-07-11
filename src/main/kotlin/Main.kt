@@ -2,7 +2,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody  // ADD THIS LINE
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.json.JSONObject
@@ -780,6 +780,15 @@ ${generateArticlesHtml(grouped)}
                 <input type="text" id="name" placeholder="Your name (optional)">
                 <div class="language-checkboxes">
                     <div class="language-option">
+                        <input type="checkbox" id="lang-en" value="en" checked> 🇬🇧 English
+                    </div>
+                    <div class="language-option">
+                        <input type="checkbox" id="lang-he" value="he"> 🇮🇱 עברית
+                    </div>
+                    <div class="language-option">
+                        <input type="checkbox" id="lang-ru" value="ru"> 🇷🇺 Русский
+                    </div>
+                    <div class="language-option">
                         <input type="checkbox" id="lang-el" value="el"> 🇬🇷 Ελληνικά
                     </div>
                 </div>
@@ -1020,13 +1029,4 @@ fun main() {
         println("❌ Error in daily update: ${e.message}")
         e.printStackTrace()
     }
-}" id="lang-en" value="en" checked> 🇬🇧 English
-</div>
-<div class="language-option">
-<input type="checkbox" id="lang-he" value="he"> 🇮🇱 עברית
-</div>
-<div class="language-option">
-<input type="checkbox" id="lang-ru" value="ru"> 🇷🇺 Русский
-</div>
-<div class="language-option">
-<input type="checkbox
+}
