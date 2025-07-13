@@ -111,7 +111,7 @@ class AINewsSystem {
         println("📧 Total subscribers after import: ${currentSubscribers.size}")
     }
 
-    private fun loadSubscribers(): List<Subscriber> {
+    fun loadSubscribers(): List<Subscriber> {
         return if (subscribersFile.exists()) {
             try {
                 val json = subscribersFile.readText()
