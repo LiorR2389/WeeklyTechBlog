@@ -331,10 +331,10 @@ class AINewsSystem {
                         println("📧 Processing subscription for: $email")
                         addSubscriber(email, name, languages)
 
-                        val response = """{"success": true, "message": "Subscription successful!"}"""
+                        val successResponse = """{"success": true, "message": "Subscription successful!"}"""
                         exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
-                        exchange.responseBody.write(response.toByteArray())
+                        exchange.sendResponseHeaders(200, successResponse.toByteArray().size.toLong())
+                        exchange.responseBody.write(successResponse.toByteArray())
                         exchange.responseBody.close()
 
                         println("✅ New subscriber added via API: $email")
