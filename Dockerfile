@@ -1,11 +1,9 @@
-FROM eclipse-temurin:17-jdk-alpine
-
-# Install gradle
-RUN apk add --no-cache gradle
+FROM gradle:8.11.1-jdk17
 
 COPY . /app
 WORKDIR /app
 
-RUN gradle build --no-daemon EXPOSE 8080
+RUN gradle build --no-daemon
+EXPOSE 8080
 
 CMD ["gradle", "run", "--no-daemon"]
