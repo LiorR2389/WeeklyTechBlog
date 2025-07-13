@@ -301,15 +301,22 @@ class AINewsSystem {
         val server = HttpServer.create(InetSocketAddress(port), 0)
 
         server.createContext("/subscribe") { exchange ->
+            println("📥 Received ${exchange.requestMethod} request to /subscribe")
+
             exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
             exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
             exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
 
             when (exchange.requestMethod) {
-                "OPTIONS" -> exchange.sendResponseHeaders(200, -1)
+                "OPTIONS" -> {
+                    println("✅ Handling OPTIONS request")
+                    exchange.sendResponseHeaders(200, -1)
+                }
                 "POST" -> {
                     try {
                         val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
+                        println("📋 Request body: $requestBody")
+
                         val json = JSONObject(requestBody)
 
                         val email = json.getString("email")
@@ -321,6 +328,7 @@ class AINewsSystem {
                             languages.add(languagesArray.getString(i))
                         }
 
+                        println("📧 Processing subscription for: $email")
                         addSubscriber(email, name, languages)
 
                         val response = """{"success": true, "message": "Subscription successful!"}"""
@@ -329,23 +337,30 @@ class AINewsSystem {
                         exchange.responseBody.write(response.toByteArray())
                         exchange.responseBody.close()
 
-                        println("✅ New subscriber: $email")
+                        println("✅ New subscriber added via API: $email")
 
                     } catch (e: Exception) {
-                        val response = """{"success": false, "message": "Subscription failed"}"""
+                        println("❌ Error processing subscription: ${e.message}")
+                        e.printStackTrace()
+
+                        val response = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
                         exchange.responseHeaders.add("Content-Type", "application/json")
                         exchange.sendResponseHeaders(400, response.toByteArray().size.toLong())
                         exchange.responseBody.write(response.toByteArray())
                         exchange.responseBody.close()
                     }
                 }
-                else -> exchange.sendResponseHeaders(405, -1)
+                else -> {
+                    println("❌ Method not allowed: ${exchange.requestMethod}")
+                    exchange.sendResponseHeaders(405, -1)
+                }
             }
         }
 
         server.executor = null
         server.start()
         println("🚀 Subscription API server started on port $port")
+        println("🔗 API endpoint: http://localhost:$port/subscribe")
     }
 
     fun uploadToGitHubPages(html: String): String {
@@ -673,9 +688,18 @@ class AINewsSystem {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subscriberData)
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Successfully subscribed via API:', data);
+            })
             .catch(error => {
-                console.log('API not available, using localStorage');
+                console.error('API subscription failed:', error);
+                console.log('Subscription saved locally only');
             });
             
             messageDiv.innerHTML = '<p style="color: green;">✅ Subscribed successfully! You will receive notifications.</p>';
