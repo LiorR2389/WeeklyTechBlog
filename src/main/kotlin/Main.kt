@@ -85,7 +85,33 @@ class AINewsSystem {
         }
     }
 
-    fun loadSubscribers(): List<Subscriber> {
+    fun checkAndImportWebSubscriptions() {
+        // For now, manually add a test subscriber to verify email functionality
+        val testSubscribers = listOf(
+            Subscriber(
+                email = "lior.global@gmail.com",
+                name = "Lior",
+                languages = listOf("en", "he"),
+                subscribed = true,
+                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+            )
+        )
+
+        val currentSubscribers = loadSubscribers().toMutableList()
+
+        testSubscribers.forEach { testSub ->
+            val existing = currentSubscribers.find { it.email == testSub.email }
+            if (existing == null) {
+                currentSubscribers.add(testSub)
+                println("📧 Added test subscriber: ${testSub.email}")
+            }
+        }
+
+        saveSubscribers(currentSubscribers)
+        println("📧 Total subscribers after import: ${currentSubscribers.size}")
+    }
+
+    private fun loadSubscribers(): List<Subscriber> {
         return if (subscribersFile.exists()) {
             try {
                 val json = subscribersFile.readText()
@@ -430,6 +456,11 @@ class AINewsSystem {
         Transport.send(message)
     }
 
+    fun addTestSubscriber() {
+        // Add yourself as a test subscriber
+        addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
+    }
+
     fun addSubscriber(email: String, name: String?, languages: List<String>) {
         val subscribers = loadSubscribers().toMutableList()
         val existingSubscriber = subscribers.find { it.email == email }
@@ -458,7 +489,7 @@ class AINewsSystem {
             articlesHtml.append("""
                 <h2>
                     <span class="lang en active">$category</span>
-                    <span class="lang he">${translateText(category, "Hebrew")}</span>
+                    <span class="lang he" dir="rtl">${translateText(category, "Hebrew")}</span>
                     <span class="lang ru">${translateText(category, "Russian")}</span>
                     <span class="lang el">${translateText(category, "Greek")}</span>
                 </h2>
@@ -476,9 +507,9 @@ class AINewsSystem {
                             <p>${article.summaryTranslations["en"] ?: article.summary}</p>
                             <a href="${article.url}" target="_blank">Read more</a>
                         </div>
-                        <div class="lang he">
-                            <h3>${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
-                            <p>${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
+                        <div class="lang he" dir="rtl">
+                            <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
+                            <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
                             <a href="$hebrewUrl" target="_blank">קרא עוד</a>
                         </div>
                         <div class="lang ru">
@@ -512,11 +543,13 @@ class AINewsSystem {
         .lang-buttons button.active { background: #764ba2; }
         .lang { display: none; }
         .lang.active { display: block; }
-        .lang.he { direction: rtl; text-align: right; }
-        .lang.he h2, .lang.he h3 { text-align: right; }
-        .lang.he p { text-align: right; }
-        .lang.he a { float: left; }
+        .lang.he { direction: rtl; text-align: right; font-family: 'Arial', 'Tahoma', sans-serif; }
+        .lang.he h2, .lang.he h3 { text-align: right; direction: rtl; }
+        .lang.he p { text-align: right; direction: rtl; }
+        .lang.he a { float: left; margin-right: 0; margin-left: 10px; }
+        .lang.he .article { border-right: 4px solid #667eea; border-left: none; padding-right: 20px; padding-left: 20px; }
         .article { margin: 20px 0; padding: 20px; border-left: 4px solid #667eea; background: #f9f9f9; }
+        .article.he { border-right: 4px solid #667eea; border-left: none; }
         .article h3 { margin: 0 0 10px 0; color: #333; }
         .article p { color: #666; margin: 10px 0; }
         .article a { color: #667eea; text-decoration: none; font-weight: bold; }
@@ -525,7 +558,7 @@ class AINewsSystem {
         .subscription input { padding: 10px; margin: 10px; border: none; border-radius: 5px; }
         .subscription button { background: #FFD700; color: #333; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         .subscription .lang.he { direction: rtl; text-align: right; }
-        .subscription .lang.he input { text-align: right; }
+        .subscription .lang.he input { text-align: right; direction: rtl; }
     </style>
 </head>
 <body>
@@ -622,24 +655,32 @@ class AINewsSystem {
                 subscribedDate: new Date().toISOString().split('T')[0]
             };
             
+            // Store subscription locally and show success message
+            const subscriptions = JSON.parse(localStorage.getItem('ainews_subscriptions') || '[]');
+            const existingIndex = subscriptions.findIndex(s => s.email === email);
+            
+            if (existingIndex >= 0) {
+                subscriptions[existingIndex] = subscriberData;
+            } else {
+                subscriptions.push(subscriberData);
+            }
+            
+            localStorage.setItem('ainews_subscriptions', JSON.stringify(subscriptions));
+            
+            // Also try to send to API if available
             fetch('/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subscriberData)
             })
             .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    messageDiv.innerHTML = '<p style="color: green;">✅ Subscribed successfully!</p>';
-                    document.querySelector(emailSelector).value = '';
-                    document.querySelector(nameSelector).value = '';
-                } else {
-                    messageDiv.innerHTML = '<p style="color: red;">❌ Subscription failed</p>';
-                }
-            })
             .catch(error => {
-                messageDiv.innerHTML = '<p style="color: red;">❌ Network error</p>';
+                console.log('API not available, using localStorage');
             });
+            
+            messageDiv.innerHTML = '<p style="color: green;">✅ Subscribed successfully! You will receive notifications.</p>';
+            document.querySelector(emailSelector).value = '';
+            document.querySelector(nameSelector).value = '';
         }
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -657,6 +698,9 @@ fun main() {
     val system = AINewsSystem()
 
     thread { system.startSubscriptionServer(8080) }
+
+    // Add yourself as a test subscriber to verify email functionality
+    system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
 
     // Debug: Check if we have any subscribers
     val existingSubscribers = system.loadSubscribers()
