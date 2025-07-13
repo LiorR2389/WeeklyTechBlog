@@ -344,28 +344,36 @@ class AINewsSystem {
     fun startSubscriptionServer(port: Int = 8080) {
         try {
             println("🔧 Creating HTTP server on port $port...")
-            val server = HttpServer.create(InetSocketAddress("0.0.0.0", port), 0)
+
+            // Try binding to all interfaces explicitly
+            val address = InetSocketAddress("0.0.0.0", port)
+            println("🔗 Binding to address: ${address.hostString}:${address.port}")
+
+            val server = HttpServer.create(address, 0)
             println("✅ HTTP server created successfully")
 
+            // Add a simple test endpoint
             server.createContext("/") { exchange ->
-                println("📥 Received request to root path")
-                val response = "AI News Subscription Server is running!"
+                println("📥 Received request to root path from ${exchange.remoteAddress}")
+                val response = "AI News Subscription Server is running! Time: ${java.time.Instant.now()}"
+                exchange.responseHeaders.add("Content-Type", "text/plain")
                 exchange.sendResponseHeaders(200, response.length.toLong())
                 exchange.responseBody.write(response.toByteArray())
                 exchange.responseBody.close()
             }
 
             server.createContext("/health") { exchange ->
-                println("📥 Health check request")
-                val response = """{"status":"healthy","timestamp":"${java.time.Instant.now()}"}"""
+                println("📥 Health check request from ${exchange.remoteAddress}")
+                val response = """{"status":"healthy","timestamp":"${java.time.Instant.now()}","port":$port}"""
                 exchange.responseHeaders.add("Content-Type", "application/json")
+                exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
                 exchange.sendResponseHeaders(200, response.length.toLong())
                 exchange.responseBody.write(response.toByteArray())
                 exchange.responseBody.close()
             }
 
             server.createContext("/subscribe") { exchange ->
-                println("📥 Received ${exchange.requestMethod} request to /subscribe")
+                println("📥 Received ${exchange.requestMethod} request to /subscribe from ${exchange.remoteAddress}")
 
                 exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
                 exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
@@ -428,30 +436,22 @@ class AINewsSystem {
             server.start()
 
             println("🚀 Subscription API server started on port $port")
-            println("🔗 API endpoint: http://localhost:$port/subscribe")
+            println("🔗 API endpoint: http://0.0.0.0:$port/subscribe")
+            println("🔗 Health check: http://0.0.0.0:$port/health")
+            println("🔗 Root page: http://0.0.0.0:$port/")
 
-            // Test if the server is actually listening
-            println("🧪 Testing server binding...")
-            Thread.sleep(1000) // Give server time to fully start
+            // Test internal connectivity
+            println("🧪 Testing internal server connectivity...")
+            Thread.sleep(1000)
 
             try {
-                println("🔍 Checking what's listening on port $port...")
-                val process = ProcessBuilder("netstat", "-an").start()
-                val output = process.inputStream.bufferedReader().readText()
-                val listeningPorts = output.lines().filter { it.contains(":$port") }
-
-                if (listeningPorts.isNotEmpty()) {
-                    println("✅ Found server listening:")
-                    listeningPorts.forEach { println("   $it") }
-                } else {
-                    println("❌ No process found listening on port $port")
-                    println("🔍 All listening ports:")
-                    output.lines().filter { it.contains("LISTENING") }.take(5).forEach {
-                        println("   $it")
-                    }
-                }
+                // Try to connect to ourselves
+                val testClient = java.net.Socket()
+                testClient.connect(InetSocketAddress("127.0.0.1", port), 5000)
+                testClient.close()
+                println("✅ Internal connectivity test PASSED")
             } catch (e: Exception) {
-                println("⚠️ Could not check port status: ${e.message}")
+                println("❌ Internal connectivity test FAILED: ${e.message}")
             }
 
         } catch (e: Exception) {
