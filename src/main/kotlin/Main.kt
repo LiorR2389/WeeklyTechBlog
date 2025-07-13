@@ -344,8 +344,25 @@ class AINewsSystem {
     fun startSubscriptionServer(port: Int = 8080) {
         try {
             println("🔧 Creating HTTP server on port $port...")
-            val server = HttpServer.create(InetSocketAddress(port), 0)
+            val server = HttpServer.create(InetSocketAddress("0.0.0.0", port), 0)
             println("✅ HTTP server created successfully")
+
+            server.createContext("/") { exchange ->
+                println("📥 Received request to root path")
+                val response = "AI News Subscription Server is running!"
+                exchange.sendResponseHeaders(200, response.length.toLong())
+                exchange.responseBody.write(response.toByteArray())
+                exchange.responseBody.close()
+            }
+
+            server.createContext("/health") { exchange ->
+                println("📥 Health check request")
+                val response = """{"status":"healthy","timestamp":"${java.time.Instant.now()}"}"""
+                exchange.responseHeaders.add("Content-Type", "application/json")
+                exchange.sendResponseHeaders(200, response.length.toLong())
+                exchange.responseBody.write(response.toByteArray())
+                exchange.responseBody.close()
+            }
 
             server.createContext("/subscribe") { exchange ->
                 println("📥 Received ${exchange.requestMethod} request to /subscribe")
@@ -415,13 +432,26 @@ class AINewsSystem {
 
             // Test if the server is actually listening
             println("🧪 Testing server binding...")
+            Thread.sleep(1000) // Give server time to fully start
+
             try {
-                val testSocket = java.net.ServerSocket()
-                testSocket.bind(java.net.InetSocketAddress(port + 1))
-                testSocket.close()
-                println("✅ Port binding test successful - server should be accessible")
+                println("🔍 Checking what's listening on port $port...")
+                val process = ProcessBuilder("netstat", "-an").start()
+                val output = process.inputStream.bufferedReader().readText()
+                val listeningPorts = output.lines().filter { it.contains(":$port") }
+
+                if (listeningPorts.isNotEmpty()) {
+                    println("✅ Found server listening:")
+                    listeningPorts.forEach { println("   $it") }
+                } else {
+                    println("❌ No process found listening on port $port")
+                    println("🔍 All listening ports:")
+                    output.lines().filter { it.contains("LISTENING") }.take(5).forEach {
+                        println("   $it")
+                    }
+                }
             } catch (e: Exception) {
-                println("⚠️ Port binding test failed: ${e.message}")
+                println("⚠️ Could not check port status: ${e.message}")
             }
 
         } catch (e: Exception) {
