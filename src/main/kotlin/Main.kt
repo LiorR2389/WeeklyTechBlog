@@ -1,4 +1,12 @@
-import com.google.gson.Gson
+<div class="subscription">
+<div class="lang en active">
+<h3>🔔 Get Daily Notifications</h3>
+<p>Email us to subscribe: <strong>lior.global@gmail.com</strong></p>
+<p>Include your name and preferred languages (English, Hebrew, Russian, Greek)</p>
+<div id="message"></div>
+</div>
+<div class="lang he">
+<h3>🔔 קimport com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -695,38 +703,51 @@ class AINewsSystem {
             <div class="lang en active">
                 <h3>🔔 Get Daily Notifications</h3>
                 <p>Get email notifications when fresh news is published</p>
-                <input type="email" id="email" placeholder="your@email.com">
-                <input type="text" id="name" placeholder="Your name (optional)">
-                <br>
-                <button onclick="subscribe()">🔔 Subscribe</button>
+                <form action="https://formspree.io/f/xovlajpa" method="POST" id="subscription-form">
+                    <input type="email" name="email" placeholder="your@email.com" required>
+                    <input type="text" name="name" placeholder="Your name (optional)">
+                    <input type="hidden" name="languages" value="en" id="hidden-languages">
+                    <input type="hidden" name="_subject" value="AI News Cyprus Subscription">
+                    <br>
+                    <button type="submit">🔔 Subscribe</button>
+                </form>
                 <div id="message"></div>
             </div>
             <div class="lang he">
                 <h3>🔔 קבלו התראות יומיות</h3>
                 <p>קבלו התראות כאשר חדשות טריות מתפרסמות</p>
-                <input type="email" id="email-he" placeholder="הדוא״ל שלכם">
-                <input type="text" id="name-he" placeholder="השם שלכם (אופציונלי)">
-                <br>
-                <button onclick="subscribe()">🔔 הירשמו</button>
-                <div id="message-he"></div>
+                <form action="https://formspree.io/f/xovlajpa" method="POST">
+                    <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
+                    <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
+                    <input type="hidden" name="languages" value="he">
+                    <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Hebrew)">
+                    <br>
+                    <button type="submit">🔔 הירשמו</button>
+                </form>
             </div>
             <div class="lang ru">
                 <h3>🔔 Получайте уведомления</h3>
                 <p>Получайте уведомления о свежих новостях</p>
-                <input type="email" id="email-ru" placeholder="ваш@email.com">
-                <input type="text" id="name-ru" placeholder="Ваше имя (необязательно)">
-                <br>
-                <button onclick="subscribe()">🔔 Подписаться</button>
-                <div id="message-ru"></div>
+                <form action="https://formspree.io/f/xovlajpa" method="POST">
+                    <input type="email" name="email" placeholder="ваш@email.com" required>
+                    <input type="text" name="name" placeholder="Ваше имя (необязательно)">
+                    <input type="hidden" name="languages" value="ru">
+                    <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Russian)">
+                    <br>
+                    <button type="submit">🔔 Подписаться</button>
+                </form>
             </div>
             <div class="lang el">
                 <h3>🔔 Λάβετε ειδοποιήσεις</h3>
                 <p>Λάβετε ειδοποιήσεις για φρέσκα νέα</p>
-                <input type="email" id="email-el" placeholder="το@email.σας">
-                <input type="text" id="name-el" placeholder="Το όνομά σας (προαιρετικό)">
-                <br>
-                <button onclick="subscribe()">🔔 Εγγραφή</button>
-                <div id="message-el"></div>
+                <form action="https://formspree.io/f/xovlajpa" method="POST">
+                    <input type="email" name="email" placeholder="το@email.σας" required>
+                    <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
+                    <input type="hidden" name="languages" value="el">
+                    <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Greek)">
+                    <br>
+                    <button type="submit">🔔 Εγγραφή</button>
+                </form>
             </div>
         </div>
         
@@ -745,64 +766,12 @@ class AINewsSystem {
             document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
             document.getElementById('btn-' + lang).classList.add('active');
             currentLang = lang;
-        }
-
-        function subscribe() {
-            const emailSelector = currentLang === 'en' ? '#email' : '#email-' + currentLang;
-            const nameSelector = currentLang === 'en' ? '#name' : '#name-' + currentLang;
-            const messageSelector = currentLang === 'en' ? '#message' : '#message-' + currentLang;
             
-            const email = document.querySelector(emailSelector).value.trim();
-            const name = document.querySelector(nameSelector).value.trim();
-            const messageDiv = document.querySelector(messageSelector);
-            
-            if (!email) {
-                messageDiv.innerHTML = '<p style="color: red;">Please enter your email</p>';
-                return;
+            // Update the hidden language field for the active form
+            const hiddenField = document.querySelector('.lang.' + lang + ' input[name="languages"]');
+            if (hiddenField) {
+                hiddenField.value = lang;
             }
-            
-            const subscriberData = {
-                email: email,
-                name: name || null,
-                languages: [currentLang],
-                subscribed: true,
-                subscribedDate: new Date().toISOString().split('T')[0]
-            };
-            
-            // Store subscription locally and show success message
-            const subscriptions = JSON.parse(localStorage.getItem('ainews_subscriptions') || '[]');
-            const existingIndex = subscriptions.findIndex(s => s.email === email);
-            
-            if (existingIndex >= 0) {
-                subscriptions[existingIndex] = subscriberData;
-            } else {
-                subscriptions.push(subscriberData);
-            }
-            
-            localStorage.setItem('ainews_subscriptions', JSON.stringify(subscriptions));
-            
-            fetch('/subscribe', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(subscriberData)
-            })
-            .then(function(response) {
-                if (!response.ok) {
-                    throw new Error('HTTP error! status: ' + response.status);
-                }
-                return response.json();
-            })
-            .then(function(data) {
-                console.log('Successfully subscribed via API:', data);
-            })
-            .catch(function(error) {
-                console.error('API subscription failed:', error);
-                console.log('Subscription saved locally only');
-            });
-            
-            messageDiv.innerHTML = '<p style="color: green;">✅ Subscribed successfully! You will receive notifications.</p>';
-            document.querySelector(emailSelector).value = '';
-            document.querySelector(nameSelector).value = '';
         }
 
         document.addEventListener('DOMContentLoaded', function() {
