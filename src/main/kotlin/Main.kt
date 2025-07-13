@@ -343,10 +343,10 @@ class AINewsSystem {
                         println("❌ Error processing subscription: ${e.message}")
                         e.printStackTrace()
 
-                        val response = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
+                        val errorResponse = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
                         exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(400, response.toByteArray().size.toLong())
-                        exchange.responseBody.write(response.toByteArray())
+                        exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
+                        exchange.responseBody.write(errorResponse.toByteArray())
                         exchange.responseBody.close()
                     }
                 }
