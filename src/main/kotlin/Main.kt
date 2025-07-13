@@ -342,6 +342,7 @@ class AINewsSystem {
     }
 
     fun startSubscriptionServer(port: Int = 8080) {
+        println("⚠️ Starting HTTP server - if this fails, use CSV subscription method")
         try {
             println("🔧 Creating HTTP server on port $port...")
 
@@ -820,10 +821,10 @@ fun main() {
 
     // Start subscription server with more debugging
     println("🔄 Starting subscription server thread...")
-    val serverThread = thread {
+    val serverThread =     thread {
         try {
-            println("📡 About to start subscription server on port 3000...")
-            system.startSubscriptionServer(3000)
+            println("📡 About to start subscription server on port 8080...")
+            system.startSubscriptionServer(8080)
         } catch (e: Exception) {
             println("❌ Failed to start subscription server: ${e.message}")
             e.printStackTrace()
