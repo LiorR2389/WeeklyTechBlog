@@ -682,22 +682,21 @@ class AINewsSystem {
             
             localStorage.setItem('ainews_subscriptions', JSON.stringify(subscriptions));
             
-            // Also try to send to API if available
             fetch('/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subscriberData)
             })
-            .then(response => {
+            .then(function(response) {
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error('HTTP error! status: ' + response.status);
                 }
                 return response.json();
             })
-            .then(data => {
+            .then(function(data) {
                 console.log('Successfully subscribed via API:', data);
             })
-            .catch(error => {
+            .catch(function(error) {
                 console.error('API subscription failed:', error);
                 console.log('Subscription saved locally only');
             });
