@@ -93,130 +93,197 @@ class AINewsSystem {
         }
     }
 
-    fun checkAndImportWebSubscriptions() {
-        // Check for new subscriptions from a manual CSV file
-        val csvFile = File("new_subscribers.csv")
-        if (csvFile.exists()) {
-            try {
-                val csvContent = csvFile.readText()
-                val lines = csvContent.split("\n").filter { it.trim().isNotEmpty() }
+    fun processFormspreeEmails() {
+        println("📧 Checking for new Formspree subscription emails...")
 
-                val currentSubscribers = loadSubscribers().toMutableList()
-                var newCount = 0
+        if (emailPassword.isNullOrEmpty()) {
+            println("⚠️ Email processing disabled - no email password configured")
+            return
+        }
 
-                lines.forEach { line ->
-                    val parts = line.split(",").map { it.trim() }
-                    if (parts.size >= 2) {
-                        val email = parts[0]
-                        val name = if (parts[1].isNotEmpty()) parts[1] else null
-                        val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
+        try {
+            val props = Properties().apply {
+                put("mail.store.protocol", "imaps")
+                put("mail.imaps.host", "imap.gmail.com")
+                put("mail.imaps.port", "993")
+            }
 
-                        val existing = currentSubscribers.find { it.email == email }
-                        if (existing == null) {
-                            currentSubscribers.add(Subscriber(
-                                email = email,
-                                name = name,
-                                languages = languages,
-                                subscribed = true,
-                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-                            ))
-                            newCount++
-                            println("📧 Added subscriber from CSV: $email")
+            val session = Session.getInstance(props)
+            val store = session.getStore("imaps")
+            store.connect(fromEmail, emailPassword)
+
+            val inbox = store.getFolder("INBOX")
+            inbox.open(Folder.READ_WRITE)
+
+            // Search for unread emails from Formspree
+            val searchTerm = AndTerm(
+                FromTerm(InternetAddress("noreply@formspree.io")),
+                FlagTerm(Flags(Flags.Flag.SEEN), false)
+            )
+
+            val messages = inbox.search(searchTerm)
+            println("📬 Found ${messages.size} unread Formspree emails")
+
+            messages.forEach { message ->
+                try {
+                    val content = message.content.toString()
+                    val subject = message.subject
+
+                    if (subject.contains("AI News Cyprus Subscription")) {
+                        println("📋 Processing subscription email: $subject")
+
+                        // Extract data from email content
+                        val emailMatch = Regex("email[:\\s]+([^\\s\\n]+)").find(content)
+                        val nameMatch = Regex("name[:\\s]+([^\\n]+)").find(content)
+                        val langMatch = Regex("languages[:\\s]+([^\\s\\n]+)").find(content)
+
+                        if (emailMatch != null) {
+                            val email = emailMatch.groupValues[1].trim()
+                            val name = nameMatch?.groupValues?.get(1)?.trim()
+                            val languages = langMatch?.groupValues?.get(1)?.split(";") ?: listOf("en")
+
+                            addSubscriber(email, name, languages)
+
+                            // Mark as read
+                            message.setFlag(Flags.Flag.SEEN, true)
+                            println("✅ Auto-added subscriber from email: $email")
                         }
                     }
+                } catch (e: Exception) {
+                    println("❌ Error processing email: ${e.message}")
                 }
-
-                if (newCount > 0) {
-                    saveSubscribers(currentSubscribers)
-                    // Rename the processed file
-                    csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
-                    println("📧 Added $newCount new subscribers from CSV")
-                }
-
-            } catch (e: Exception) {
-                println("Error processing CSV: ${e.message}")
             }
+
+            inbox.close(false)
+            store.close()
+
+        } catch (e: Exception) {
+            println("❌ Error accessing emails: ${e.message}")
         }
-
-        // Also add the test subscriber
-        val testSubscribers = listOf(
-            Subscriber(
-                email = "lior.global@gmail.com",
-                name = "Lior",
-                languages = listOf("en", "he"),
-                subscribed = true,
-                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-            )
-        )
-
-        val currentSubscribers = loadSubscribers().toMutableList()
-
-        testSubscribers.forEach { testSub ->
-            val existing = currentSubscribers.find { it.email == testSub.email }
-            if (existing == null) {
-                currentSubscribers.add(testSub)
-                println("📧 Added test subscriber: ${testSub.email}")
-            }
-        }
-
-        saveSubscribers(currentSubscribers)
-        println("📧 Total subscribers after import: ${currentSubscribers.size}")
     }
-
-    fun loadSubscribers(): List<Subscriber> {
-        return if (subscribersFile.exists()) {
-            try {
-                val json = subscribersFile.readText()
-                val type = object : TypeToken<List<Subscriber>>() {}.type
-                gson.fromJson<List<Subscriber>>(json, type) ?: emptyList()
-            } catch (e: Exception) {
-                println("Error loading subscribers: ${e.message}")
-                emptyList()
-            }
-        } else emptyList()
-    }
-
-    private fun saveSubscribers(subscribers: List<Subscriber>) {
+    // Check for new subscriptions from a manual CSV file
+    val csvFile = File("new_subscribers.csv")
+    if (csvFile.exists()) {
         try {
-            subscribersFile.writeText(gson.toJson(subscribers))
-        } catch (e: Exception) {
-            println("Error saving subscribers: ${e.message}")
-        }
-    }
+            val csvContent = csvFile.readText()
+            val lines = csvContent.split("\n").filter { it.trim().isNotEmpty() }
 
-    private fun fetchPage(url: String): Document? {
-        return try {
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                response.body?.use { body -> Jsoup.parse(body.string()) }
-            } else null
-        } catch (e: Exception) {
-            println("Error fetching $url: ${e.message}")
-            null
-        }
-    }
+            val currentSubscribers = loadSubscribers().toMutableList()
+            var newCount = 0
 
-    private fun generateSummary(title: String): String {
-        val words = title.split(" ").filter { it.length > 3 }.take(5)
-        return words.joinToString(" ").ifEmpty { title.take(60) }
-    }
+            lines.forEach { line ->
+                val parts = line.split(",").map { it.trim() }
+                if (parts.size >= 2) {
+                    val email = parts[0]
+                    val name = if (parts[1].isNotEmpty()) parts[1] else null
+                    val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
 
-    private fun translateText(text: String, targetLanguage: String): String {
-        if (openAiApiKey.isNullOrEmpty()) {
-            return when (targetLanguage) {
-                "Hebrew" -> "כותרת בעברית"
-                "Russian" -> "Заголовок на русском"
-                "Greek" -> "Τίτλος στα ελληνικά"
-                else -> text
+                    val existing = currentSubscribers.find { it.email == email }
+                    if (existing == null) {
+                        currentSubscribers.add(Subscriber(
+                            email = email,
+                            name = name,
+                            languages = languages,
+                            subscribed = true,
+                            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                        ))
+                        newCount++
+                        println("📧 Added subscriber from CSV: $email")
+                    }
+                }
             }
-        }
 
-        return try {
-            val requestBody = """
+            if (newCount > 0) {
+                saveSubscribers(currentSubscribers)
+                // Rename the processed file
+                csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
+                println("📧 Added $newCount new subscribers from CSV")
+            }
+
+        } catch (e: Exception) {
+            println("Error processing CSV: ${e.message}")
+        }
+    }
+
+    // Also add the test subscriber
+    val testSubscribers = listOf(
+        Subscriber(
+            email = "lior.global@gmail.com",
+            name = "Lior",
+            languages = listOf("en", "he"),
+            subscribed = true,
+            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        )
+    )
+
+    val currentSubscribers = loadSubscribers().toMutableList()
+
+    testSubscribers.forEach { testSub ->
+        val existing = currentSubscribers.find { it.email == testSub.email }
+        if (existing == null) {
+            currentSubscribers.add(testSub)
+            println("📧 Added test subscriber: ${testSub.email}")
+        }
+    }
+
+    saveSubscribers(currentSubscribers)
+    println("📧 Total subscribers after import: ${currentSubscribers.size}")
+}
+
+fun loadSubscribers(): List<Subscriber> {
+    return if (subscribersFile.exists()) {
+        try {
+            val json = subscribersFile.readText()
+            val type = object : TypeToken<List<Subscriber>>() {}.type
+            gson.fromJson<List<Subscriber>>(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            println("Error loading subscribers: ${e.message}")
+            emptyList()
+        }
+    } else emptyList()
+}
+
+private fun saveSubscribers(subscribers: List<Subscriber>) {
+    try {
+        subscribersFile.writeText(gson.toJson(subscribers))
+    } catch (e: Exception) {
+        println("Error saving subscribers: ${e.message}")
+    }
+}
+
+private fun fetchPage(url: String): Document? {
+    return try {
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+            .build()
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            response.body?.use { body -> Jsoup.parse(body.string()) }
+        } else null
+    } catch (e: Exception) {
+        println("Error fetching $url: ${e.message}")
+        null
+    }
+}
+
+private fun generateSummary(title: String): String {
+    val words = title.split(" ").filter { it.length > 3 }.take(5)
+    return words.joinToString(" ").ifEmpty { title.take(60) }
+}
+
+private fun translateText(text: String, targetLanguage: String): String {
+    if (openAiApiKey.isNullOrEmpty()) {
+        return when (targetLanguage) {
+            "Hebrew" -> "כותרת בעברית"
+            "Russian" -> "Заголовок на русском"
+            "Greek" -> "Τίτλος στα ελληνικά"
+            else -> text
+        }
+    }
+
+    return try {
+        val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
@@ -228,283 +295,283 @@ class AINewsSystem {
                 }
             """.trimIndent()
 
-            val request = Request.Builder()
-                .url("https://api.openai.com/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $openAiApiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(requestBody.toRequestBody("application/json".toMediaType()))
-                .build()
+        val request = Request.Builder()
+            .url("https://api.openai.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer $openAiApiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(requestBody.toRequestBody("application/json".toMediaType()))
+            .build()
 
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val json = JSONObject(response.body?.string())
-                    json.getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                        .trim()
-                } else text
-            }
-        } catch (e: Exception) {
-            println("Translation error: ${e.message}")
-            text
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string())
+                json.getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .getString("content")
+                    .trim()
+            } else text
         }
-    }
-
-    private fun categorizeArticle(title: String): String {
-        val content = title.lowercase()
-        return when {
-            content.contains("tech") || content.contains("ai") -> "Technology"
-            content.contains("business") || content.contains("economy") -> "Business & Economy"
-            content.contains("crime") || content.contains("court") -> "Crime & Justice"
-            content.contains("politics") || content.contains("government") -> "Politics"
-            else -> "General News"
-        }
-    }
-
-    private fun scrapeNewsSource(sourceName: String, url: String): List<Article> {
-        println("🔍 Scraping $sourceName...")
-        val doc = fetchPage(url) ?: return emptyList()
-        val articles = mutableListOf<Article>()
-
-        val selectors = listOf(".entry-title a", "h2 a", ".post-title a")
-
-        for (selector in selectors) {
-            val linkElements = doc.select(selector)
-            if (linkElements.isNotEmpty()) {
-                linkElements.take(8).forEach { linkElement ->
-                    try {
-                        val title = linkElement.text().trim()
-                        var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
-
-                        if (articleUrl.startsWith("/")) {
-                            val baseUrl = when {
-                                sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
-                                sourceName.contains("financial", true) -> "https://www.financialmirror.com"
-                                sourceName.contains("alpha", true) -> "https://www.alphanews.live"
-                                sourceName.contains("stockwatch", true) -> "https://www.stockwatch.com.cy"
-                                else -> ""
-                            }
-                            articleUrl = baseUrl + articleUrl
-                        }
-
-                        if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
-                            val summary = generateSummary(title)
-                            val category = categorizeArticle(title)
-
-                            val titleTranslations = mapOf(
-                                "en" to title,
-                                "he" to translateText(title, "Hebrew"),
-                                "ru" to translateText(title, "Russian"),
-                                "el" to translateText(title, "Greek")
-                            )
-
-                            articles.add(Article(
-                                title = title,
-                                url = articleUrl,
-                                summary = summary,
-                                category = category,
-                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                                titleTranslations = titleTranslations,
-                                summaryTranslations = titleTranslations,
-                                categoryTranslations = mapOf(
-                                    "en" to category,
-                                    "he" to translateText(category, "Hebrew"),
-                                    "ru" to translateText(category, "Russian"),
-                                    "el" to translateText(category, "Greek")
-                                )
-                            ))
-                        }
-                    } catch (e: Exception) {
-                        println("Error processing link: ${e.message}")
-                    }
-                }
-                break
-            }
-        }
-
-        return articles.distinctBy { it.url }
-    }
-
-    fun aggregateNews(): List<Article> {
-        println("📰 Starting news aggregation...")
-        val seen = loadSeenArticles()
-        val allArticles = mutableListOf<Article>()
-
-        newsSources.forEach { (sourceName, sourceUrl) ->
-            try {
-                val sourceArticles = scrapeNewsSource(sourceName, sourceUrl)
-                allArticles.addAll(sourceArticles)
-                Thread.sleep(1000)
-            } catch (e: Exception) {
-                println("Error scraping $sourceName: ${e.message}")
-            }
-        }
-
-        val newArticles = allArticles.filter { it.url !in seen }
-        seen.addAll(newArticles.map { it.url })
-        saveSeenArticles(seen)
-
-        println("Found ${allArticles.size} total articles, ${newArticles.size} new articles")
-        return newArticles
-    }
-
-    fun startSubscriptionServer(port: Int = 8080) {
-        println("⚠️ Starting HTTP server - if this fails, use CSV subscription method")
-        try {
-            println("🔧 Creating HTTP server on port $port...")
-
-            // Try binding to all interfaces explicitly
-            val address = InetSocketAddress("0.0.0.0", port)
-            println("🔗 Binding to address: ${address.hostString}:${address.port}")
-
-            val server = HttpServer.create(address, 0)
-            println("✅ HTTP server created successfully")
-
-            // Add a simple test endpoint
-            server.createContext("/") { exchange ->
-                println("📥 Received request to root path from ${exchange.remoteAddress}")
-                val response = "AI News Subscription Server is running! Time: ${java.time.Instant.now()}"
-                exchange.responseHeaders.add("Content-Type", "text/plain")
-                exchange.sendResponseHeaders(200, response.length.toLong())
-                exchange.responseBody.write(response.toByteArray())
-                exchange.responseBody.close()
-            }
-
-            server.createContext("/health") { exchange ->
-                println("📥 Health check request from ${exchange.remoteAddress}")
-                val response = """{"status":"healthy","timestamp":"${java.time.Instant.now()}","port":$port}"""
-                exchange.responseHeaders.add("Content-Type", "application/json")
-                exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-                exchange.sendResponseHeaders(200, response.length.toLong())
-                exchange.responseBody.write(response.toByteArray())
-                exchange.responseBody.close()
-            }
-
-            server.createContext("/formspree-webhook") { exchange ->
-                println("📥 Received Formspree webhook: ${exchange.requestMethod}")
-
-                if (exchange.requestMethod == "POST") {
-                    try {
-                        val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
-                        println("📋 Formspree webhook data: $requestBody")
-
-                        val json = JSONObject(requestBody)
-
-                        val email = json.getString("email")
-                        val name = json.optString("name", null)
-                        val languages = json.optString("languages", "en").split(";")
-
-                        println("📧 Auto-processing subscription from Formspree: $email")
-                        addSubscriber(email, name, languages)
-
-                        val response = """{"success": true, "message": "Webhook processed successfully"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
-                        exchange.responseBody.write(response.toByteArray())
-                        exchange.responseBody.close()
-
-                        println("✅ Auto-added subscriber via webhook: $email")
-
-                    } catch (e: Exception) {
-                        println("❌ Error processing webhook: ${e.message}")
-                        e.printStackTrace()
-
-                        val errorResponse = """{"success": false, "message": "Webhook failed"}"""
-                        exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
-                        exchange.responseBody.write(errorResponse.toByteArray())
-                        exchange.responseBody.close()
-                    }
-                } else {
-                    exchange.sendResponseHeaders(405, -1)
-                }
-            }
-            println("📥 Received ${exchange.requestMethod} request to /subscribe from ${exchange.remoteAddress}")
-
-            exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-            exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-            exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
-
-            when (exchange.requestMethod) {
-                "OPTIONS" -> {
-                    println("✅ Handling OPTIONS request")
-                    exchange.sendResponseHeaders(200, -1)
-                }
-                "POST" -> {
-                    try {
-                        val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
-                        println("📋 Request body: $requestBody")
-
-                        val json = JSONObject(requestBody)
-
-                        val email = json.getString("email")
-                        val name = json.optString("name", null)
-                        val languagesArray = json.getJSONArray("languages")
-                        val languages = mutableListOf<String>()
-
-                        for (i in 0 until languagesArray.length()) {
-                            languages.add(languagesArray.getString(i))
-                        }
-
-                        println("📧 Processing subscription for: $email")
-                        addSubscriber(email, name, languages)
-
-                        val successResponse = """{"success": true, "message": "Subscription successful!"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(200, successResponse.toByteArray().size.toLong())
-                        exchange.responseBody.write(successResponse.toByteArray())
-                        exchange.responseBody.close()
-
-                        println("✅ New subscriber added via API: $email")
-
-                    } catch (e: Exception) {
-                        println("❌ Error processing subscription: ${e.message}")
-                        e.printStackTrace()
-
-                        val errorResponse = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
-                        exchange.responseBody.write(errorResponse.toByteArray())
-                        exchange.responseBody.close()
-                    }
-                }
-                else -> {
-                    println("❌ Method not allowed: ${exchange.requestMethod}")
-                    exchange.sendResponseHeaders(405, -1)
-                }
-            }
-        }
-
-        println("🔧 Setting server executor...")
-        server.executor = null
-
-        println("🚀 Starting HTTP server...")
-        server.start()
-
-        println("🚀 Subscription API server started on port $port")
-        println("🔗 API endpoint: http://0.0.0.0:$port/subscribe")
-        println("🔗 Health check: http://0.0.0.0:$port/health")
-        println("🔗 Root page: http://0.0.0.0:$port/")
-
-        // Test internal connectivity
-        println("🧪 Testing internal server connectivity...")
-        Thread.sleep(1000)
-
-        try {
-            // Try to connect to ourselves
-            val testClient = java.net.Socket()
-            testClient.connect(InetSocketAddress("127.0.0.1", port), 5000)
-            testClient.close()
-            println("✅ Internal connectivity test PASSED")
-        } catch (e: Exception) {
-            println("❌ Internal connectivity test FAILED: ${e.message}")
-        }
-
     } catch (e: Exception) {
-        println("❌ CRITICAL ERROR starting subscription server: ${e.message}")
-        e.printStackTrace()
-        throw e
+        println("Translation error: ${e.message}")
+        text
     }
+}
+
+private fun categorizeArticle(title: String): String {
+    val content = title.lowercase()
+    return when {
+        content.contains("tech") || content.contains("ai") -> "Technology"
+        content.contains("business") || content.contains("economy") -> "Business & Economy"
+        content.contains("crime") || content.contains("court") -> "Crime & Justice"
+        content.contains("politics") || content.contains("government") -> "Politics"
+        else -> "General News"
+    }
+}
+
+private fun scrapeNewsSource(sourceName: String, url: String): List<Article> {
+    println("🔍 Scraping $sourceName...")
+    val doc = fetchPage(url) ?: return emptyList()
+    val articles = mutableListOf<Article>()
+
+    val selectors = listOf(".entry-title a", "h2 a", ".post-title a")
+
+    for (selector in selectors) {
+        val linkElements = doc.select(selector)
+        if (linkElements.isNotEmpty()) {
+            linkElements.take(8).forEach { linkElement ->
+                try {
+                    val title = linkElement.text().trim()
+                    var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
+
+                    if (articleUrl.startsWith("/")) {
+                        val baseUrl = when {
+                            sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
+                            sourceName.contains("financial", true) -> "https://www.financialmirror.com"
+                            sourceName.contains("alpha", true) -> "https://www.alphanews.live"
+                            sourceName.contains("stockwatch", true) -> "https://www.stockwatch.com.cy"
+                            else -> ""
+                        }
+                        articleUrl = baseUrl + articleUrl
+                    }
+
+                    if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
+                        val summary = generateSummary(title)
+                        val category = categorizeArticle(title)
+
+                        val titleTranslations = mapOf(
+                            "en" to title,
+                            "he" to translateText(title, "Hebrew"),
+                            "ru" to translateText(title, "Russian"),
+                            "el" to translateText(title, "Greek")
+                        )
+
+                        articles.add(Article(
+                            title = title,
+                            url = articleUrl,
+                            summary = summary,
+                            category = category,
+                            date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                            titleTranslations = titleTranslations,
+                            summaryTranslations = titleTranslations,
+                            categoryTranslations = mapOf(
+                                "en" to category,
+                                "he" to translateText(category, "Hebrew"),
+                                "ru" to translateText(category, "Russian"),
+                                "el" to translateText(category, "Greek")
+                            )
+                        ))
+                    }
+                } catch (e: Exception) {
+                    println("Error processing link: ${e.message}")
+                }
+            }
+            break
+        }
+    }
+
+    return articles.distinctBy { it.url }
+}
+
+fun aggregateNews(): List<Article> {
+    println("📰 Starting news aggregation...")
+    val seen = loadSeenArticles()
+    val allArticles = mutableListOf<Article>()
+
+    newsSources.forEach { (sourceName, sourceUrl) ->
+        try {
+            val sourceArticles = scrapeNewsSource(sourceName, sourceUrl)
+            allArticles.addAll(sourceArticles)
+            Thread.sleep(1000)
+        } catch (e: Exception) {
+            println("Error scraping $sourceName: ${e.message}")
+        }
+    }
+
+    val newArticles = allArticles.filter { it.url !in seen }
+    seen.addAll(newArticles.map { it.url })
+    saveSeenArticles(seen)
+
+    println("Found ${allArticles.size} total articles, ${newArticles.size} new articles")
+    return newArticles
+}
+
+fun startSubscriptionServer(port: Int = 8080) {
+    println("⚠️ Starting HTTP server - if this fails, use CSV subscription method")
+    try {
+        println("🔧 Creating HTTP server on port $port...")
+
+        // Try binding to all interfaces explicitly
+        val address = InetSocketAddress("0.0.0.0", port)
+        println("🔗 Binding to address: ${address.hostString}:${address.port}")
+
+        val server = HttpServer.create(address, 0)
+        println("✅ HTTP server created successfully")
+
+        // Add a simple test endpoint
+        server.createContext("/") { exchange ->
+            println("📥 Received request to root path from ${exchange.remoteAddress}")
+            val response = "AI News Subscription Server is running! Time: ${java.time.Instant.now()}"
+            exchange.responseHeaders.add("Content-Type", "text/plain")
+            exchange.sendResponseHeaders(200, response.length.toLong())
+            exchange.responseBody.write(response.toByteArray())
+            exchange.responseBody.close()
+        }
+
+        server.createContext("/health") { exchange ->
+            println("📥 Health check request from ${exchange.remoteAddress}")
+            val response = """{"status":"healthy","timestamp":"${java.time.Instant.now()}","port":$port}"""
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
+            exchange.sendResponseHeaders(200, response.length.toLong())
+            exchange.responseBody.write(response.toByteArray())
+            exchange.responseBody.close()
+        }
+
+        server.createContext("/formspree-webhook") { exchange ->
+            println("📥 Received Formspree webhook: ${exchange.requestMethod}")
+
+            if (exchange.requestMethod == "POST") {
+                try {
+                    val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
+                    println("📋 Formspree webhook data: $requestBody")
+
+                    val json = JSONObject(requestBody)
+
+                    val email = json.getString("email")
+                    val name = json.optString("name", null)
+                    val languages = json.optString("languages", "en").split(";")
+
+                    println("📧 Auto-processing subscription from Formspree: $email")
+                    addSubscriber(email, name, languages)
+
+                    val response = """{"success": true, "message": "Webhook processed successfully"}"""
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.sendResponseHeaders(200, response.toByteArray().size.toLong())
+                    exchange.responseBody.write(response.toByteArray())
+                    exchange.responseBody.close()
+
+                    println("✅ Auto-added subscriber via webhook: $email")
+
+                } catch (e: Exception) {
+                    println("❌ Error processing webhook: ${e.message}")
+                    e.printStackTrace()
+
+                    val errorResponse = """{"success": false, "message": "Webhook failed"}"""
+                    exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
+                    exchange.responseBody.write(errorResponse.toByteArray())
+                    exchange.responseBody.close()
+                }
+            } else {
+                exchange.sendResponseHeaders(405, -1)
+            }
+        }
+        println("📥 Received ${exchange.requestMethod} request to /subscribe from ${exchange.remoteAddress}")
+
+        exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
+        exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+        exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
+
+        when (exchange.requestMethod) {
+            "OPTIONS" -> {
+                println("✅ Handling OPTIONS request")
+                exchange.sendResponseHeaders(200, -1)
+            }
+            "POST" -> {
+                try {
+                    val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
+                    println("📋 Request body: $requestBody")
+
+                    val json = JSONObject(requestBody)
+
+                    val email = json.getString("email")
+                    val name = json.optString("name", null)
+                    val languagesArray = json.getJSONArray("languages")
+                    val languages = mutableListOf<String>()
+
+                    for (i in 0 until languagesArray.length()) {
+                        languages.add(languagesArray.getString(i))
+                    }
+
+                    println("📧 Processing subscription for: $email")
+                    addSubscriber(email, name, languages)
+
+                    val successResponse = """{"success": true, "message": "Subscription successful!"}"""
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.sendResponseHeaders(200, successResponse.toByteArray().size.toLong())
+                    exchange.responseBody.write(successResponse.toByteArray())
+                    exchange.responseBody.close()
+
+                    println("✅ New subscriber added via API: $email")
+
+                } catch (e: Exception) {
+                    println("❌ Error processing subscription: ${e.message}")
+                    e.printStackTrace()
+
+                    val errorResponse = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
+                    exchange.responseBody.write(errorResponse.toByteArray())
+                    exchange.responseBody.close()
+                }
+            }
+            else -> {
+                println("❌ Method not allowed: ${exchange.requestMethod}")
+                exchange.sendResponseHeaders(405, -1)
+            }
+        }
+    }
+
+    println("🔧 Setting server executor...")
+    server.executor = null
+
+    println("🚀 Starting HTTP server...")
+    server.start()
+
+    println("🚀 Subscription API server started on port $port")
+    println("🔗 API endpoint: http://0.0.0.0:$port/subscribe")
+    println("🔗 Health check: http://0.0.0.0:$port/health")
+    println("🔗 Root page: http://0.0.0.0:$port/")
+
+    // Test internal connectivity
+    println("🧪 Testing internal server connectivity...")
+    Thread.sleep(1000)
+
+    try {
+        // Try to connect to ourselves
+        val testClient = java.net.Socket()
+        testClient.connect(InetSocketAddress("127.0.0.1", port), 5000)
+        testClient.close()
+        println("✅ Internal connectivity test PASSED")
+    } catch (e: Exception) {
+        println("❌ Internal connectivity test FAILED: ${e.message}")
+    }
+
+} catch (e: Exception) {
+    println("❌ CRITICAL ERROR starting subscription server: ${e.message}")
+    e.printStackTrace()
+    throw e
+}
 }
 
 fun uploadToGitHubPages(html: String): String {
