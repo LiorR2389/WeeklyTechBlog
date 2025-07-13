@@ -342,69 +342,93 @@ class AINewsSystem {
     }
 
     fun startSubscriptionServer(port: Int = 8080) {
-        val server = HttpServer.create(InetSocketAddress(port), 0)
+        try {
+            println("🔧 Creating HTTP server on port $port...")
+            val server = HttpServer.create(InetSocketAddress(port), 0)
+            println("✅ HTTP server created successfully")
 
-        server.createContext("/subscribe") { exchange ->
-            println("📥 Received ${exchange.requestMethod} request to /subscribe")
+            server.createContext("/subscribe") { exchange ->
+                println("📥 Received ${exchange.requestMethod} request to /subscribe")
 
-            exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-            exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-            exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
+                exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
+                exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
+                exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
 
-            when (exchange.requestMethod) {
-                "OPTIONS" -> {
-                    println("✅ Handling OPTIONS request")
-                    exchange.sendResponseHeaders(200, -1)
-                }
-                "POST" -> {
-                    try {
-                        val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
-                        println("📋 Request body: $requestBody")
+                when (exchange.requestMethod) {
+                    "OPTIONS" -> {
+                        println("✅ Handling OPTIONS request")
+                        exchange.sendResponseHeaders(200, -1)
+                    }
+                    "POST" -> {
+                        try {
+                            val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
+                            println("📋 Request body: $requestBody")
 
-                        val json = JSONObject(requestBody)
+                            val json = JSONObject(requestBody)
 
-                        val email = json.getString("email")
-                        val name = json.optString("name", null)
-                        val languagesArray = json.getJSONArray("languages")
-                        val languages = mutableListOf<String>()
+                            val email = json.getString("email")
+                            val name = json.optString("name", null)
+                            val languagesArray = json.getJSONArray("languages")
+                            val languages = mutableListOf<String>()
 
-                        for (i in 0 until languagesArray.length()) {
-                            languages.add(languagesArray.getString(i))
+                            for (i in 0 until languagesArray.length()) {
+                                languages.add(languagesArray.getString(i))
+                            }
+
+                            println("📧 Processing subscription for: $email")
+                            addSubscriber(email, name, languages)
+
+                            val successResponse = """{"success": true, "message": "Subscription successful!"}"""
+                            exchange.responseHeaders.add("Content-Type", "application/json")
+                            exchange.sendResponseHeaders(200, successResponse.toByteArray().size.toLong())
+                            exchange.responseBody.write(successResponse.toByteArray())
+                            exchange.responseBody.close()
+
+                            println("✅ New subscriber added via API: $email")
+
+                        } catch (e: Exception) {
+                            println("❌ Error processing subscription: ${e.message}")
+                            e.printStackTrace()
+
+                            val errorResponse = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
+                            exchange.responseHeaders.add("Content-Type", "application/json")
+                            exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
+                            exchange.responseBody.write(errorResponse.toByteArray())
+                            exchange.responseBody.close()
                         }
-
-                        println("📧 Processing subscription for: $email")
-                        addSubscriber(email, name, languages)
-
-                        val successResponse = """{"success": true, "message": "Subscription successful!"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(200, successResponse.toByteArray().size.toLong())
-                        exchange.responseBody.write(successResponse.toByteArray())
-                        exchange.responseBody.close()
-
-                        println("✅ New subscriber added via API: $email")
-
-                    } catch (e: Exception) {
-                        println("❌ Error processing subscription: ${e.message}")
-                        e.printStackTrace()
-
-                        val errorResponse = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
-                        exchange.responseHeaders.add("Content-Type", "application/json")
-                        exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
-                        exchange.responseBody.write(errorResponse.toByteArray())
-                        exchange.responseBody.close()
+                    }
+                    else -> {
+                        println("❌ Method not allowed: ${exchange.requestMethod}")
+                        exchange.sendResponseHeaders(405, -1)
                     }
                 }
-                else -> {
-                    println("❌ Method not allowed: ${exchange.requestMethod}")
-                    exchange.sendResponseHeaders(405, -1)
-                }
             }
-        }
 
-        server.executor = null
-        server.start()
-        println("🚀 Subscription API server started on port $port")
-        println("🔗 API endpoint: http://localhost:$port/subscribe")
+            println("🔧 Setting server executor...")
+            server.executor = null
+
+            println("🚀 Starting HTTP server...")
+            server.start()
+
+            println("🚀 Subscription API server started on port $port")
+            println("🔗 API endpoint: http://localhost:$port/subscribe")
+
+            // Test if the server is actually listening
+            println("🧪 Testing server binding...")
+            try {
+                val testSocket = java.net.ServerSocket()
+                testSocket.bind(java.net.InetSocketAddress(port + 1))
+                testSocket.close()
+                println("✅ Port binding test successful - server should be accessible")
+            } catch (e: Exception) {
+                println("⚠️ Port binding test failed: ${e.message}")
+            }
+
+        } catch (e: Exception) {
+            println("❌ CRITICAL ERROR starting subscription server: ${e.message}")
+            e.printStackTrace()
+            throw e
+        }
     }
 
     fun uploadToGitHubPages(html: String): String {
@@ -764,7 +788,21 @@ fun main() {
 
     val system = AINewsSystem()
 
-    thread { system.startSubscriptionServer(3000) }
+    // Start subscription server with more debugging
+    println("🔄 Starting subscription server thread...")
+    val serverThread = thread {
+        try {
+            println("📡 About to start subscription server on port 3000...")
+            system.startSubscriptionServer(3000)
+        } catch (e: Exception) {
+            println("❌ Failed to start subscription server: ${e.message}")
+            e.printStackTrace()
+        }
+    }
+
+    // Give the server time to start
+    Thread.sleep(3000)
+    println("⏱️ Waited 3 seconds for server to start")
 
     // Add yourself as a test subscriber to verify email functionality
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
@@ -797,6 +835,7 @@ fun main() {
         e.printStackTrace()
     }
 
+    println("🔄 Keeping server running...")
     while (true) {
         Thread.sleep(60000)
     }
