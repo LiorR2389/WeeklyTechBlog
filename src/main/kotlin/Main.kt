@@ -86,7 +86,51 @@ class AINewsSystem {
     }
 
     fun checkAndImportWebSubscriptions() {
-        // For now, manually add a test subscriber to verify email functionality
+        // Check for new subscriptions from a manual CSV file
+        val csvFile = File("new_subscribers.csv")
+        if (csvFile.exists()) {
+            try {
+                val csvContent = csvFile.readText()
+                val lines = csvContent.split("\n").filter { it.trim().isNotEmpty() }
+
+                val currentSubscribers = loadSubscribers().toMutableList()
+                var newCount = 0
+
+                lines.forEach { line ->
+                    val parts = line.split(",").map { it.trim() }
+                    if (parts.size >= 2) {
+                        val email = parts[0]
+                        val name = if (parts[1].isNotEmpty()) parts[1] else null
+                        val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
+
+                        val existing = currentSubscribers.find { it.email == email }
+                        if (existing == null) {
+                            currentSubscribers.add(Subscriber(
+                                email = email,
+                                name = name,
+                                languages = languages,
+                                subscribed = true,
+                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                            ))
+                            newCount++
+                            println("📧 Added subscriber from CSV: $email")
+                        }
+                    }
+                }
+
+                if (newCount > 0) {
+                    saveSubscribers(currentSubscribers)
+                    // Rename the processed file
+                    csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
+                    println("📧 Added $newCount new subscribers from CSV")
+                }
+
+            } catch (e: Exception) {
+                println("Error processing CSV: ${e.message}")
+            }
+        }
+
+        // Also add the test subscriber
         val testSubscribers = listOf(
             Subscriber(
                 email = "lior.global@gmail.com",
@@ -720,7 +764,7 @@ fun main() {
 
     val system = AINewsSystem()
 
-    thread { system.startSubscriptionServer(8080) }
+    thread { system.startSubscriptionServer(3000) }
 
     // Add yourself as a test subscriber to verify email functionality
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
