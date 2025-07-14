@@ -667,17 +667,17 @@ class AINewsSystem {
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                             <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <a href="javascript:void(0);" onclick="openLibreTranslate('${article.url}', 'he');">קרא עוד</a>
+                            <span class="article-link" onclick="openLibreTranslate('${article.url}', 'he');" style="color: #667eea; text-decoration: none; font-weight: bold; cursor: pointer;">קרא עוד</span>
                         </div>
                         <div class="lang ru">
                             <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                             <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <a href="javascript:void(0);" onclick="openLibreTranslate('${article.url}', 'ru');">Читать далее</a>
+                            <span class="article-link" onclick="openLibreTranslate('${article.url}', 'ru');" style="color: #667eea; text-decoration: none; font-weight: bold; cursor: pointer;">Читать далее</span>
                         </div>
                         <div class="lang el">
                             <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                             <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <a href="javascript:void(0);" onclick="openLibreTranslate('${article.url}', 'el');">Διαβάστε περισσότερα</a>
+                            <span class="article-link" onclick="openLibreTranslate('${article.url}', 'el');" style="color: #667eea; text-decoration: none; font-weight: bold; cursor: pointer;">Διαβάστε περισσότερα</span>
                         </div>
                     </div>
                 """.trimIndent())
