@@ -667,17 +667,17 @@ class AINewsSystem {
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                             <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <span class="article-link" onclick="openLibreTranslate('${article.url}', 'he');" style="color: #667eea; text-decoration: none; font-weight: bold; cursor: pointer;">קרא עוד</span>
+                            <button class="translate-btn" data-url="${article.url}" data-lang="he" style="background: none; border: none; color: #667eea; text-decoration: underline; font-weight: bold; cursor: pointer; font-size: inherit; font-family: inherit;">קרא עוד</button>
                         </div>
                         <div class="lang ru">
                             <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                             <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <span class="article-link" onclick="openLibreTranslate('${article.url}', 'ru');" style="color: #667eea; text-decoration: none; font-weight: bold; cursor: pointer;">Читать далее</span>
+                            <button class="translate-btn" data-url="${article.url}" data-lang="ru" style="background: none; border: none; color: #667eea; text-decoration: underline; font-weight: bold; cursor: pointer; font-size: inherit; font-family: inherit;">Читать далее</button>
                         </div>
                         <div class="lang el">
                             <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                             <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <span class="article-link" onclick="openLibreTranslate('${article.url}', 'el');" style="color: #667eea; text-decoration: none; font-weight: bold; cursor: pointer;">Διαβάστε περισσότερα</span>
+                            <button class="translate-btn" data-url="${article.url}" data-lang="el" style="background: none; border: none; color: #667eea; text-decoration: underline; font-weight: bold; cursor: pointer; font-size: inherit; font-family: inherit;">Διαβάστε περισσότερα</button>
                         </div>
                     </div>
                 """.trimIndent())
