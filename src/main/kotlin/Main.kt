@@ -662,7 +662,7 @@ class AINewsSystem {
                         <div class="lang en active">
                             <h3>${article.titleTranslations["en"] ?: article.title}</h3>
                             <p>${article.summaryTranslations["en"] ?: article.summary}</p>
-                            <a href="${article.url}" target="_blank">Read more</a>
+                            <a href="#" onclick="openArticle('${article.url}'); return false;" target="_blank">Read more</a>
                         </div>
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
