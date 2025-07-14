@@ -667,20 +667,17 @@ class AINewsSystem {
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                             <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <a href="${article.url}" target="_blank" class="translate-tip" data-lang="he">קרא עוד</a>
-                            <div class="translate-notice">💡 השתמשו בתרגום הדפדפן: לחיצה ימנית → "תרגם לעברית"</div>
+                            <a href="#" onclick="openYandexTranslate('${article.url}', 'he'); return false;" target="_blank">קרא עוד</a>
                         </div>
                         <div class="lang ru">
                             <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                             <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <a href="${article.url}" target="_blank" class="translate-tip" data-lang="ru">Читать далее</a>
-                            <div class="translate-notice">💡 Используйте переводчик браузера: правый клик → "Перевести на русский"</div>
+                            <a href="#" onclick="openYandexTranslate('${article.url}', 'ru'); return false;" target="_blank">Читать далее</a>
                         </div>
                         <div class="lang el">
                             <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                             <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <a href="${article.url}" target="_blank" class="translate-tip" data-lang="el">Διαβάστε περισσότερα</a>
-                            <div class="translate-notice">💡 Χρησιμοποιήστε το μεταφραστή του browser: δεξί κλικ → "Μετάφραση στα ελληνικά"</div>
+                            <a href="#" onclick="openYandexTranslate('${article.url}', 'el'); return false;" target="_blank">Διαβάστε περισσότερα</a>
                         </div>
                     </div>
                 """.trimIndent())
@@ -713,21 +710,6 @@ class AINewsSystem {
                 .article h3 { margin: 0 0 10px 0; color: #333; }
                 .article p { color: #666; margin: 10px 0; }
                 .article a { color: #667eea; text-decoration: none; font-weight: bold; }
-                .translate-notice { font-size: 0.8em; color: #888; margin-top: 5px; font-style: italic; }
-                .translate-tip { position: relative; }
-                .translate-tip:hover::after { 
-                    content: "💡 Use your browser's translator for best results"; 
-                    position: absolute; 
-                    bottom: -30px; 
-                    left: 0; 
-                    background: #333; 
-                    color: white; 
-                    padding: 5px 10px; 
-                    border-radius: 5px; 
-                    font-size: 0.8em; 
-                    white-space: nowrap; 
-                    z-index: 100; 
-                }
                 .footer { text-align: center; margin-top: 40px; color: #666; }
                 .subscription { background: #667eea; color: white; padding: 30px; margin: 40px 0; border-radius: 10px; text-align: center; }
                 .subscription input { padding: 10px; margin: 10px; border: none; border-radius: 5px; }
@@ -806,14 +788,6 @@ class AINewsSystem {
 
             <div class="footer">
             <p>Generated automatically • Sources: Financial Mirror, In-Cyprus, Alpha News, StockWatch</p>
-            <p><strong>🌐 Translation Guide:</strong></p>
-            <ul style="text-align: left; max-width: 600px; margin: 0 auto;">
-                <li><strong>Chrome:</strong> Right-click → "Translate to [language]"</li>
-                <li><strong>Firefox:</strong> Install "To Google Translate" extension</li>
-                <li><strong>Safari:</strong> Right-click → "Translate to [language]"</li>
-                <li><strong>Edge:</strong> Right-click → "Translate to [language]"</li>
-                <li><strong>Mobile:</strong> Copy URL → Paste in Google Translate app</li>
-            </ul>
             <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
             </div>
             </div>
