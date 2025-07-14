@@ -662,22 +662,22 @@ class AINewsSystem {
                         <div class="lang en active">
                             <h3>${article.titleTranslations["en"] ?: article.title}</h3>
                             <p>${article.summaryTranslations["en"] ?: article.summary}</p>
-                            <a href="#" onclick="openArticle('${article.url}'); return false;" target="_blank">Read more</a>
+                            <a href="${article.url}" target="_blank">Read more</a>
                         </div>
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                             <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <a href="#" onclick="openLibreTranslate('${article.url}', 'he'); return false;" target="_blank">קרא עוד</a>
+                            <a href="javascript:void(0);" onclick="openLibreTranslate('${article.url}', 'he');">קרא עוד</a>
                         </div>
                         <div class="lang ru">
                             <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                             <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <a href="#" onclick="openLibreTranslate('${article.url}', 'ru'); return false;" target="_blank">Читать далее</a>
+                            <a href="javascript:void(0);" onclick="openLibreTranslate('${article.url}', 'ru');">Читать далее</a>
                         </div>
                         <div class="lang el">
                             <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                             <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <a href="#" onclick="openLibreTranslate('${article.url}', 'el'); return false;" target="_blank">Διαβάστε περισσότερα</a>
+                            <a href="javascript:void(0);" onclick="openLibreTranslate('${article.url}', 'el');">Διαβάστε περισσότερα</a>
                         </div>
                     </div>
                 """.trimIndent())
