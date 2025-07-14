@@ -322,11 +322,12 @@ class AINewsSystem {
                             val name = nameMatch?.groupValues?.get(1)?.trim()
                             val languages = langMatch?.groupValues?.get(1)?.split(";") ?: listOf("en")
 
-                            addSubscriber(email, name, languages)
+                            // Add to CSV file instead of memory
+                            addSubscriberToCSV(email, name, languages)
 
-                            // Mark as read
+                            // Mark as read AFTER successfully adding to CSV
                             message.setFlag(Flags.Flag.SEEN, true)
-                            println("✅ Auto-added subscriber from email: $email")
+                            println("✅ Auto-added subscriber from email: $email and marked email as read")
                         }
                     }
                 } catch (e: Exception) {
@@ -339,6 +340,28 @@ class AINewsSystem {
 
         } catch (e: Exception) {
             println("❌ Error accessing emails: ${e.message}")
+        }
+    }
+
+    private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>) {
+        val csvFile = File("new_subscribers.csv")
+        val csvLine = "$email,${name ?: ""},${languages.joinToString(";")}"
+
+        try {
+            // Check if subscriber already exists in CSV
+            if (csvFile.exists()) {
+                val existingContent = csvFile.readText()
+                if (existingContent.contains(email)) {
+                    println("📧 Subscriber $email already exists in CSV, skipping")
+                    return
+                }
+            }
+
+            // Append to CSV file
+            csvFile.appendText("$csvLine\n")
+            println("📧 Added subscriber to CSV: $email")
+        } catch (e: Exception) {
+            println("❌ Error adding subscriber to CSV: ${e.message}")
         }
     }
 
@@ -667,17 +690,17 @@ class AINewsSystem {
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                             <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <button class="translate-btn" data-url="${article.url}" data-lang="he" style="background: none; border: none; color: #667eea; text-decoration: underline; font-weight: bold; cursor: pointer; font-size: inherit; font-family: inherit;">קרא עוד</button>
+                            <a href="${article.url}" target="_blank">קרא עוד</a>
                         </div>
                         <div class="lang ru">
                             <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                             <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <button class="translate-btn" data-url="${article.url}" data-lang="ru" style="background: none; border: none; color: #667eea; text-decoration: underline; font-weight: bold; cursor: pointer; font-size: inherit; font-family: inherit;">Читать далее</button>
+                            <a href="${article.url}" target="_blank">Читать далее</a>
                         </div>
                         <div class="lang el">
                             <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                             <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <button class="translate-btn" data-url="${article.url}" data-lang="el" style="background: none; border: none; color: #667eea; text-decoration: underline; font-weight: bold; cursor: pointer; font-size: inherit; font-family: inherit;">Διαβάστε περισσότερα</button>
+                            <a href="${article.url}" target="_blank">Διαβάστε περισσότερα</a>
                         </div>
                     </div>
                 """.trimIndent())
@@ -887,32 +910,13 @@ fun main() {
 
     val system = AINewsSystem()
 
-    // For cronjob mode, don't start the HTTP server
-    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: false
-
-    if (!isCronjob) {
-        // Only start server in regular mode
-        println("🔄 Attempting to start subscription server (optional)...")
-        try {
-            thread {
-                try {
-                    println("📡 About to start subscription server on port 8080...")
-                    system.startSubscriptionServer(8080)
-                } catch (e: Exception) {
-                    println("❌ HTTP server failed: ${e.message}")
-                    println("📝 Using CSV subscription method instead")
-                }
-            }
-            Thread.sleep(2000) // Give it a moment to start
-        } catch (e: Exception) {
-            println("⚠️ Could not start HTTP server, using CSV method only")
-        }
-    }
+    // Skip HTTP server completely - go straight to CSV processing
+    println("📝 Using CSV-only subscription method")
 
     // Process new subscriptions automatically
     println("🔄 Processing new subscriptions...")
-    system.processFormspreeEmails()         // Check Gmail for Formspree notifications
-    system.checkAndImportWebSubscriptions() // CSV fallback method
+    system.processFormspreeEmails()         // Check Gmail and add to CSV + mark as read
+    system.checkAndImportWebSubscriptions() // Process any existing CSV files
 
     // Add test subscriber
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
@@ -945,13 +949,14 @@ fun main() {
         e.printStackTrace()
     }
 
+    // For cronjob mode, exit after running once
+    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true // Default to cronjob mode
     if (isCronjob) {
-        // For cronjob, exit after running once
         println("✅ Cronjob completed successfully")
         return
     }
 
-    // Only keep running in regular mode
+    // Only keep running in regular mode (rarely used now)
     println("🔄 Keeping application running and checking for new subscriptions...")
     while (true) {
         Thread.sleep(300000) // Check every 5 minutes
