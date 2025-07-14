@@ -1,47 +1,27 @@
 plugins {
-    kotlin("jvm") version "1.9.10"
+    kotlin("jvm") version "1.9.20"
     application
 }
 
 group = "com.ainews"
-version = "1.0.0"
+version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    // Kotlin standard library
-    implementation(kotlin("stdlib"))
-
-    // OkHttp for HTTP requests (IMPORTANT: version 4.x for toRequestBody extension)
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
-    // JSoup for HTML parsing
-    implementation("org.jsoup:jsoup:1.17.2")
-
-    // Gson for JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
-
-    // JSON processing
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.jsoup:jsoup:1.17.2")
     implementation("org.json:json:20231013")
-
-    // Jakarta Mail for email functionality
     implementation("com.sun.mail:jakarta.mail:2.0.1")
-    implementation("jakarta.mail:jakarta.mail-api:2.1.2")
 }
 
 application {
-    mainClass.set("MainKt")
+    mainClass.set("com.ainews.MainKt")
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions {
-        jvmTarget = "11"
-    }
-}
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+kotlin {
+    jvmToolchain(17)
 }

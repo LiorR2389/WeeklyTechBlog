@@ -1,3 +1,5 @@
+package com.ainews
+
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import okhttp3.*
@@ -11,7 +13,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.Base64
-import java.net.URLEncoder
 import java.util.Properties
 import jakarta.mail.*
 import jakarta.mail.internet.*
@@ -222,23 +223,21 @@ class AINewsSystem {
                                 "el" to translateText(title, "Greek")
                             )
 
-                            articles.add(
-                                Article(
-                                    title = title,
-                                    url = articleUrl,
-                                    summary = summary,
-                                    category = category,
-                                    date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                                    titleTranslations = titleTranslations,
-                                    summaryTranslations = titleTranslations,
-                                    categoryTranslations = mapOf(
-                                        "en" to category,
-                                        "he" to translateText(category, "Hebrew"),
-                                        "ru" to translateText(category, "Russian"),
-                                        "el" to translateText(category, "Greek")
-                                    )
+                            articles.add(Article(
+                                title = title,
+                                url = articleUrl,
+                                summary = summary,
+                                category = category,
+                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                                titleTranslations = titleTranslations,
+                                summaryTranslations = titleTranslations,
+                                categoryTranslations = mapOf(
+                                    "en" to category,
+                                    "he" to translateText(category, "Hebrew"),
+                                    "ru" to translateText(category, "Russian"),
+                                    "el" to translateText(category, "Greek")
                                 )
-                            )
+                            ))
                         }
                     } catch (e: Exception) {
                         println("Error processing link: ${e.message}")
@@ -363,15 +362,13 @@ class AINewsSystem {
 
                         val existing = currentSubscribers.find { it.email == email }
                         if (existing == null) {
-                            currentSubscribers.add(
-                                Subscriber(
-                                    email = email,
-                                    name = name,
-                                    languages = languages,
-                                    subscribed = true,
-                                    subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-                                )
-                            )
+                            currentSubscribers.add(Subscriber(
+                                email = email,
+                                name = name,
+                                languages = languages,
+                                subscribed = true,
+                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                            ))
                             newCount++
                             println("📧 Added subscriber from CSV: $email")
                         }
@@ -435,7 +432,6 @@ class AINewsSystem {
                         println("✅ Handling OPTIONS request")
                         exchange.sendResponseHeaders(200, -1)
                     }
-
                     "POST" -> {
                         try {
                             val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
@@ -474,7 +470,6 @@ class AINewsSystem {
                             exchange.responseBody.close()
                         }
                     }
-
                     else -> {
                         println("❌ Method not allowed: ${exchange.requestMethod}")
                         exchange.sendResponseHeaders(405, -1)
@@ -652,50 +647,305 @@ class AINewsSystem {
 
         val articlesHtml = StringBuilder()
         grouped.forEach { (category, items) ->
-            articlesHtml.append(
-                """
-            <h2>
-                <span class="lang en active">$category</span>
-                <span class="lang he" dir="rtl">${translateText(category, "Hebrew")}</span>
-                <span class="lang ru">${translateText(category, "Russian")}</span>
-                <span class="lang el">${translateText(category, "Greek")}</span>
-            </h2>
-        """.trimIndent()
-            )
+            articlesHtml.append("""
+                <h2>
+                    <span class="lang en active">$category</span>
+                    <span class="lang he" dir="rtl">${translateText(category, "Hebrew")}</span>
+                    <span class="lang ru">${translateText(category, "Russian")}</span>
+                    <span class="lang el">${translateText(category, "Greek")}</span>
+                </h2>
+            """.trimIndent())
 
             items.forEach { article ->
-                articlesHtml.append(
-                    """
-                <div class="article">
-                    <div class="lang en active">
-                        <h3>${article.titleTranslations["en"] ?: article.title}</h3>
-                        <p>${article.summaryTranslations["en"] ?: article.summary}</p>
-                        <a href="${article.url}" target="_blank">Read more</a>
+                articlesHtml.append("""
+                    <div class="article">
+                        <div class="lang en active">
+                            <h3>${article.titleTranslations["en"] ?: article.title}</h3>
+                            <p>${article.summaryTranslations["en"] ?: article.summary}</p>
+                            <a href="${article.url}" target="_blank">Read more</a>
+                        </div>
+                        <div class="lang he" dir="rtl">
+                            <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
+                            <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
+                            <a href="#" onclick="translateAndOpen('${article.url}', 'he'); return false;" target="_blank">קרא עוד</a>
+                        </div>
+                        <div class="lang ru">
+                            <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
+                            <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
+                            <a href="#" onclick="translateAndOpen('${article.url}', 'ru'); return false;" target="_blank">Читать далее</a>
+                        </div>
+                        <div class="lang el">
+                            <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
+                            <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
+                            <a href="#" onclick="translateAndOpen('${article.url}', 'el'); return false;" target="_blank">Διαβάστε περισσότερα</a>
+                        </div>
                     </div>
-                    <div class="lang he" dir="rtl">
-                        <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
-                        <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                        <a href="#" onclick="translateAndOpen('${article.url}', 'he'); return false;" target="_blank">קרא עוד</a>
-                    </div>
-                    <div class="lang ru">
-                        <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
-                        <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                        <a href="#" onclick="translateAndOpen('${article.url}', 'ru'); return false;" target="_blank">Читать далее</a>
-                    </div>
-                    <div class="lang el">
-                        <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
-                        <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                        <a href="#" onclick="translateAndOpen('${article.url}', 'el'); return false;" target="_blank">Διαβάστε περισσότερα</a>
-                    </div>
-                </div>
-            """.trimIndent()
-                )
+                """.trimIndent())
             }
         }
 
         return """<!DOCTYPE html>
-        <html>
-        <!-- HTML content continues here... -->
-    """.trimIndent()
+            <html>
+            <head>
+            <title>AI News - Cyprus Daily Digest for $dayOfWeek, $currentDate</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; }
+                .header { text-align: center; margin-bottom: 40px; }
+                .logo { font-size: 2rem; font-weight: bold; color: #667eea; }
+                .lang-buttons { text-align: center; margin: 30px 0; }
+                .lang-buttons button { margin: 5px; padding: 10px 20px; border: none; border-radius: 25px; background: #667eea; color: white; cursor: pointer; }
+                .lang-buttons button.active { background: #764ba2; }
+                .lang { display: none; }
+                .lang.active { display: block; }
+                .lang.he { direction: rtl; text-align: right; font-family: 'Arial', 'Tahoma', sans-serif; }
+                .lang.he h2, .lang.he h3 { text-align: right; direction: rtl; }
+                .lang.he p { text-align: right; direction: rtl; }
+                .lang.he a { float: left; margin-right: 0; margin-left: 10px; }
+                .lang.he .article { border-right: 4px solid #667eea; border-left: none; padding-right: 20px; padding-left: 20px; }
+                .article { margin: 20px 0; padding: 20px; border-left: 4px solid #667eea; background: #f9f9f9; }
+                .article.he { border-right: 4px solid #667eea; border-left: none; }
+                .article h3 { margin: 0 0 10px 0; color: #333; }
+                .article p { color: #666; margin: 10px 0; }
+                .article a { color: #667eea; text-decoration: none; font-weight: bold; }
+                .footer { text-align: center; margin-top: 40px; color: #666; }
+                .subscription { background: #667eea; color: white; padding: 30px; margin: 40px 0; border-radius: 10px; text-align: center; }
+                .subscription input { padding: 10px; margin: 10px; border: none; border-radius: 5px; }
+                .subscription button { background: #FFD700; color: #333; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+                .subscription .lang.he { direction: rtl; text-align: right; }
+                .subscription .lang.he input { text-align: right; direction: rtl; }
+            </style>
+            </head>
+            <body>
+            <div class="container">
+            <div class="header">
+            <div class="logo">🤖 AI News</div>
+            <p>Cyprus Daily Digest • $dayOfWeek, $currentDate</p>
+            </div>
+
+            <div class="lang-buttons">
+            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+            </div>
+
+            $articlesHtml
+
+            <div class="subscription">
+            <div class="lang en active">
+            <h3>🔔 Get Daily Notifications</h3>
+            <p>Get email notifications when fresh news is published</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST" id="subscription-form">
+            <input type="email" name="email" placeholder="your@email.com" required>
+            <input type="text" name="name" placeholder="Your name (optional)">
+            <input type="hidden" name="languages" value="en" id="hidden-languages">
+            <input type="hidden" name="_subject" value="AI News Cyprus Subscription">
+            <br>
+            <button type="submit">🔔 Subscribe</button>
+            </form>
+            <div id="message"></div>
+            </div>
+            <div class="lang he">
+            <h3>🔔 קבלו התראות יומיות</h3>
+            <p>קבלו התראות כאשר חדשות טריות מתפרסמות</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
+            <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
+            <input type="hidden" name="languages" value="he">
+            <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Hebrew)">
+            <br>
+            <button type="submit">🔔 הירשמו</button>
+            </form>
+            </div>
+            <div class="lang ru">
+            <h3>🔔 Получайте уведомления</h3>
+            <p>Получайте уведомления о свежих новостях</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="ваш@email.com" required>
+            <input type="text" name="name" placeholder="Ваше имя (необязательно)">
+            <input type="hidden" name="languages" value="ru">
+            <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Russian)">
+            <br>
+            <button type="submit">🔔 Подписаться</button>
+            </form>
+            </div>
+            <div class="lang el">
+            <h3>🔔 Λάβετε ειδοποιήσεις</h3>
+            <p>Λάβετε ειδοποιήσεις για φρέσκα νέα</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="το@email.σας" required>
+            <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
+            <input type="hidden" name="languages" value="el">
+            <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Greek)">
+            <br>
+            <button type="submit">🔔 Εγγραφή</button>
+            </form>
+            </div>
+            </div>
+
+            <div class="footer">
+            <p>Generated automatically • Sources: Financial Mirror, In-Cyprus, Alpha News, StockWatch</p>
+            <p><strong>Translation Tip:</strong> Use your browser's built-in translator (Chrome: right-click → "Translate to [language]") for best results</p>
+            <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+            </div>
+            </div>
+
+            <script>
+                let currentLang = 'en';
+
+                function setLang(lang) {
+                    document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                    document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                    document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                    document.getElementById('btn-' + lang).classList.add('active');
+                    currentLang = lang;
+
+                    // Update the hidden language field for the active form
+                    const hiddenField = document.querySelector('.lang.' + lang + ' input[name="languages"]');
+                    if (hiddenField) {
+                        hiddenField.value = lang;
+                    }
+                }
+
+                // Anti-bot detection for translation links
+                function translateAndOpen(originalUrl, targetLang) {
+                    // Add random delay to simulate human behavior
+                    const delay = Math.random() * 1000 + 500; // 500-1500ms delay
+
+                    setTimeout(function() {
+                        // Add cache buster and human-like parameters
+                        const timestamp = Date.now();
+                        const randomParam = Math.random().toString(36).substring(7);
+
+                        // Build translate URL with anti-detection measures
+                        const translateUrl = 'https://translate.google.com/translate' +
+                            '?sl=auto' +
+                            '&tl=' + targetLang +
+                            '&u=' + encodeURIComponent(originalUrl) +
+                            '&_x_tr_sl=auto' +
+                            '&_x_tr_tl=' + targetLang +
+                            '&_x_tr_hl=en' +
+                            '&ie=UTF-8' +
+                            '&prev=_t' +
+                            '&rurl=translate.google.com' +
+                            '&sp=nmt4' +
+                            '&xid=' + randomParam +
+                            '&usg=' + timestamp;
+
+                        // Open in new window/tab
+                        window.open(translateUrl, '_blank', 'noopener,noreferrer');
+                    }, delay);
+                }
+
+                // Alternative function for different translate services
+                function translateAlternative(originalUrl, targetLang) {
+                    // Fallback to other translation services if Google blocks
+                    const alternatives = {
+                        'he': 'https://www.bing.com/translator?from=en&to=he&text=' + encodeURIComponent(originalUrl),
+                        'ru': 'https://www.bing.com/translator?from=en&to=ru&text=' + encodeURIComponent(originalUrl),
+                        'el': 'https://www.bing.com/translator?from=en&to=el&text=' + encodeURIComponent(originalUrl)
+                    };
+
+                    if (alternatives[targetLang]) {
+                        window.open(alternatives[targetLang], '_blank');
+                    } else {
+                        // Fallback to original URL with instruction
+                        window.open(originalUrl, '_blank');
+                        alert('Please use your browser\'s built-in translator for this article.');
+                    }
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    setLang('en');
+                });
+            </script>
+            </body>
+            </html>""".trimIndent()
+    }
+}
+
+fun main() {
+    println("🤖 Starting AI News Daily Update...")
+
+    val system = AINewsSystem()
+
+    // For cronjob mode, don't start the HTTP server
+    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: false
+
+    if (!isCronjob) {
+        // Only start server in regular mode
+        println("🔄 Attempting to start subscription server (optional)...")
+        try {
+            thread {
+                try {
+                    println("📡 About to start subscription server on port 8080...")
+                    system.startSubscriptionServer(8080)
+                } catch (e: Exception) {
+                    println("❌ HTTP server failed: ${e.message}")
+                    println("📝 Using CSV subscription method instead")
+                }
+            }
+            Thread.sleep(2000) // Give it a moment to start
+        } catch (e: Exception) {
+            println("⚠️ Could not start HTTP server, using CSV method only")
+        }
+    }
+
+    // Process new subscriptions automatically
+    println("🔄 Processing new subscriptions...")
+    system.processFormspreeEmails()         // Check Gmail for Formspree notifications
+    system.checkAndImportWebSubscriptions() // CSV fallback method
+
+    // Add test subscriber
+    system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
+
+    // Debug: Check current subscribers
+    val existingSubscribers = system.loadSubscribers()
+    println("📧 Current subscribers: ${existingSubscribers.size}")
+    existingSubscribers.forEach { subscriber ->
+        println("   - ${subscriber.email} (${subscriber.languages.joinToString(", ")})")
+    }
+
+    try {
+        val articles = system.aggregateNews()
+
+        if (articles.isNotEmpty()) {
+            val website = system.generateDailyWebsite(articles)
+            system.setupCustomDomain()
+
+            val websiteUrl = system.uploadToGitHubPages(website)
+            if (websiteUrl.isNotEmpty()) {
+                println("🚀 Website uploaded: $websiteUrl")
+                system.sendDailyNotification(articles, "https://ainews.eu.com")
+                println("✅ AI News daily update complete!")
+            }
+        } else {
+            println("⚠️ No new articles found today")
+        }
+    } catch (e: Exception) {
+        println("❌ Error: ${e.message}")
+        e.printStackTrace()
+    }
+
+    if (isCronjob) {
+        // For cronjob, exit after running once
+        println("✅ Cronjob completed successfully")
+        return
+    }
+
+    // Only keep running in regular mode
+    println("🔄 Keeping application running and checking for new subscriptions...")
+    while (true) {
+        Thread.sleep(300000) // Check every 5 minutes
+        try {
+            println("🔄 Periodic check for new subscriptions...")
+            system.processFormspreeEmails()
+            system.checkAndImportWebSubscriptions()
+        } catch (e: Exception) {
+            println("⚠️ Error during periodic check: ${e.message}")
+        }
     }
 }
