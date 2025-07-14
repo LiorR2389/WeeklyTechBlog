@@ -667,17 +667,17 @@ class AINewsSystem {
                         <div class="lang he" dir="rtl">
                             <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                             <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <a href="#" onclick="openYandexTranslate('${article.url}', 'he'); return false;" target="_blank">קרא עוד</a>
+                            <a href="#" onclick="openLibreTranslate('${article.url}', 'he'); return false;" target="_blank">קרא עוד</a>
                         </div>
                         <div class="lang ru">
                             <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                             <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <a href="#" onclick="openYandexTranslate('${article.url}', 'ru'); return false;" target="_blank">Читать далее</a>
+                            <a href="#" onclick="openLibreTranslate('${article.url}', 'ru'); return false;" target="_blank">Читать далее</a>
                         </div>
                         <div class="lang el">
                             <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                             <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <a href="#" onclick="openYandexTranslate('${article.url}', 'el'); return false;" target="_blank">Διαβάστε περισσότερα</a>
+                            <a href="#" onclick="openLibreTranslate('${article.url}', 'el'); return false;" target="_blank">Διαβάστε περισσότερα</a>
                         </div>
                     </div>
                 """.trimIndent())
