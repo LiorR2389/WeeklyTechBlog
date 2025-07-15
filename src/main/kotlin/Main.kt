@@ -124,9 +124,69 @@ class AINewsSystem {
         }
     }
 
-    private fun generateSummary(title: String): String {
-        val words = title.split(" ").filter { it.length > 3 }.take(5)
-        return words.joinToString(" ").ifEmpty { title.take(60) }
+    private fun extractFirstParagraph(articleUrl: String, sourceName: String): String {
+        return try {
+            val doc = fetchPage(articleUrl)
+            if (doc != null) {
+                // Different selectors for different news sources
+                val paragraphSelectors = when {
+                    sourceName.contains("financial", true) -> listOf(
+                        ".entry-content p:first-of-type",
+                        "article p:first-of-type",
+                        ".post-content p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("in-cyprus", true) -> listOf(
+                        ".post-content p:first-of-type",
+                        "article p:first-of-type",
+                        ".content p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("alpha", true) -> listOf(
+                        ".content p:first-of-type",
+                        "main p:first-of-type",
+                        "article p:first-of-type",
+                        ".post-body p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("stockwatch", true) -> listOf(
+                        ".article-body p:first-of-type",
+                        ".content p:first-of-type",
+                        "article p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    else -> listOf("p:first-of-type", "article p:first-of-type", ".content p:first-of-type")
+                }
+
+                // Try each selector until we find a paragraph
+                for (selector in paragraphSelectors) {
+                    val paragraphElement = doc.select(selector).first()
+                    if (paragraphElement != null) {
+                        val text = paragraphElement.text().trim()
+                        if (text.isNotEmpty() && text.length > 50) {
+                            // Clean up the text
+                            return cleanParagraphText(text)
+                        }
+                    }
+                }
+            }
+            ""
+        } catch (e: Exception) {
+            println("Error extracting paragraph from $articleUrl: ${e.message}")
+            ""
+        }
+    }
+
+    private fun cleanParagraphText(text: String): String {
+        return text
+            .replace(Regex("\\s+"), " ") // Replace multiple spaces with single space
+            .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") // Remove city prefixes
+            .replace(Regex("^(Reuters|AP|Bloomberg)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") // Remove news agency prefixes
+            .replace(Regex("\\(.*?\\)"), "") // Remove parentheses content
+            .replace(Regex("\\[.*?\\]"), "") // Remove brackets content
+            .trim()
+            .take(200) // Limit to 200 characters
+            .let { if (it.length == 200) "$it..." else it }
     }
 
     private fun translateText(text: String, targetLanguage: String): String {
@@ -213,7 +273,11 @@ class AINewsSystem {
                         }
 
                         if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
-                            val summary = generateSummary(title)
+                            // Extract first paragraph from the article
+                            println("📖 Extracting paragraph from: $title")
+                            val paragraph = extractFirstParagraph(articleUrl, sourceName)
+                            val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
+
                             val category = categorizeArticle(title)
 
                             val titleTranslations = mapOf(
@@ -223,6 +287,13 @@ class AINewsSystem {
                                 "el" to translateText(title, "Greek")
                             )
 
+                            val summaryTranslations = mapOf(
+                                "en" to summary,
+                                "he" to translateText(summary, "Hebrew"),
+                                "ru" to translateText(summary, "Russian"),
+                                "el" to translateText(summary, "Greek")
+                            )
+
                             articles.add(Article(
                                 title = title,
                                 url = articleUrl,
@@ -230,7 +301,7 @@ class AINewsSystem {
                                 category = category,
                                 date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
                                 titleTranslations = titleTranslations,
-                                summaryTranslations = titleTranslations,
+                                summaryTranslations = summaryTranslations,
                                 categoryTranslations = mapOf(
                                     "en" to category,
                                     "he" to translateText(category, "Hebrew"),
@@ -238,6 +309,9 @@ class AINewsSystem {
                                     "el" to translateText(category, "Greek")
                                 )
                             ))
+
+                            // Add delay between article fetches to be respectful
+                            Thread.sleep(1500)
                         }
                     } catch (e: Exception) {
                         println("Error processing link: ${e.message}")
@@ -248,6 +322,11 @@ class AINewsSystem {
         }
 
         return articles.distinctBy { it.url }
+    }
+
+    private fun generateFallbackSummary(title: String): String {
+        val words = title.split(" ").filter { it.length > 3 }.take(5)
+        return words.joinToString(" ").ifEmpty { title.take(60) }
     }
 
     fun aggregateNews(): List<Article> {
