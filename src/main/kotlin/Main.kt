@@ -463,6 +463,33 @@ class AINewsSystem {
         return intersection.toDouble() / union.toDouble()
     }
 
+    private fun extractEmailContent(message: Message): String {
+        return try {
+            when (val content = message.content) {
+                is String -> content
+                is jakarta.mail.Multipart -> {
+                    val sb = StringBuilder()
+                    for (i in 0 until content.count) {
+                        val bodyPart = content.getBodyPart(i)
+                        if (bodyPart.isMimeType("text/plain")) {
+                            sb.append(bodyPart.content.toString())
+                        } else if (bodyPart.isMimeType("text/html")) {
+                            // If no plain text found, use HTML as fallback
+                            if (sb.isEmpty()) {
+                                sb.append(bodyPart.content.toString())
+                            }
+                        }
+                    }
+                    sb.toString()
+                }
+                else -> content.toString()
+            }
+        } catch (e: Exception) {
+            println("❌ Error extracting email content: ${e.message}")
+            ""
+        }
+    }
+
     fun processFormspreeEmails() {
         println("📧 Checking for new Formspree subscription emails...")
 
@@ -497,22 +524,22 @@ class AINewsSystem {
 
             messages.forEach { message ->
                 try {
-                    val content = message.content.toString()
+                    val content = extractEmailContent(message)
                     val subject = message.subject
                     println("📋 Processing email - Subject: $subject")
-                    println("📋 Email content preview: ${content.take(200)}...")
+                    println("📋 Email content preview: ${content.take(300)}...")
 
                     if (subject.contains("AI News Cyprus Subscription", ignoreCase = true)) {
                         println("✅ Valid subscription email found")
 
-                        // Extract data from email content with better regex
-                        val emailMatch = Regex("(?:email|Email)[:\\s]*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val nameMatch = Regex("(?:name|Name)[:\\s]*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val langMatch = Regex("(?:languages|Languages)[:\\s]*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        // Extract data using the actual Formspree format
+                        val emailMatch = Regex("email\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val nameMatch = Regex("name\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val langMatch = Regex("languages\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
 
                         if (emailMatch != null) {
                             val email = emailMatch.groupValues[1].trim()
-                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
                             val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
 
                             println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages")
@@ -526,7 +553,8 @@ class AINewsSystem {
                             println("✅ Successfully processed and marked email as READ for: $email")
                         } else {
                             println("❌ Could not extract email address from content")
-                            println("📋 Full content: $content")
+                            println("📋 Full content for debugging:")
+                            println(content)
                         }
                     } else {
                         println("⚠️ Non-subscription email, skipping: $subject")
