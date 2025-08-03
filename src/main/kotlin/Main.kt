@@ -476,6 +476,7 @@ class AINewsSystem {
                 put("mail.store.protocol", "imaps")
                 put("mail.imaps.host", "imap.gmail.com")
                 put("mail.imaps.port", "993")
+                put("mail.imaps.ssl.enable", "true")
             }
 
             val session = Session.getInstance(props)
@@ -498,30 +499,41 @@ class AINewsSystem {
                 try {
                     val content = message.content.toString()
                     val subject = message.subject
+                    println("📋 Processing email - Subject: $subject")
+                    println("📋 Email content preview: ${content.take(200)}...")
 
-                    if (subject.contains("AI News Cyprus Subscription")) {
-                        println("📋 Processing subscription email: $subject")
+                    if (subject.contains("AI News Cyprus Subscription", ignoreCase = true)) {
+                        println("✅ Valid subscription email found")
 
-                        // Extract data from email content
-                        val emailMatch = Regex("email[:\\s]+([^\\s\\n]+)").find(content)
-                        val nameMatch = Regex("name[:\\s]+([^\\n]+)").find(content)
-                        val langMatch = Regex("languages[:\\s]+([^\\s\\n]+)").find(content)
+                        // Extract data from email content with better regex
+                        val emailMatch = Regex("(?:email|Email)[:\\s]*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val nameMatch = Regex("(?:name|Name)[:\\s]*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val langMatch = Regex("(?:languages|Languages)[:\\s]*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
 
                         if (emailMatch != null) {
                             val email = emailMatch.groupValues[1].trim()
-                            val name = nameMatch?.groupValues?.get(1)?.trim()
-                            val languages = langMatch?.groupValues?.get(1)?.split(";") ?: listOf("en")
+                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+                            val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
 
-                            // Add to CSV file instead of memory
+                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages")
+
+                            // Add to both CSV and memory
                             addSubscriberToCSV(email, name, languages)
+                            addSubscriber(email, name, languages)
 
-                            // Mark as read AFTER successfully adding to CSV
+                            // IMPORTANT: Mark as read AFTER successful processing
                             message.setFlag(Flags.Flag.SEEN, true)
-                            println("✅ Auto-added subscriber from email: $email and marked email as read")
+                            println("✅ Successfully processed and marked email as READ for: $email")
+                        } else {
+                            println("❌ Could not extract email address from content")
+                            println("📋 Full content: $content")
                         }
+                    } else {
+                        println("⚠️ Non-subscription email, skipping: $subject")
                     }
                 } catch (e: Exception) {
                     println("❌ Error processing email: ${e.message}")
+                    e.printStackTrace()
                 }
             }
 
@@ -530,6 +542,7 @@ class AINewsSystem {
 
         } catch (e: Exception) {
             println("❌ Error accessing emails: ${e.message}")
+            e.printStackTrace()
         }
     }
 
@@ -779,6 +792,7 @@ class AINewsSystem {
     }
 
     fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
+        // IMPORTANT: Reload subscribers to include newly processed emails
         val subscribers = loadSubscribers().filter { it.subscribed }
 
         if (subscribers.isEmpty()) {
@@ -794,45 +808,95 @@ class AINewsSystem {
         println("📧 Sending notifications to ${subscribers.size} subscribers...")
         subscribers.forEach { subscriber ->
             try {
+                println("📤 Sending email to ${subscriber.email}...")
                 sendEmailNotification(subscriber, articles, websiteUrl)
                 println("✅ Email sent to ${subscriber.email}")
-                Thread.sleep(1000)
+                Thread.sleep(1000) // Delay between sends to avoid rate limits
             } catch (e: Exception) {
-                println("❌ Failed to send email to ${subscriber.email}")
+                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
             }
         }
+        println("✅ Finished sending ${subscribers.size} email notifications")
     }
 
     private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
-        val props = Properties().apply {
-            put("mail.smtp.auth", "true")
-            put("mail.smtp.starttls.enable", "true")
-            put("mail.smtp.host", smtpHost)
-            put("mail.smtp.port", smtpPort)
+        if (emailPassword.isNullOrEmpty()) {
+            println("❌ Cannot send email - no email password configured")
+            return
         }
 
-        val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
-            override fun getPasswordAuthentication(): PasswordAuthentication {
-                return PasswordAuthentication(fromEmail, emailPassword)
+        try {
+            val props = Properties().apply {
+                put("mail.smtp.auth", "true")
+                put("mail.smtp.starttls.enable", "true")
+                put("mail.smtp.host", smtpHost)
+                put("mail.smtp.port", smtpPort)
+                put("mail.smtp.ssl.enable", "false")
+                put("mail.smtp.ssl.trust", smtpHost)
             }
-        })
 
-        val message = MimeMessage(session).apply {
-            setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
-            setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-            subject = "🤖 Your Daily Cyprus News Update - ${articles.size} new stories"
+            val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
+                override fun getPasswordAuthentication(): PasswordAuthentication {
+                    return PasswordAuthentication(fromEmail, emailPassword)
+                }
+            })
 
-            val htmlContent = """
-                <h1>🤖 AI News Cyprus</h1>
-                <p>Hello ${subscriber.name ?: "there"}!</p>
-                <p>Fresh Cyprus news updates are available.</p>
-                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 View Full Website</a>
-            """.trimIndent()
+            // Enable debug mode
+            session.debug = true
 
-            setContent(htmlContent, "text/html; charset=utf-8")
+            val message = MimeMessage(session).apply {
+                setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
+                subject = "🤖 Your Daily Cyprus News Update - ${articles.size} new stories"
+
+                val topArticles = articles.take(5)
+                val articlesList = topArticles.joinToString("\n") { article ->
+                    "• ${article.title}\n  ${article.summary.take(100)}...\n"
+                }
+
+                val htmlContent = """
+                <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h1 style="color: #667eea;">🤖 AI News Cyprus</h1>
+                        <p>Hello ${subscriber.name ?: "there"}!</p>
+                        <p>Here are today's top Cyprus news stories:</p>
+                        
+                        ${topArticles.joinToString("\n") { article ->
+                            """
+                            <div style="border-left: 4px solid #667eea; padding-left: 15px; margin: 15px 0;">
+                                <h3 style="margin: 0 0 5px 0; color: #333;">${article.title}</h3>
+                                <p style="margin: 0 0 10px 0; color: #666;">${article.summary.take(150)}...</p>
+                                <a href="${article.url}" style="color: #667eea; text-decoration: none;">Read full article →</a>
+                            </div>
+                            """
+                        }}
+                        
+                        <div style="text-align: center; margin: 30px 0;">
+                            <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block;">📖 View All Stories</a>
+                        </div>
+                        
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                        <p style="font-size: 0.9em; color: #888;">
+                            You're receiving this because you subscribed to AI News Cyprus.<br>
+                            Generated automatically from trusted Cyprus news sources.
+                        </p>
+                    </div>
+                </body>
+                </html>
+                """.trimIndent()
+
+                setContent(htmlContent, "text/html; charset=utf-8")
+            }
+
+            println("📤 Attempting to send email to ${subscriber.email}")
+            Transport.send(message)
+            println("✅ Email successfully sent to ${subscriber.email}")
+
+        } catch (e: Exception) {
+            println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+            e.printStackTrace()
         }
-
-        Transport.send(message)
     }
 
     fun addSubscriber(email: String, name: String?, languages: List<String>) {
@@ -1111,7 +1175,7 @@ fun main() {
     // Add test subscriber
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
 
-    // Debug: Check current subscribers
+    // Debug: Check current subscribers AFTER processing new emails
     val existingSubscribers = system.loadSubscribers()
     println("📧 Current subscribers: ${existingSubscribers.size}")
     existingSubscribers.forEach { subscriber ->
@@ -1128,6 +1192,9 @@ fun main() {
             val websiteUrl = system.uploadToGitHubPages(website)
             if (websiteUrl.isNotEmpty()) {
                 println("🚀 Website uploaded: $websiteUrl")
+                
+                // IMPORTANT: Reload subscribers list to include newly added users
+                println("🔄 Reloading subscriber list to include new signups...")
                 system.sendDailyNotification(articles, "https://ainews.eu.com")
                 println("✅ AI News daily update complete!")
             }
