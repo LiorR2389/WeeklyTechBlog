@@ -58,8 +58,8 @@ class AINewsSystem {
     private val smtpPort = System.getenv("SMTP_PORT") ?: "587"
 
     private val newsSources = mapOf(
-        "Financial Mirror Cyprus" to "https://www.financialmirror.com/category/cyprus/",
-        "Financial Mirror Business" to "https://www.financialmirror.com/category/business/",
+        "Cyprus Mail" to "https://cyprus-mail.com/",
+        "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/en/",
         "In-Cyprus Local" to "https://in-cyprus.philenews.com/local/",
         "In-Cyprus Opinion" to "https://in-cyprus.philenews.com/opinion/",
         "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/",
@@ -130,8 +130,16 @@ class AINewsSystem {
             if (doc != null) {
                 // Different selectors for different news sources
                 val paragraphSelectors = when {
-                    sourceName.contains("financial", true) -> listOf(
+                    sourceName.contains("cyprus-mail", true) || sourceName.contains("cyprus mail", true) -> listOf(
                         ".entry-content p:first-of-type",
+                        "article p:first-of-type",
+                        ".post-content p:first-of-type",
+                        ".content p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("kathimerini", true) -> listOf(
+                        ".article-body p:first-of-type",
+                        ".content p:first-of-type",
                         "article p:first-of-type",
                         ".post-content p:first-of-type",
                         "p:first-of-type"
@@ -251,7 +259,7 @@ class AINewsSystem {
         val doc = fetchPage(url) ?: return emptyList()
         val articles = mutableListOf<Article>()
 
-        val selectors = listOf(".entry-title a", "h2 a", ".post-title a")
+        val selectors = listOf(".entry-title a", "h2 a", ".post-title a", "h3 a", ".headline a")
 
         for (selector in selectors) {
             val linkElements = doc.select(selector)
@@ -263,8 +271,9 @@ class AINewsSystem {
 
                         if (articleUrl.startsWith("/")) {
                             val baseUrl = when {
+                                sourceName.contains("cyprus-mail", true) || sourceName.contains("cyprus mail", true) -> "https://cyprus-mail.com"
+                                sourceName.contains("kathimerini", true) -> "https://www.kathimerini.com.cy"
                                 sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
-                                sourceName.contains("financial", true) -> "https://www.financialmirror.com"
                                 sourceName.contains("alpha", true) -> "https://www.alphanews.live"
                                 sourceName.contains("stockwatch", true) -> "https://www.stockwatch.com.cy"
                                 else -> ""
@@ -277,7 +286,7 @@ class AINewsSystem {
                             println("📖 Extracting paragraph from: $title")
                             val paragraph = extractFirstParagraph(articleUrl, sourceName)
                             val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
-
+                            
                             val category = categorizeArticle(title)
 
                             val titleTranslations = mapOf(
@@ -309,7 +318,7 @@ class AINewsSystem {
                                     "el" to translateText(category, "Greek")
                                 )
                             ))
-
+                            
                             // Add delay between article fetches to be respectful
                             Thread.sleep(1500)
                         }
@@ -333,12 +342,32 @@ class AINewsSystem {
         println("📰 Starting news aggregation...")
         val seen = loadSeenArticles()
         val allArticles = mutableListOf<Article>()
+        val titleSimilarityThreshold = 0.8 // 80% similarity threshold
 
         newsSources.forEach { (sourceName, sourceUrl) ->
             try {
                 val sourceArticles = scrapeNewsSource(sourceName, sourceUrl)
-                allArticles.addAll(sourceArticles)
-                Thread.sleep(1000)
+                
+                // Add duplicate detection by title similarity
+                sourceArticles.forEach { newArticle ->
+                    var isDuplicate = false
+                    
+                    // Check against existing articles
+                    for (existingArticle in allArticles) {
+                        val similarity = calculateTitleSimilarity(newArticle.title, existingArticle.title)
+                        if (similarity > titleSimilarityThreshold) {
+                            println("🔄 Duplicate detected: '${newArticle.title}' similar to '${existingArticle.title}' (${(similarity * 100).toInt()}% match)")
+                            isDuplicate = true
+                            break
+                        }
+                    }
+                    
+                    if (!isDuplicate) {
+                        allArticles.add(newArticle)
+                    }
+                }
+                
+                Thread.sleep(2000) // Longer delay between sources
             } catch (e: Exception) {
                 println("Error scraping $sourceName: ${e.message}")
             }
@@ -348,8 +377,20 @@ class AINewsSystem {
         seen.addAll(newArticles.map { it.url })
         saveSeenArticles(seen)
 
-        println("Found ${allArticles.size} total articles, ${newArticles.size} new articles")
+        println("Found ${allArticles.size} total articles, ${newArticles.size} new articles after duplicate removal")
         return newArticles
+    }
+
+    private fun calculateTitleSimilarity(title1: String, title2: String): Double {
+        val words1 = title1.lowercase().split("\\s+".toRegex()).filter { it.length > 3 }.toSet()
+        val words2 = title2.lowercase().split("\\s+".toRegex()).filter { it.length > 3 }.toSet()
+        
+        if (words1.isEmpty() || words2.isEmpty()) return 0.0
+        
+        val intersection = words1.intersect(words2).size
+        val union = words1.union(words2).size
+        
+        return intersection.toDouble() / union.toDouble()
     }
 
     fun processFormspreeEmails() {
@@ -425,7 +466,7 @@ class AINewsSystem {
     private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>) {
         val csvFile = File("new_subscribers.csv")
         val csvLine = "$email,${name ?: ""},${languages.joinToString(";")}"
-
+        
         try {
             // Check if subscriber already exists in CSV
             if (csvFile.exists()) {
@@ -435,7 +476,7 @@ class AINewsSystem {
                     return
                 }
             }
-
+            
             // Append to CSV file
             csvFile.appendText("$csvLine\n")
             println("📧 Added subscriber to CSV: $email")
@@ -889,7 +930,7 @@ class AINewsSystem {
             </div>
 
             <div class="footer">
-            <p>Generated automatically • Sources: Financial Mirror, In-Cyprus, Alpha News, StockWatch</p>
+            <p>Generated automatically • Sources: Cyprus Mail, Kathimerini Cyprus, In-Cyprus, Alpha News, StockWatch</p>
             <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
             </div>
             </div>
@@ -986,12 +1027,12 @@ class AINewsSystem {
 
 fun main() {
     println("🤖 Starting AI News Daily Update...")
-
+    
     val system = AINewsSystem()
-
+    
     // Skip HTTP server completely - go straight to CSV processing
     println("📝 Using CSV-only subscription method")
-
+    
     // Process new subscriptions automatically
     println("🔄 Processing new subscriptions...")
     system.processFormspreeEmails()         // Check Gmail and add to CSV + mark as read
@@ -1009,11 +1050,11 @@ fun main() {
 
     try {
         val articles = system.aggregateNews()
-
+        
         if (articles.isNotEmpty()) {
             val website = system.generateDailyWebsite(articles)
             system.setupCustomDomain()
-
+            
             val websiteUrl = system.uploadToGitHubPages(website)
             if (websiteUrl.isNotEmpty()) {
                 println("🚀 Website uploaded: $websiteUrl")
@@ -1027,14 +1068,14 @@ fun main() {
         println("❌ Error: ${e.message}")
         e.printStackTrace()
     }
-
+    
     // For cronjob mode, exit after running once
     val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true // Default to cronjob mode
     if (isCronjob) {
         println("✅ Cronjob completed successfully")
         return
     }
-
+    
     // Only keep running in regular mode (rarely used now)
     println("🔄 Keeping application running and checking for new subscriptions...")
     while (true) {
