@@ -1,4 +1,15 @@
-package com.ainews
+if (emailMatch != null) {
+                            val email = emailMatch.groupValues[1].trim()
+                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
+                            val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
+
+                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages")
+
+                            // Check if subscriber already exists to avoid duplicates
+                            val currentSubscribers = loadSubscribers().toMutableList()
+                            val existingSubscriber = currentSubscribers.find { it.email == email }
+                            
+                            if (existingSubscriberpackage com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -544,9 +555,30 @@ class AINewsSystem {
 
                             println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages")
 
-                            // Add to both CSV and memory
-                            addSubscriberToCSV(email, name, languages)
-                            addSubscriber(email, name, languages)
+                            // Check if subscriber already exists to avoid duplicates
+                            val currentSubscribers = loadSubscribers().toMutableList()
+                            val existingSubscriber = currentSubscribers.find { it.email == email }
+                            
+                            if (existingSubscriber == null) {
+                                // Add new subscriber directly to the main subscriber list
+                                val newSubscriber = Subscriber(
+                                    email = email,
+                                    name = name,
+                                    languages = languages,
+                                    subscribed = true,
+                                    subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                                )
+                                currentSubscribers.add(newSubscriber)
+                                
+                                // IMPORTANT: Save to persistent file immediately
+                                saveSubscribers(currentSubscribers)
+                                println("💾 Saved new subscriber to persistent file: $email")
+                                
+                                // Also add to CSV as backup
+                                addSubscriberToCSV(email, name, languages)
+                            } else {
+                                println("⚠️ Subscriber $email already exists, skipping")
+                            }
 
                             // IMPORTANT: Mark as read AFTER successful processing
                             message.setFlag(Flags.Flag.SEEN, true)
