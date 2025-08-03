@@ -532,10 +532,10 @@ class AINewsSystem {
                     if (subject.contains("AI News Cyprus Subscription", ignoreCase = true)) {
                         println("✅ Valid subscription email found")
 
-                        // Extract data using the actual Formspree format
-                        val emailMatch = Regex("email\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val nameMatch = Regex("name\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val langMatch = Regex("languages\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        // Extract data using the correct Formspree format with colons
+                        val emailMatch = Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val nameMatch = Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val langMatch = Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
 
                         if (emailMatch != null) {
                             val email = emailMatch.groupValues[1].trim()
@@ -553,6 +553,10 @@ class AINewsSystem {
                             println("✅ Successfully processed and marked email as READ for: $email")
                         } else {
                             println("❌ Could not extract email address from content")
+                            println("📋 Debugging regex matches:")
+                            println("   Email regex test: ${Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)}")
+                            println("   Name regex test: ${Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)}")
+                            println("   Languages regex test: ${Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)}")
                             println("📋 Full content for debugging:")
                             println(content)
                         }
