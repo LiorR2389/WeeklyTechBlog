@@ -63,7 +63,10 @@ class AINewsSystem {
         "In-Cyprus Local" to "https://in-cyprus.philenews.com/local/",
         "In-Cyprus Opinion" to "https://in-cyprus.philenews.com/opinion/",
         "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/",
-        "StockWatch Cyprus" to "https://www.stockwatch.com.cy/en/news"
+        "StockWatch Cyprus" to "https://www.stockwatch.com.cy/en/news",
+        "Cyprus Weekly" to "https://www.cyprusweekly.com.cy/",
+        "Financial Mirror" to "https://www.financialmirror.com/",
+        "Politis English" to "https://politis.com.cy/en/"
     )
 
     private fun loadSeenArticles(): MutableSet<String> {
@@ -131,6 +134,7 @@ class AINewsSystem {
                 // Different selectors for different news sources
                 val paragraphSelectors = when {
                     sourceName.contains("cyprus-mail", true) || sourceName.contains("cyprus mail", true) -> listOf(
+                        ".td-post-content p:first-of-type",
                         ".entry-content p:first-of-type",
                         "article p:first-of-type",
                         ".post-content p:first-of-type",
@@ -139,9 +143,30 @@ class AINewsSystem {
                     )
                     sourceName.contains("kathimerini", true) -> listOf(
                         ".article-body p:first-of-type",
+                        ".story-content p:first-of-type",
                         ".content p:first-of-type",
                         "article p:first-of-type",
                         ".post-content p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("cyprus weekly", true) -> listOf(
+                        ".entry-content p:first-of-type",
+                        ".post-content p:first-of-type",
+                        "article p:first-of-type",
+                        ".content p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("financial", true) -> listOf(
+                        ".entry-content p:first-of-type",
+                        "article p:first-of-type",
+                        ".post-content p:first-of-type",
+                        "p:first-of-type"
+                    )
+                    sourceName.contains("politis", true) -> listOf(
+                        ".article-content p:first-of-type",
+                        ".entry-content p:first-of-type",
+                        "article p:first-of-type",
+                        ".content p:first-of-type",
                         "p:first-of-type"
                     )
                     sourceName.contains("in-cyprus", true) -> listOf(
@@ -256,18 +281,45 @@ class AINewsSystem {
 
     private fun scrapeNewsSource(sourceName: String, url: String): List<Article> {
         println("🔍 Scraping $sourceName...")
-        val doc = fetchPage(url) ?: return emptyList()
+        val doc = fetchPage(url) 
+        if (doc == null) {
+            println("❌ Failed to fetch page for $sourceName")
+            return emptyList()
+        }
+        
         val articles = mutableListOf<Article>()
 
-        val selectors = listOf(".entry-title a", "h2 a", ".post-title a", "h3 a", ".headline a")
+        // More comprehensive selectors for different news sites
+        val allSelectors = listOf(
+            // Standard WordPress/CMS selectors
+            ".entry-title a", "h2 a", ".post-title a", "h3 a", ".headline a",
+            // Cyprus Mail specific
+            ".td-module-title a", ".td-image-wrap", ".td-big-grid-post-title a",
+            // Kathimerini specific  
+            ".article-title a", ".story-title a", ".headline-link",
+            // StockWatch specific
+            ".news-title a", ".article-link", ".story-link",
+            // General fallbacks
+            "a[href*='/article/']", "a[href*='/news/']", "a[href*='/story/']",
+            ".content h2 a", ".main h3 a", "article h2 a", "article h3 a"
+        )
 
-        for (selector in selectors) {
+        var foundLinks = false
+        
+        for (selector in allSelectors) {
             val linkElements = doc.select(selector)
+            println("🔎 Trying selector '$selector' for $sourceName: found ${linkElements.size} elements")
+            
             if (linkElements.isNotEmpty()) {
-                linkElements.take(8).forEach { linkElement ->
+                foundLinks = true
+                
+                linkElements.take(10).forEach { linkElement ->
                     try {
                         val title = linkElement.text().trim()
                         var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
+
+                        // Debug logging
+                        println("📝 Found potential article: '$title' -> '$articleUrl'")
 
                         if (articleUrl.startsWith("/")) {
                             val baseUrl = when {
@@ -276,12 +328,18 @@ class AINewsSystem {
                                 sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
                                 sourceName.contains("alpha", true) -> "https://www.alphanews.live"
                                 sourceName.contains("stockwatch", true) -> "https://www.stockwatch.com.cy"
+                                sourceName.contains("cyprus weekly", true) -> "https://www.cyprusweekly.com.cy"
+                                sourceName.contains("financial", true) -> "https://www.financialmirror.com"
+                                sourceName.contains("politis", true) -> "https://politis.com.cy"
                                 else -> ""
                             }
                             articleUrl = baseUrl + articleUrl
+                            println("🔗 Fixed relative URL: $articleUrl")
                         }
 
                         if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
+                            println("✅ Valid article found: $title")
+                            
                             // Extract first paragraph from the article
                             println("📖 Extracting paragraph from: $title")
                             val paragraph = extractFirstParagraph(articleUrl, sourceName)
@@ -321,15 +379,27 @@ class AINewsSystem {
                             
                             // Add delay between article fetches to be respectful
                             Thread.sleep(1500)
+                        } else {
+                            println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
                     } catch (e: Exception) {
-                        println("Error processing link: ${e.message}")
+                        println("❌ Error processing link: ${e.message}")
                     }
                 }
-                break
+                break // Stop trying selectors once we find articles
             }
         }
+        
+        if (!foundLinks) {
+            println("⚠️ No article links found for $sourceName with any selector")
+            // Debug: Print page structure
+            println("🔍 Page title: ${doc.title()}")
+            println("🔍 Total links on page: ${doc.select("a").size}")
+            println("🔍 Sample h2 elements: ${doc.select("h2").take(3).map { it.text() }}")
+            println("🔍 Sample h3 elements: ${doc.select("h3").take(3).map { it.text() }}")
+        }
 
+        println("📊 $sourceName: Found ${articles.size} articles")
         return articles.distinctBy { it.url }
     }
 
@@ -930,7 +1000,7 @@ class AINewsSystem {
             </div>
 
             <div class="footer">
-            <p>Generated automatically • Sources: Cyprus Mail, Kathimerini Cyprus, In-Cyprus, Alpha News, StockWatch</p>
+            <p>Generated automatically • Sources: Cyprus Mail, Kathimerini Cyprus, In-Cyprus, Alpha News, StockWatch, Cyprus Weekly, Financial Mirror, Politis</p>
             <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
             </div>
             </div>
