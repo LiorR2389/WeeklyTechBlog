@@ -1,15 +1,4 @@
-if (emailMatch != null) {
-                            val email = emailMatch.groupValues[1].trim()
-                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
-                            val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
-
-                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages")
-
-                            // Check if subscriber already exists to avoid duplicates
-                            val currentSubscribers = loadSubscribers().toMutableList()
-                            val existingSubscriber = currentSubscribers.find { it.email == email }
-                            
-                            if (existingSubscriberpackage com.ainews
+package com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -930,24 +919,6 @@ class AINewsSystem {
         } catch (e: Exception) {
             println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
             e.printStackTrace()
-        }
-    }
-
-    fun addSubscriber(email: String, name: String?, languages: List<String>) {
-        val subscribers = loadSubscribers().toMutableList()
-        val existingSubscriber = subscribers.find { it.email == email }
-
-        if (existingSubscriber == null) {
-            val newSubscriber = Subscriber(
-                email = email,
-                name = name,
-                languages = languages,
-                subscribed = true,
-                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-            )
-            subscribers.add(newSubscriber)
-            saveSubscribers(subscribers)
-            println("✅ Added new subscriber: $email")
         }
     }
 
