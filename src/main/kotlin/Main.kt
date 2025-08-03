@@ -881,41 +881,11 @@ class AINewsSystem {
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
                 subject = "🤖 Your Daily Cyprus News Update - ${articles.size} new stories"
 
-                val topArticles = articles.take(5)
-                val articlesList = topArticles.joinToString("\n") { article ->
-                    "• ${article.title}\n  ${article.summary.take(100)}...\n"
-                }
-
                 val htmlContent = """
-                <html>
-                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                        <h1 style="color: #667eea;">🤖 AI News Cyprus</h1>
-                        <p>Hello ${subscriber.name ?: "there"}!</p>
-                        <p>Here are today's top Cyprus news stories:</p>
-                        
-                        ${topArticles.joinToString("\n") { article ->
-                            """
-                            <div style="border-left: 4px solid #667eea; padding-left: 15px; margin: 15px 0;">
-                                <h3 style="margin: 0 0 5px 0; color: #333;">${article.title}</h3>
-                                <p style="margin: 0 0 10px 0; color: #666;">${article.summary.take(150)}...</p>
-                                <a href="${article.url}" style="color: #667eea; text-decoration: none;">Read full article →</a>
-                            </div>
-                            """
-                        }}
-                        
-                        <div style="text-align: center; margin: 30px 0;">
-                            <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; display: inline-block;">📖 View All Stories</a>
-                        </div>
-                        
-                        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-                        <p style="font-size: 0.9em; color: #888;">
-                            You're receiving this because you subscribed to AI News Cyprus.<br>
-                            Generated automatically from trusted Cyprus news sources.
-                        </p>
-                    </div>
-                </body>
-                </html>
+                <h1>🤖 AI News Cyprus</h1>
+                <p>Hello ${subscriber.name ?: "there"}!</p>
+                <p>Fresh Cyprus news updates are available.</p>
+                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 View Full Website</a>
                 """.trimIndent()
 
                 setContent(htmlContent, "text/html; charset=utf-8")
