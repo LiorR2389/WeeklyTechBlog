@@ -922,6 +922,26 @@ class AINewsSystem {
         }
     }
 
+    fun addSubscriber(email: String, name: String?, languages: List<String>) {
+        val subscribers = loadSubscribers().toMutableList()
+        val existingSubscriber = subscribers.find { it.email == email }
+
+        if (existingSubscriber == null) {
+            val newSubscriber = Subscriber(
+                email = email,
+                name = name,
+                languages = languages,
+                subscribed = true,
+                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+            )
+            subscribers.add(newSubscriber)
+            saveSubscribers(subscribers)
+            println("✅ Added new subscriber to persistent file: $email")
+        } else {
+            println("⚠️ Subscriber $email already exists in system")
+        }
+    }
+
     fun generateDailyWebsite(articles: List<Article>): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
