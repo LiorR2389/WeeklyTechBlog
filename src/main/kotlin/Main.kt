@@ -1,4 +1,45 @@
-package com.ainews
+if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
+                            println("✅ Valid article found: $title")
+                            
+                            // SPEED OPTIMIZATION: Skip paragraph extraction and use title as summary
+                            val summary = generateFallbackSummary(title)
+                            val category = categorizeArticle(title)
+
+                            // SPEED OPTIMIZATION: Only translate titles, skip summary translations for speed
+                            val titleTranslations = mapOf(
+                                "en" to title,
+                                "he" to translateText(title, "Hebrew"),
+                                "ru" to translateText(title, "Russian"),
+                                "el" to translateText(title, "Greek")
+                            )
+
+                            // Use empty summary translations to skip API calls
+                            val summaryTranslations = mapOf(
+                                "en" to summary,
+                                "he" to summary, // Skip translation
+                                "ru" to summary, // Skip translation  
+                                "el" to summary  // Skip translation
+                            )
+
+                            articles.add(Article(
+                                title = title,
+                                url = articleUrl,
+                                summary = summary,
+                                category = category,
+                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                                country = source.country,
+                                sourceId = source.sourceId,
+                                titleTranslations = titleTranslations,
+                                summaryTranslations = summaryTranslations,
+                                categoryTranslations = mapOf(
+                                    "en" to category,
+                                    "he" to translateText(category, "Hebrew"),
+                                    "ru" to translateText(category, "Russian"),
+                                    "el" to translateText(category, "Greek")
+                                )
+                            ))
+                            
+                            Thread.sleep(500) // Reduced from 1000mspackage com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -383,7 +424,7 @@ class AINewsSystem {
             if (linkElements.isNotEmpty()) {
                 foundLinks = true
                 
-                linkElements.take(10).forEach { linkElement ->
+                linkElements.take(10).forEach { linkElement -> // Back to 10 articles
                     try {
                         val title = linkElement.text().trim()
                         var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
@@ -437,7 +478,8 @@ class AINewsSystem {
                                 )
                             ))
                             
-                            Thread.sleep(source.delayMs)
+                            // Faster scraping - reduced delay and earlier break
+                            Thread.sleep(1000) // Reduced from source.delayMs
                         } else {
                             println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
@@ -500,7 +542,7 @@ class AINewsSystem {
                     }
                 }
                 
-                Thread.sleep(source.delayMs)
+                Thread.sleep(500) // Reduced delay between sources
             } catch (e: Exception) {
                 println("Error scraping ${source.sourceName}: ${e.message}")
             }
@@ -1153,7 +1195,7 @@ class AINewsSystem {
         }
     }
 
-    // UPDATED: Multi-country email notifications
+    // UPDATED: Send one email per subscriber with all their countries
     fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
         val subscribers = loadSubscribers().filter { it.subscribed }
 
@@ -1169,33 +1211,20 @@ class AINewsSystem {
 
         println("📧 Sending notifications to ${subscribers.size} subscribers...")
         
-        // Group subscribers by their country preferences and send targeted emails
-        val countries = listOf("CYPRUS", "ISRAEL", "GREECE")
-        countries.forEach { country ->
-            val countrySubscribers = subscribers.filter { subscriber ->
-                subscriber.countries.contains(country)
-            }
-            
-            if (countrySubscribers.isNotEmpty()) {
-                val countryArticles = articles.filter { it.country == country }
-                println("📧 Sending ${countrySubscribers.size} ${country.lowercase()} notifications for ${countryArticles.size} articles")
-                
-                countrySubscribers.forEach { subscriber ->
-                    try {
-                        sendCountryEmailNotification(subscriber, countryArticles, country, websiteUrl)
-                        println("✅ Email sent to ${subscriber.email} for $country")
-                        Thread.sleep(1000)
-                    } catch (e: Exception) {
-                        println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
-                    }
-                }
+        subscribers.forEach { subscriber ->
+            try {
+                sendEmailNotification(subscriber, articles, websiteUrl)
+                println("✅ Email sent to ${subscriber.email}")
+                Thread.sleep(1000)
+            } catch (e: Exception) {
+                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
             }
         }
         println("✅ Finished sending notifications")
     }
 
-    // NEW: Send country-specific email notification
-    private fun sendCountryEmailNotification(subscriber: Subscriber, articles: List<Article>, country: String, websiteUrl: String) {
+    // UPDATED: Send single email with all countries to homepage
+    private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
         if (emailPassword.isNullOrEmpty()) return
 
         try {
@@ -1214,37 +1243,20 @@ class AINewsSystem {
                 }
             })
 
-            val countryName = when(country) {
-                "CYPRUS" -> "Cyprus"
-                "ISRAEL" -> "Israel"
-                "GREECE" -> "Greece"
-                else -> country
-            }
-
-            val countryFlag = when(country) {
-                "CYPRUS" -> "🇨🇾"
-                "ISRAEL" -> "🇮🇱"
-                "GREECE" -> "🇬🇷"
-                else -> "🌍"
+            val subscriberCountryArticles = articles.filter { article ->
+                subscriber.countries.contains(article.country)
             }
 
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail, "AI News"))
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-                subject = "$countryFlag Your Daily $countryName News Digest - ${articles.size} new stories"
+                subject = "🤖 Your Daily News Digest - ${subscriberCountryArticles.size} new stories"
 
                 val htmlContent = """
-                <h1>🤖 AI News - $countryName</h1>
+                <h1>🤖 AI News</h1>
                 <p>Hello ${subscriber.name ?: "there"}!</p>
-                <p>Fresh $countryName news updates are available with ${articles.size} new articles.</p>
-                <a href="$websiteUrl${country.lowercase()}/index.html" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 View $countryName News</a>
-                <br><br>
-                <a href="$websiteUrl" style="background: #764ba2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 20px;">🌍 View All Countries</a>
-                <hr>
-                <p style="font-size: 0.9rem; color: #666;">
-                Countries: ${subscriber.countries.joinToString(", ")} | 
-                Languages: ${subscriber.languages.joinToString(", ")}
-                </p>
+                <p>Fresh news updates are available with ${subscriberCountryArticles.size} new articles from ${subscriber.countries.joinToString(", ")}.</p>
+                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 Read News</a>
                 """.trimIndent()
 
                 setContent(htmlContent, "text/html; charset=utf-8")
