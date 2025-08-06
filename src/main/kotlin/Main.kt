@@ -1,45 +1,4 @@
-if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
-                            println("✅ Valid article found: $title")
-                            
-                            // SPEED OPTIMIZATION: Skip paragraph extraction and use title as summary
-                            val summary = generateFallbackSummary(title)
-                            val category = categorizeArticle(title)
-
-                            // SPEED OPTIMIZATION: Only translate titles, skip summary translations for speed
-                            val titleTranslations = mapOf(
-                                "en" to title,
-                                "he" to translateText(title, "Hebrew"),
-                                "ru" to translateText(title, "Russian"),
-                                "el" to translateText(title, "Greek")
-                            )
-
-                            // Use empty summary translations to skip API calls
-                            val summaryTranslations = mapOf(
-                                "en" to summary,
-                                "he" to summary, // Skip translation
-                                "ru" to summary, // Skip translation  
-                                "el" to summary  // Skip translation
-                            )
-
-                            articles.add(Article(
-                                title = title,
-                                url = articleUrl,
-                                summary = summary,
-                                category = category,
-                                date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                                country = source.country,
-                                sourceId = source.sourceId,
-                                titleTranslations = titleTranslations,
-                                summaryTranslations = summaryTranslations,
-                                categoryTranslations = mapOf(
-                                    "en" to category,
-                                    "he" to translateText(category, "Hebrew"),
-                                    "ru" to translateText(category, "Russian"),
-                                    "el" to translateText(category, "Greek")
-                                )
-                            ))
-                            
-                            Thread.sleep(500) // Reduced from 1000mspackage com.ainews
+package com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -440,12 +399,11 @@ class AINewsSystem {
                         if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
                             println("✅ Valid article found: $title")
                             
-                            val paragraph = extractFirstParagraph(articleUrl, source)
-                            val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
-                            
+                            // SPEED OPTIMIZATION: Skip paragraph extraction and use title as summary
+                            val summary = generateFallbackSummary(title)
                             val category = categorizeArticle(title)
 
-                            // Only translate to required languages (limit to first paragraph as per requirements)
+                            // SPEED OPTIMIZATION: Only translate titles, skip summary translations for speed
                             val titleTranslations = mapOf(
                                 "en" to title,
                                 "he" to translateText(title, "Hebrew"),
@@ -453,11 +411,12 @@ class AINewsSystem {
                                 "el" to translateText(title, "Greek")
                             )
 
+                            // Use empty summary translations to skip API calls
                             val summaryTranslations = mapOf(
                                 "en" to summary,
-                                "he" to translateText(summary, "Hebrew"),
-                                "ru" to translateText(summary, "Russian"),
-                                "el" to translateText(summary, "Greek")
+                                "he" to summary, // Skip translation
+                                "ru" to summary, // Skip translation  
+                                "el" to summary  // Skip translation
                             )
 
                             articles.add(Article(
@@ -466,8 +425,8 @@ class AINewsSystem {
                                 summary = summary,
                                 category = category,
                                 date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
-                                country = source.country, // NEW
-                                sourceId = source.sourceId, // NEW
+                                country = source.country,
+                                sourceId = source.sourceId,
                                 titleTranslations = titleTranslations,
                                 summaryTranslations = summaryTranslations,
                                 categoryTranslations = mapOf(
@@ -478,8 +437,7 @@ class AINewsSystem {
                                 )
                             ))
                             
-                            // Faster scraping - reduced delay and earlier break
-                            Thread.sleep(1000) // Reduced from source.delayMs
+                            Thread.sleep(500) // Reduced from 1000ms
                         } else {
                             println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
