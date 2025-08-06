@@ -399,11 +399,12 @@ class AINewsSystem {
                         if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
                             println("✅ Valid article found: $title")
                             
-                            // SPEED OPTIMIZATION: Skip paragraph extraction and use title as summary
-                            val summary = generateFallbackSummary(title)
+                            // Extract first paragraph from article
+                            val paragraph = extractFirstParagraph(articleUrl, source)
+                            val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
                             val category = categorizeArticle(title)
 
-                            // SPEED OPTIMIZATION: Only translate titles, skip summary translations for speed
+                            // Translate titles to all required languages
                             val titleTranslations = mapOf(
                                 "en" to title,
                                 "he" to translateText(title, "Hebrew"),
@@ -411,12 +412,12 @@ class AINewsSystem {
                                 "el" to translateText(title, "Greek")
                             )
 
-                            // Use empty summary translations to skip API calls
+                            // Translate summaries to all required languages
                             val summaryTranslations = mapOf(
                                 "en" to summary,
-                                "he" to summary, // Skip translation
-                                "ru" to summary, // Skip translation  
-                                "el" to summary  // Skip translation
+                                "he" to translateText(summary, "Hebrew"),
+                                "ru" to translateText(summary, "Russian"),
+                                "el" to translateText(summary, "Greek")
                             )
 
                             articles.add(Article(
@@ -437,7 +438,7 @@ class AINewsSystem {
                                 )
                             ))
                             
-                            Thread.sleep(500) // Reduced from 1000ms
+                            Thread.sleep(2000) // Increased delay for proper scraping and translation
                         } else {
                             println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
