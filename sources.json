@@ -1,0 +1,321 @@
+{
+  "sources": [
+    {
+      "country": "CYPRUS",
+      "sourceId": "cyprus-mail",
+      "sourceName": "Cyprus Mail",
+      "baseUrl": "https://cyprus-mail.com/",
+      "linkSelectors": [
+        ".td-module-title a",
+        ".td-image-wrap a",
+        ".td-big-grid-post-title a",
+        ".entry-title a",
+        "h2 a",
+        ".post-title a"
+      ],
+      "paragraphSelectors": [
+        ".td-post-content p:first-of-type",
+        ".entry-content p:first-of-type",
+        "article p:first-of-type",
+        ".post-content p:first-of-type",
+        ".content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "CYPRUS",
+      "sourceId": "kathimerini-cyprus",
+      "sourceName": "Kathimerini Cyprus",
+      "baseUrl": "https://www.kathimerini.com.cy/en/",
+      "linkSelectors": [
+        ".article-title a",
+        ".story-title a",
+        ".headline-link",
+        "h2 a",
+        "h3 a"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".story-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "CYPRUS",
+      "sourceId": "in-cyprus-local",
+      "sourceName": "In-Cyprus Local",
+      "baseUrl": "https://in-cyprus.philenews.com/local/",
+      "linkSelectors": [
+        ".post-title a",
+        "h2 a",
+        "h3 a",
+        ".entry-title a"
+      ],
+      "paragraphSelectors": [
+        ".post-content p:first-of-type",
+        "article p:first-of-type",
+        ".content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "CYPRUS",
+      "sourceId": "in-cyprus-opinion",
+      "sourceName": "In-Cyprus Opinion",
+      "baseUrl": "https://in-cyprus.philenews.com/opinion/",
+      "linkSelectors": [
+        ".post-title a",
+        "h2 a",
+        "h3 a",
+        ".entry-title a"
+      ],
+      "paragraphSelectors": [
+        ".post-content p:first-of-type",
+        "article p:first-of-type",
+        ".content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "CYPRUS",
+      "sourceId": "alpha-news-cyprus",
+      "sourceName": "Alpha News Cyprus",
+      "baseUrl": "https://www.alphanews.live/cyprus/",
+      "linkSelectors": [
+        ".content h2 a",
+        "main h3 a",
+        "article h2 a",
+        ".post-body a"
+      ],
+      "paragraphSelectors": [
+        ".content p:first-of-type",
+        "main p:first-of-type",
+        "article p:first-of-type",
+        ".post-body p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "CYPRUS",
+      "sourceId": "stockwatch-cyprus",
+      "sourceName": "StockWatch Cyprus",
+      "baseUrl": "https://www.stockwatch.com.cy/en/news",
+      "linkSelectors": [
+        ".news-title a",
+        ".article-link",
+        ".story-link",
+        "h2 a",
+        "h3 a"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "CYPRUS",
+      "sourceId": "financial-mirror",
+      "sourceName": "Financial Mirror",
+      "baseUrl": "https://www.financialmirror.com/",
+      "linkSelectors": [
+        ".entry-title a",
+        "h2 a",
+        ".post-title a"
+      ],
+      "paragraphSelectors": [
+        ".entry-content p:first-of-type",
+        "article p:first-of-type",
+        ".post-content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Nicosia",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "jerusalem-post",
+      "sourceName": "The Jerusalem Post",
+      "baseUrl": "https://www.jpost.com/",
+      "linkSelectors": [
+        ".article-title a",
+        ".headline a",
+        "h2 a",
+        "h3 a",
+        ".title a"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type",
+        ".post-content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "haaretz",
+      "sourceName": "Haaretz",
+      "baseUrl": "https://www.haaretz.com/",
+      "linkSelectors": [
+        ".teaser-title a",
+        ".article-title a",
+        "h2 a",
+        "h3 a",
+        ".headline-link"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type",
+        ".story-content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "times-of-israel",
+      "sourceName": "The Times of Israel",
+      "baseUrl": "https://www.timesofisrael.com/",
+      "linkSelectors": [
+        ".headline a",
+        ".article-title a",
+        "h2 a",
+        "h3 a",
+        ".title-link"
+      ],
+      "paragraphSelectors": [
+        ".article-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type",
+        ".post-content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "israel-hayom",
+      "sourceName": "Israel Hayom",
+      "baseUrl": "https://www.israelhayom.com/",
+      "linkSelectors": [
+        ".article-title a",
+        ".headline a",
+        "h2 a",
+        "h3 a"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "GREECE",
+      "sourceId": "kathimerini-greece",
+      "sourceName": "Kathimerini Greece",
+      "baseUrl": "https://www.ekathimerini.com/",
+      "linkSelectors": [
+        ".article-title a",
+        ".story-title a",
+        "h2 a",
+        "h3 a",
+        ".headline-link"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".story-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Athens",
+      "delayMs": 2000
+    },
+    {
+      "country": "GREECE",
+      "sourceId": "greek-reporter",
+      "sourceName": "Greek Reporter",
+      "baseUrl": "https://greekreporter.com/",
+      "linkSelectors": [
+        ".entry-title a",
+        "h2 a",
+        ".post-title a",
+        "h3 a"
+      ],
+      "paragraphSelectors": [
+        ".entry-content p:first-of-type",
+        ".post-content p:first-of-type",
+        "article p:first-of-type",
+        ".content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Athens",
+      "delayMs": 2000
+    },
+    {
+      "country": "GREECE",
+      "sourceId": "greek-city-times",
+      "sourceName": "Greek City Times",
+      "baseUrl": "https://greekcitytimes.com/",
+      "linkSelectors": [
+        ".entry-title a",
+        "h2 a",
+        ".post-title a",
+        ".headline a"
+      ],
+      "paragraphSelectors": [
+        ".entry-content p:first-of-type",
+        ".post-content p:first-of-type",
+        "article p:first-of-type",
+        ".content p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Europe/Athens",
+      "delayMs": 2000
+    },
+    {
+      "country": "GREECE",
+      "sourceId": "news247",
+      "sourceName": "News247",
+      "baseUrl": "https://www.news247.gr/",
+      "linkSelectors": [
+        ".article-title a",
+        "h2 a",
+        "h3 a",
+        ".news-title a"
+      ],
+      "paragraphSelectors": [
+        ".article-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "el",
+      "timezone": "Europe/Athens",
+      "delayMs": 2000
+    }
+  ]
+}

@@ -21,24 +21,55 @@ import com.sun.net.httpserver.HttpExchange
 import java.net.InetSocketAddress
 import kotlin.concurrent.thread
 import jakarta.mail.search.*
+import java.security.MessageDigest
 
+// Updated data classes with multi-country support
 data class Article(
     val title: String,
     val url: String,
     val summary: String,
     val category: String,
     val date: String,
+    val country: String, // NEW: Country field
+    val sourceId: String, // NEW: Source identifier
     val titleTranslations: Map<String, String> = emptyMap(),
     val summaryTranslations: Map<String, String> = emptyMap(),
     val categoryTranslations: Map<String, String> = emptyMap()
+)
+
+// NEW: Source configuration data class
+data class Source(
+    val country: String,
+    val sourceId: String,
+    val sourceName: String,
+    val baseUrl: String,
+    val linkSelectors: List<String>,
+    val paragraphSelectors: List<String>,
+    val sourceLanguage: String,
+    val timezone: String,
+    val delayMs: Long
+)
+
+// NEW: Source configuration container
+data class SourceConfig(
+    val sources: List<Source>
 )
 
 data class Subscriber(
     val email: String,
     val name: String?,
     val languages: List<String>,
+    val countries: List<String> = listOf("CYPRUS"), // NEW: Multi-country support
     val subscribed: Boolean = true,
     val subscribedDate: String
+)
+
+// NEW: Translation cache entry
+data class TranslationCacheEntry(
+    val text: String,
+    val targetLanguage: String,
+    val translatedText: String,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 class AINewsSystem {
@@ -49,6 +80,8 @@ class AINewsSystem {
     private val gson = Gson()
     private val seenArticlesFile = File("seen_articles.json")
     private val subscribersFile = File("subscribers.json")
+    private val sourcesConfigFile = File("sources.json") // NEW
+    private val translationCacheFile = File("translations.json") // NEW
 
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     private val githubToken = System.getenv("GITHUB_TOKEN")
@@ -57,17 +90,110 @@ class AINewsSystem {
     private val smtpHost = System.getenv("SMTP_HOST") ?: "smtp.gmail.com"
     private val smtpPort = System.getenv("SMTP_PORT") ?: "587"
 
-    private val newsSources = mapOf(
-        "Cyprus Mail" to "https://cyprus-mail.com/",
-        "Kathimerini Cyprus" to "https://www.kathimerini.com.cy/en/",
-        "In-Cyprus Local" to "https://in-cyprus.philenews.com/local/",
-        "In-Cyprus Opinion" to "https://in-cyprus.philenews.com/opinion/",
-        "Alpha News Cyprus" to "https://www.alphanews.live/cyprus/",
-        "StockWatch Cyprus" to "https://www.stockwatch.com.cy/en/news",
-        "Cyprus Weekly" to "https://www.cyprusweekly.com.cy/",
-        "Financial Mirror" to "https://www.financialmirror.com/",
-        "Politis English" to "https://politis.com.cy/en/"
-    )
+    // NEW: Load sources from configuration file
+    private fun loadSources(): List<Source> {
+        return if (sourcesConfigFile.exists()) {
+            try {
+                val json = sourcesConfigFile.readText()
+                val config = gson.fromJson(json, SourceConfig::class.java)
+                println("✅ Loaded ${config.sources.size} sources from configuration")
+                config.sources
+            } catch (e: Exception) {
+                println("❌ Error loading sources config: ${e.message}")
+                println("🔄 Falling back to hardcoded Cyprus sources")
+                getDefaultCyprusSources()
+            }
+        } else {
+            println("⚠️ sources.json not found, creating default configuration")
+            createDefaultSourcesConfig()
+            getDefaultCyprusSources()
+        }
+    }
+
+    // NEW: Create default sources configuration file
+    private fun createDefaultSourcesConfig() {
+        val defaultSources = SourceConfig(
+            sources = listOf(
+                Source(
+                    country = "CYPRUS",
+                    sourceId = "cyprus-mail",
+                    sourceName = "Cyprus Mail",
+                    baseUrl = "https://cyprus-mail.com/",
+                    linkSelectors = listOf(".td-module-title a", ".entry-title a", "h2 a"),
+                    paragraphSelectors = listOf(".td-post-content p:first-of-type", ".entry-content p:first-of-type"),
+                    sourceLanguage = "en",
+                    timezone = "Europe/Nicosia",
+                    delayMs = 2000
+                )
+                // Add more default sources as needed
+            )
+        )
+        
+        try {
+            sourcesConfigFile.writeText(gson.toJson(defaultSources))
+            println("✅ Created default sources.json configuration")
+        } catch (e: Exception) {
+            println("❌ Error creating sources config: ${e.message}")
+        }
+    }
+
+    // NEW: Fallback to hardcoded sources for backwards compatibility
+    private fun getDefaultCyprusSources(): List<Source> {
+        return listOf(
+            Source(
+                country = "CYPRUS",
+                sourceId = "cyprus-mail",
+                sourceName = "Cyprus Mail",
+                baseUrl = "https://cyprus-mail.com/",
+                linkSelectors = listOf(".td-module-title a", ".entry-title a", "h2 a"),
+                paragraphSelectors = listOf(".td-post-content p:first-of-type", ".entry-content p:first-of-type"),
+                sourceLanguage = "en",
+                timezone = "Europe/Nicosia",
+                delayMs = 2000
+            ),
+            Source(
+                country = "CYPRUS",
+                sourceId = "in-cyprus-local",
+                sourceName = "In-Cyprus Local",
+                baseUrl = "https://in-cyprus.philenews.com/local/",
+                linkSelectors = listOf(".post-title a", "h2 a", "h3 a"),
+                paragraphSelectors = listOf(".post-content p:first-of-type", "article p:first-of-type"),
+                sourceLanguage = "en",
+                timezone = "Europe/Nicosia",
+                delayMs = 2000
+            )
+        )
+    }
+
+    // NEW: Translation cache management
+    private fun loadTranslationCache(): MutableMap<String, String> {
+        return if (translationCacheFile.exists()) {
+            try {
+                val json = translationCacheFile.readText()
+                val type = object : TypeToken<Map<String, String>>() {}.type
+                gson.fromJson<Map<String, String>>(json, type)?.toMutableMap() ?: mutableMapOf()
+            } catch (e: Exception) {
+                println("Error loading translation cache: ${e.message}")
+                mutableMapOf()
+            }
+        } else mutableMapOf()
+    }
+
+    private fun saveTranslationCache(cache: Map<String, String>) {
+        try {
+            translationCacheFile.writeText(gson.toJson(cache))
+        } catch (e: Exception) {
+            println("Error saving translation cache: ${e.message}")
+        }
+    }
+
+    // NEW: Generate cache key for translations
+    private fun generateCacheKey(text: String, targetLanguage: String): String {
+        val input = "$text|$targetLanguage"
+        val md = MessageDigest.getInstance("SHA-256")
+        val hash = md.digest(input.toByteArray())
+        return hash.fold("") { str, it -> str + "%02x".format(it) }
+    }
 
     private fun loadSeenArticles(): MutableSet<String> {
         return if (seenArticlesFile.exists()) {
@@ -127,77 +253,17 @@ class AINewsSystem {
         }
     }
 
-    private fun extractFirstParagraph(articleUrl: String, sourceName: String): String {
+    // UPDATED: Extract first paragraph using source configuration
+    private fun extractFirstParagraph(articleUrl: String, source: Source): String {
         return try {
             val doc = fetchPage(articleUrl)
             if (doc != null) {
-                // Different selectors for different news sources
-                val paragraphSelectors = when {
-                    sourceName.contains("cyprus-mail", true) || sourceName.contains("cyprus mail", true) -> listOf(
-                        ".td-post-content p:first-of-type",
-                        ".entry-content p:first-of-type",
-                        "article p:first-of-type",
-                        ".post-content p:first-of-type",
-                        ".content p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("kathimerini", true) -> listOf(
-                        ".article-body p:first-of-type",
-                        ".story-content p:first-of-type",
-                        ".content p:first-of-type",
-                        "article p:first-of-type",
-                        ".post-content p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("cyprus weekly", true) -> listOf(
-                        ".entry-content p:first-of-type",
-                        ".post-content p:first-of-type",
-                        "article p:first-of-type",
-                        ".content p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("financial", true) -> listOf(
-                        ".entry-content p:first-of-type",
-                        "article p:first-of-type",
-                        ".post-content p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("politis", true) -> listOf(
-                        ".article-content p:first-of-type",
-                        ".entry-content p:first-of-type",
-                        "article p:first-of-type",
-                        ".content p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("in-cyprus", true) -> listOf(
-                        ".post-content p:first-of-type",
-                        "article p:first-of-type",
-                        ".content p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("alpha", true) -> listOf(
-                        ".content p:first-of-type",
-                        "main p:first-of-type",
-                        "article p:first-of-type",
-                        ".post-body p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    sourceName.contains("stockwatch", true) -> listOf(
-                        ".article-body p:first-of-type",
-                        ".content p:first-of-type",
-                        "article p:first-of-type",
-                        "p:first-of-type"
-                    )
-                    else -> listOf("p:first-of-type", "article p:first-of-type", ".content p:first-of-type")
-                }
-
-                // Try each selector until we find a paragraph
-                for (selector in paragraphSelectors) {
+                // Try each paragraph selector from the source configuration
+                for (selector in source.paragraphSelectors) {
                     val paragraphElement = doc.select(selector).first()
                     if (paragraphElement != null) {
                         val text = paragraphElement.text().trim()
                         if (text.isNotEmpty() && text.length > 50) {
-                            // Clean up the text
                             return cleanParagraphText(text)
                         }
                     }
@@ -212,16 +278,17 @@ class AINewsSystem {
 
     private fun cleanParagraphText(text: String): String {
         return text
-            .replace(Regex("\\s+"), " ") // Replace multiple spaces with single space
-            .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") // Remove city prefixes
-            .replace(Regex("^(Reuters|AP|Bloomberg)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") // Remove news agency prefixes
-            .replace(Regex("\\(.*?\\)"), "") // Remove parentheses content
-            .replace(Regex("\\[.*?\\]"), "") // Remove brackets content
+            .replace(Regex("\\s+"), " ") 
+            .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA|ATHENS|THESSALONIKI|TEL AVIV|JERUSALEM|HAIFA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
+            .replace(Regex("^(Reuters|AP|Bloomberg|AFP)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
+            .replace(Regex("\\(.*?\\)"), "") 
+            .replace(Regex("\\[.*?\\]"), "") 
             .trim()
-            .take(200) // Limit to 200 characters
-            .let { if (it.length == 200) "$it..." else it }
+            .take(300) // Increased limit as per requirements
+            .let { if (it.length == 300) "$it..." else it }
     }
 
+    // UPDATED: Translation with caching
     private fun translateText(text: String, targetLanguage: String): String {
         if (openAiApiKey.isNullOrEmpty()) {
             return when (targetLanguage) {
@@ -232,16 +299,25 @@ class AINewsSystem {
             }
         }
 
+        // Check cache first
+        val cache = loadTranslationCache()
+        val cacheKey = generateCacheKey(text, targetLanguage)
+        
+        if (cache.containsKey(cacheKey)) {
+            println("✅ Using cached translation for: ${text.take(50)}...")
+            return cache[cacheKey]!!
+        }
+
         return try {
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
-                    {"role": "system", "content": "Translate news headlines accurately. Keep translations concise."},
+                    {"role": "system", "content": "Translate news headlines and summaries accurately. Keep translations concise and natural."},
                     {"role": "user", "content": "Translate to $targetLanguage: $text"}
                   ],
                   "temperature": 0.1,
-                  "max_tokens": 150
+                  "max_tokens": 200
                 }
             """.trimIndent()
 
@@ -255,11 +331,18 @@ class AINewsSystem {
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val json = JSONObject(response.body?.string())
-                    json.getJSONArray("choices")
+                    val translation = json.getJSONArray("choices")
                         .getJSONObject(0)
                         .getJSONObject("message")
                         .getString("content")
                         .trim()
+                    
+                    // Cache the translation
+                    cache[cacheKey] = translation
+                    saveTranslationCache(cache)
+                    println("💾 Cached translation for: ${text.take(50)}...")
+                    
+                    translation
                 } else text
             }
         } catch (e: Exception) {
@@ -271,44 +354,31 @@ class AINewsSystem {
     private fun categorizeArticle(title: String): String {
         val content = title.lowercase()
         return when {
-            content.contains("tech") || content.contains("ai") -> "Technology"
-            content.contains("business") || content.contains("economy") -> "Business & Economy"
-            content.contains("crime") || content.contains("court") -> "Crime & Justice"
-            content.contains("politics") || content.contains("government") -> "Politics"
+            content.contains("tech") || content.contains("ai") || content.contains("digital") || content.contains("startup") -> "Technology"
+            content.contains("business") || content.contains("economy") || content.contains("financial") || content.contains("market") -> "Business & Economy"
+            content.contains("crime") || content.contains("court") || content.contains("police") || content.contains("arrest") -> "Crime & Justice"
+            content.contains("politics") || content.contains("government") || content.contains("minister") || content.contains("parliament") -> "Politics"
+            content.contains("property") || content.contains("real estate") || content.contains("housing") || content.contains("construction") -> "Real Estate"
+            content.contains("tourism") || content.contains("travel") || content.contains("holiday") || content.contains("festival") -> "Holidays & Travel"
             else -> "General News"
         }
     }
 
-    private fun scrapeNewsSource(sourceName: String, url: String): List<Article> {
-        println("🔍 Scraping $sourceName...")
-        val doc = fetchPage(url) 
+    // UPDATED: Scrape news source using configuration
+    private fun scrapeNewsSource(source: Source): List<Article> {
+        println("🔍 Scraping ${source.sourceName} (${source.country})...")
+        val doc = fetchPage(source.baseUrl) 
         if (doc == null) {
-            println("❌ Failed to fetch page for $sourceName")
+            println("❌ Failed to fetch page for ${source.sourceName}")
             return emptyList()
         }
         
         val articles = mutableListOf<Article>()
-
-        // More comprehensive selectors for different news sites
-        val allSelectors = listOf(
-            // Standard WordPress/CMS selectors
-            ".entry-title a", "h2 a", ".post-title a", "h3 a", ".headline a",
-            // Cyprus Mail specific
-            ".td-module-title a", ".td-image-wrap", ".td-big-grid-post-title a",
-            // Kathimerini specific  
-            ".article-title a", ".story-title a", ".headline-link",
-            // StockWatch specific
-            ".news-title a", ".article-link", ".story-link",
-            // General fallbacks
-            "a[href*='/article/']", "a[href*='/news/']", "a[href*='/story/']",
-            ".content h2 a", ".main h3 a", "article h2 a", "article h3 a"
-        )
-
         var foundLinks = false
         
-        for (selector in allSelectors) {
+        for (selector in source.linkSelectors) {
             val linkElements = doc.select(selector)
-            println("🔎 Trying selector '$selector' for $sourceName: found ${linkElements.size} elements")
+            println("🔎 Trying selector '$selector' for ${source.sourceName}: found ${linkElements.size} elements")
             
             if (linkElements.isNotEmpty()) {
                 foundLinks = true
@@ -318,21 +388,10 @@ class AINewsSystem {
                         val title = linkElement.text().trim()
                         var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
 
-                        // Debug logging
                         println("📝 Found potential article: '$title' -> '$articleUrl'")
 
                         if (articleUrl.startsWith("/")) {
-                            val baseUrl = when {
-                                sourceName.contains("cyprus-mail", true) || sourceName.contains("cyprus mail", true) -> "https://cyprus-mail.com"
-                                sourceName.contains("kathimerini", true) -> "https://www.kathimerini.com.cy"
-                                sourceName.contains("in-cyprus", true) -> "https://in-cyprus.philenews.com"
-                                sourceName.contains("alpha", true) -> "https://www.alphanews.live"
-                                sourceName.contains("stockwatch", true) -> "https://www.stockwatch.com.cy"
-                                sourceName.contains("cyprus weekly", true) -> "https://www.cyprusweekly.com.cy"
-                                sourceName.contains("financial", true) -> "https://www.financialmirror.com"
-                                sourceName.contains("politis", true) -> "https://politis.com.cy"
-                                else -> ""
-                            }
+                            val baseUrl = source.baseUrl.trimEnd('/')
                             articleUrl = baseUrl + articleUrl
                             println("🔗 Fixed relative URL: $articleUrl")
                         }
@@ -340,13 +399,12 @@ class AINewsSystem {
                         if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
                             println("✅ Valid article found: $title")
                             
-                            // Extract first paragraph from the article
-                            println("📖 Extracting paragraph from: $title")
-                            val paragraph = extractFirstParagraph(articleUrl, sourceName)
+                            val paragraph = extractFirstParagraph(articleUrl, source)
                             val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
                             
                             val category = categorizeArticle(title)
 
+                            // Only translate to required languages (limit to first paragraph as per requirements)
                             val titleTranslations = mapOf(
                                 "en" to title,
                                 "he" to translateText(title, "Hebrew"),
@@ -367,6 +425,8 @@ class AINewsSystem {
                                 summary = summary,
                                 category = category,
                                 date = SimpleDateFormat("yyyy-MM-dd").format(Date()),
+                                country = source.country, // NEW
+                                sourceId = source.sourceId, // NEW
                                 titleTranslations = titleTranslations,
                                 summaryTranslations = summaryTranslations,
                                 categoryTranslations = mapOf(
@@ -377,8 +437,7 @@ class AINewsSystem {
                                 )
                             ))
                             
-                            // Add delay between article fetches to be respectful
-                            Thread.sleep(1500)
+                            Thread.sleep(source.delayMs)
                         } else {
                             println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
@@ -386,20 +445,17 @@ class AINewsSystem {
                         println("❌ Error processing link: ${e.message}")
                     }
                 }
-                break // Stop trying selectors once we find articles
+                break 
             }
         }
         
         if (!foundLinks) {
-            println("⚠️ No article links found for $sourceName with any selector")
-            // Debug: Print page structure
+            println("⚠️ No article links found for ${source.sourceName} with any selector")
             println("🔍 Page title: ${doc.title()}")
             println("🔍 Total links on page: ${doc.select("a").size}")
-            println("🔍 Sample h2 elements: ${doc.select("h2").take(3).map { it.text() }}")
-            println("🔍 Sample h3 elements: ${doc.select("h3").take(3).map { it.text() }}")
         }
 
-        println("📊 $sourceName: Found ${articles.size} articles")
+        println("📊 ${source.sourceName}: Found ${articles.size} articles")
         return articles.distinctBy { it.url }
     }
 
@@ -408,25 +464,32 @@ class AINewsSystem {
         return words.joinToString(" ").ifEmpty { title.take(60) }
     }
 
+    // UPDATED: Aggregate news from all configured sources
     fun aggregateNews(): List<Article> {
-        println("📰 Starting news aggregation...")
+        println("📰 Starting multi-country news aggregation...")
         val seen = loadSeenArticles()
         val allArticles = mutableListOf<Article>()
-        val titleSimilarityThreshold = 0.8 // 80% similarity threshold
+        val titleSimilarityThreshold = 0.8
+        val sources = loadSources()
 
-        newsSources.forEach { (sourceName, sourceUrl) ->
+        println("🌍 Aggregating from ${sources.size} sources across ${sources.map { it.country }.distinct().size} countries")
+
+        sources.forEach { source ->
             try {
-                val sourceArticles = scrapeNewsSource(sourceName, sourceUrl)
+                val sourceArticles = scrapeNewsSource(source)
                 
-                // Add duplicate detection by title similarity
+                // Enhanced duplicate detection with paragraph hash
                 sourceArticles.forEach { newArticle ->
                     var isDuplicate = false
                     
                     // Check against existing articles
                     for (existingArticle in allArticles) {
-                        val similarity = calculateTitleSimilarity(newArticle.title, existingArticle.title)
-                        if (similarity > titleSimilarityThreshold) {
-                            println("🔄 Duplicate detected: '${newArticle.title}' similar to '${existingArticle.title}' (${(similarity * 100).toInt()}% match)")
+                        val titleSimilarity = calculateTitleSimilarity(newArticle.title, existingArticle.title)
+                        val paragraphHash = hashString(newArticle.summary)
+                        val existingParagraphHash = hashString(existingArticle.summary)
+                        
+                        if (titleSimilarity > titleSimilarityThreshold || paragraphHash == existingParagraphHash) {
+                            println("🔄 Duplicate detected: '${newArticle.title}' similar to '${existingArticle.title}' (${(titleSimilarity * 100).toInt()}% match)")
                             isDuplicate = true
                             break
                         }
@@ -437,9 +500,9 @@ class AINewsSystem {
                     }
                 }
                 
-                Thread.sleep(2000) // Longer delay between sources
+                Thread.sleep(source.delayMs)
             } catch (e: Exception) {
-                println("Error scraping $sourceName: ${e.message}")
+                println("Error scraping ${source.sourceName}: ${e.message}")
             }
         }
 
@@ -447,8 +510,22 @@ class AINewsSystem {
         seen.addAll(newArticles.map { it.url })
         saveSeenArticles(seen)
 
-        println("Found ${allArticles.size} total articles, ${newArticles.size} new articles after duplicate removal")
+        // Print statistics per country
+        val articlesByCountry = newArticles.groupBy { it.country }
+        articlesByCountry.forEach { (country, articles) ->
+            println("📊 $country: Found ${articles.size} new articles")
+        }
+
+        println("📊 Total: ${allArticles.size} articles processed, ${newArticles.size} new articles after deduplication")
         return newArticles
+    }
+
+    // NEW: Hash string for paragraph comparison
+    private fun hashString(text: String): String {
+        val cleanText = text.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val md = MessageDigest.getInstance("SHA-256")
+        val hash = md.digest(cleanText.toByteArray())
+        return hash.fold("") { str, it -> str + "%02x".format(it) }
     }
 
     private fun calculateTitleSimilarity(title1: String, title2: String): Double {
@@ -463,6 +540,433 @@ class AINewsSystem {
         return intersection.toDouble() / union.toDouble()
     }
 
+    // UPDATED: Multi-country page generation
+    fun generateCountryWebsite(articles: List<Article>, country: String): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
+        val countryArticles = articles.filter { it.country == country }
+        val grouped = countryArticles.groupBy { it.category }
+
+        val countryDisplayName = when(country) {
+            "CYPRUS" -> "Cyprus"
+            "ISRAEL" -> "Israel"
+            "GREECE" -> "Greece"
+            else -> country
+        }
+
+        val countryFlag = when(country) {
+            "CYPRUS" -> "🇨🇾"
+            "ISRAEL" -> "🇮🇱"
+            "GREECE" -> "🇬🇷"
+            else -> "🌍"
+        }
+
+        val articlesHtml = StringBuilder()
+        if (grouped.isEmpty()) {
+            articlesHtml.append("""
+                <div class="no-articles">
+                    <h3>No new articles today</h3>
+                    <p>Check back tomorrow for fresh news updates.</p>
+                </div>
+            """.trimIndent())
+        } else {
+            grouped.forEach { (category, items) ->
+                articlesHtml.append("""
+                    <h2>
+                        <span class="lang en active">$category</span>
+                        <span class="lang he" dir="rtl">${translateText(category, "Hebrew")}</span>
+                        <span class="lang ru">${translateText(category, "Russian")}</span>
+                        <span class="lang el">${translateText(category, "Greek")}</span>
+                    </h2>
+                """.trimIndent())
+
+                items.forEach { article ->
+                    articlesHtml.append("""
+                        <div class="article">
+                            <div class="lang en active">
+                                <h3>${article.titleTranslations["en"] ?: article.title}</h3>
+                                <p>${article.summaryTranslations["en"] ?: article.summary}</p>
+                                <a href="${article.url}" target="_blank">Read more</a>
+                            </div>
+                            <div class="lang he" dir="rtl">
+                                <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
+                                <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
+                                <a href="${article.url}" target="_blank">קרא עוד</a>
+                            </div>
+                            <div class="lang ru">
+                                <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
+                                <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
+                                <a href="${article.url}" target="_blank">Читать далее</a>
+                            </div>
+                            <div class="lang el">
+                                <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
+                                <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
+                                <a href="${article.url}" target="_blank">Διαβάστε περισσότερα</a>
+                            </div>
+                        </div>
+                    """.trimIndent())
+                }
+            }
+        }
+
+        return """<!DOCTYPE html>
+            <html>
+            <head>
+            <title>AI News - $countryDisplayName Daily Digest for $dayOfWeek, $currentDate</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
+                .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; }
+                .header { text-align: center; margin-bottom: 40px; }
+                .logo { font-size: 2rem; font-weight: bold; color: #667eea; }
+                .country-nav { text-align: center; margin: 20px 0; }
+                .country-nav a { margin: 0 10px; padding: 8px 16px; background: #667eea; color: white; text-decoration: none; border-radius: 20px; font-size: 0.9rem; }
+                .country-nav a:hover { background: #764ba2; }
+                .lang-buttons { text-align: center; margin: 30px 0; }
+                .lang-buttons button { margin: 5px; padding: 10px 20px; border: none; border-radius: 25px; background: #667eea; color: white; cursor: pointer; }
+                .lang-buttons button.active { background: #764ba2; }
+                .lang { display: none; }
+                .lang.active { display: block; }
+                .lang.he { direction: rtl; text-align: right; font-family: 'Arial', 'Tahoma', sans-serif; }
+                .lang.he h2, .lang.he h3 { text-align: right; direction: rtl; }
+                .lang.he p { text-align: right; direction: rtl; }
+                .lang.he a { float: left; margin-right: 0; margin-left: 10px; }
+                .lang.he .article { border-right: 4px solid #667eea; border-left: none; padding-right: 20px; padding-left: 20px; }
+                .article { margin: 20px 0; padding: 20px; border-left: 4px solid #667eea; background: #f9f9f9; }
+                .article.he { border-right: 4px solid #667eea; border-left: none; }
+                .article h3 { margin: 0 0 10px 0; color: #333; }
+                .article p { color: #666; margin: 10px 0; }
+                .article a { color: #667eea; text-decoration: none; font-weight: bold; }
+                .footer { text-align: center; margin-top: 40px; color: #666; }
+                .subscription { background: #667eea; color: white; padding: 30px; margin: 40px 0; border-radius: 10px; text-align: center; }
+                .subscription input { padding: 10px; margin: 10px; border: none; border-radius: 5px; }
+                .subscription button { background: #FFD700; color: #333; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+                .subscription .lang.he { direction: rtl; text-align: right; }
+                .subscription .lang.he input { text-align: right; direction: rtl; }
+                .no-articles { text-align: center; padding: 40px; color: #666; }
+            </style>
+            </head>
+            <body>
+            <div class="container">
+            <div class="header">
+            <div class="logo">🤖 AI News</div>
+            <p>$countryFlag $countryDisplayName Daily Digest • $dayOfWeek, $currentDate</p>
+            </div>
+
+            <div class="country-nav">
+                <a href="../index.html">🏠 Home</a>
+                <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
+                <a href="../israel/index.html">🇮🇱 Israel</a>
+                <a href="../greece/index.html">🇬🇷 Greece</a>
+            </div>
+
+            <div class="lang-buttons">
+            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+            </div>
+
+            $articlesHtml
+
+            <div class="subscription">
+            <div class="lang en active">
+            <h3>🔔 Get Daily $countryDisplayName Notifications</h3>
+            <p>Get email notifications when fresh $countryDisplayName news is published</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="your@email.com" required>
+            <input type="text" name="name" placeholder="Your name (optional)">
+            <input type="hidden" name="languages" value="en">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription">
+            <br>
+            <button type="submit">🔔 Subscribe</button>
+            </form>
+            </div>
+            <div class="lang he">
+            <h3>🔔 קבלו התראות יומיות</h3>
+            <p>קבלו התראות כאשר חדשות $countryDisplayName טריות מתפרסמות</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
+            <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
+            <input type="hidden" name="languages" value="he">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Hebrew)">
+            <br>
+            <button type="submit">🔔 הירשמו</button>
+            </form>
+            </div>
+            <div class="lang ru">
+            <h3>🔔 Получайте уведомления</h3>
+            <p>Получайте уведомления о свежих новостях $countryDisplayName</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="ваш@email.com" required>
+            <input type="text" name="name" placeholder="Ваше имя (необязательно)">
+            <input type="hidden" name="languages" value="ru">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Russian)">
+            <br>
+            <button type="submit">🔔 Подписаться</button>
+            </form>
+            </div>
+            <div class="lang el">
+            <h3>🔔 Λάβετε ειδοποιήσεις</h3>
+            <p>Λάβετε ειδοποιήσεις για φρέσκα νέα $countryDisplayName</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="το@email.σας" required>
+            <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
+            <input type="hidden" name="languages" value="el">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Greek)">
+            <br>
+            <button type="submit">🔔 Εγγραφή</button>
+            </form>
+            </div>
+            </div>
+
+            <div class="footer">
+            <p>Generated automatically • ${countryArticles.map { it.sourceId }.distinct().joinToString(", ")}</p>
+            <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+            </div>
+            </div>
+
+            <script>
+                let currentLang = 'en';
+
+                function setLang(lang) {
+                    document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                    document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                    document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                    document.getElementById('btn-' + lang).classList.add('active');
+                    currentLang = lang;
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    setLang('en');
+                });
+            </script>
+            </body>
+            </html>""".trimIndent()
+    }
+
+    // NEW: Generate main index page with links to all countries
+    fun generateMainIndexPage(articles: List<Article>): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
+        val countries = articles.map { it.country }.distinct().sorted()
+        val articlesByCountry = articles.groupBy { it.country }
+
+        val countrySummary = StringBuilder()
+        countries.forEach { country ->
+            val countryArticles = articlesByCountry[country] ?: emptyList()
+            val countryName = when(country) {
+                "CYPRUS" -> "Cyprus"
+                "ISRAEL" -> "Israel" 
+                "GREECE" -> "Greece"
+                else -> country
+            }
+            val countryFlag = when(country) {
+                "CYPRUS" -> "🇨🇾"
+                "ISRAEL" -> "🇮🇱"
+                "GREECE" -> "🇬🇷"
+                else -> "🌍"
+            }
+            val countryPath = country.lowercase()
+
+            countrySummary.append("""
+                <div class="country-card">
+                    <h3>$countryFlag $countryName</h3>
+                    <p>${countryArticles.size} new articles today</p>
+                    <p>Latest categories: ${countryArticles.map { it.category }.distinct().take(3).joinToString(", ")}</p>
+                    <a href="./$countryPath/index.html" class="country-link">Read $countryName News →</a>
+                </div>
+            """.trimIndent())
+        }
+
+        return """<!DOCTYPE html>
+            <html>
+            <head>
+            <title>AI News - Multi-Country Daily Digest for $dayOfWeek, $currentDate</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+                .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+                .header { text-align: center; margin-bottom: 40px; }
+                .logo { font-size: 3rem; font-weight: bold; color: #667eea; margin-bottom: 10px; }
+                .tagline { font-size: 1.2rem; color: #666; margin-bottom: 20px; }
+                .country-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 40px 0; }
+                .country-card { background: #f9f9f9; padding: 30px; border-radius: 15px; text-align: center; border: 2px solid transparent; transition: all 0.3s; }
+                .country-card:hover { border-color: #667eea; transform: translateY(-5px); }
+                .country-card h3 { font-size: 1.5rem; margin-bottom: 10px; color: #333; }
+                .country-card p { color: #666; margin: 10px 0; }
+                .country-link { display: inline-block; background: #667eea; color: white; padding: 12px 25px; text-decoration: none; border-radius: 25px; margin-top: 15px; transition: all 0.3s; }
+                .country-link:hover { background: #764ba2; transform: scale(1.05); }
+                .stats { background: #667eea; color: white; padding: 30px; border-radius: 15px; text-align: center; margin: 40px 0; }
+                .stats h3 { margin-bottom: 20px; }
+                .stats .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }
+                .stat-item { background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; }
+                .stat-number { font-size: 2rem; font-weight: bold; margin-bottom: 5px; }
+                .footer { text-align: center; margin-top: 40px; color: #666; }
+            </style>
+            </head>
+            <body>
+            <div class="container">
+            <div class="header">
+            <div class="logo">🤖 AI News</div>
+            <div class="tagline">Your Multi-Country Daily News Digest</div>
+            <p>Automated news aggregation from Cyprus, Israel, and Greece • $dayOfWeek, $currentDate</p>
+            </div>
+
+            <div class="stats">
+            <h3>Today's News Summary</h3>
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-number">${articles.size}</div>
+                    <div>Total Articles</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${countries.size}</div>
+                    <div>Countries</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${articles.map { it.category }.distinct().size}</div>
+                    <div>Categories</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">4</div>
+                    <div>Languages</div>
+                </div>
+            </div>
+            </div>
+
+            <div class="country-grid">
+            $countrySummary
+            </div>
+
+            <div class="footer">
+            <p>Generated automatically every day at 7:00 AM • Powered by AI translation</p>
+            <p>🌐 <strong><a href="https://ainews.eu.com" style="color: #667eea;">ainews.eu.com</a></strong></p>
+            <p style="margin-top: 20px; font-size: 0.9rem;">
+                <a href="./cyprus/index.html" style="margin: 0 10px; color: #667eea;">🇨🇾 Cyprus</a> |
+                <a href="./israel/index.html" style="margin: 0 10px; color: #667eea;">🇮🇱 Israel</a> |
+                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a>
+            </p>
+            </div>
+            </div>
+            </body>
+            </html>""".trimIndent()
+    }
+
+    // NEW: Generate sitemap.xml
+    fun generateSitemap(): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        return """<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                <url>
+                    <loc>https://ainews.eu.com/</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>1.0</priority>
+                </url>
+                <url>
+                    <loc>https://ainews.eu.com/cyprus/index.html</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>0.8</priority>
+                </url>
+                <url>
+                    <loc>https://ainews.eu.com/israel/index.html</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>0.8</priority>
+                </url>
+                <url>
+                    <loc>https://ainews.eu.com/greece/index.html</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>0.8</priority>
+                </url>
+            </urlset>""".trimIndent()
+    }
+
+    // UPDATED: Multi-country GitHub Pages upload
+    fun uploadToGitHubPages(articles: List<Article>): String {
+        val repoName = "ainews-website"
+        val countries = listOf("CYPRUS", "ISRAEL", "GREECE")
+
+        return try {
+            println("🚀 Starting multi-country upload to GitHub Pages...")
+
+            // Generate and upload main index page
+            val mainIndexHtml = generateMainIndexPage(articles)
+            uploadFileToGitHub(repoName, "index.html", mainIndexHtml)
+
+            // Generate and upload country-specific pages
+            countries.forEach { country ->
+                val countryPath = country.lowercase()
+                val countryHtml = generateCountryWebsite(articles, country)
+                uploadFileToGitHub(repoName, "$countryPath/index.html", countryHtml)
+                println("✅ Uploaded $countryPath page")
+            }
+
+            // Generate and upload sitemap
+            val sitemap = generateSitemap()
+            uploadFileToGitHub(repoName, "sitemap.xml", sitemap)
+
+            // Upload CNAME file for custom domain
+            uploadFileToGitHub(repoName, "CNAME", "ainews.eu.com")
+
+            println("🚀 All pages uploaded successfully")
+            "https://ainews.eu.com/"
+        } catch (e: Exception) {
+            println("Error uploading to GitHub Pages: ${e.message}")
+            ""
+        }
+    }
+
+    // NEW: Helper function to upload individual files to GitHub
+    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
+        try {
+            val getRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .build()
+
+            var sha: String? = null
+            client.newCall(getRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    sha = json.getString("sha")
+                }
+            }
+
+            val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
+            val requestBody = JSONObject().apply {
+                put("message", "Update $filePath - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+                put("content", base64Content)
+                if (sha != null) put("sha", sha)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("Failed to upload $filePath: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            println("Error uploading $filePath: ${e.message}")
+        }
+    }
+
+    // Rest of the existing functions with minor updates for multi-country support
     private fun extractEmailContent(message: Message): String {
         return try {
             when (val content = message.content) {
@@ -474,7 +978,6 @@ class AINewsSystem {
                         if (bodyPart.isMimeType("text/plain")) {
                             sb.append(bodyPart.content.toString())
                         } else if (bodyPart.isMimeType("text/html")) {
-                            // If no plain text found, use HTML as fallback
                             if (sb.isEmpty()) {
                                 sb.append(bodyPart.content.toString())
                             }
@@ -513,7 +1016,6 @@ class AINewsSystem {
             val inbox = store.getFolder("INBOX")
             inbox.open(Folder.READ_WRITE)
 
-            // Search for unread emails from Formspree
             val searchTerm = AndTerm(
                 FromTerm(InternetAddress("noreply@formspree.io")),
                 FlagTerm(Flags(Flags.Flag.SEEN), false)
@@ -527,84 +1029,69 @@ class AINewsSystem {
                     val content = extractEmailContent(message)
                     val subject = message.subject
                     println("📋 Processing email - Subject: $subject")
-                    println("📋 Email content preview: ${content.take(300)}...")
 
-                    if (subject.contains("AI News Cyprus Subscription", ignoreCase = true)) {
+                    if (subject.contains("AI News", ignoreCase = true) && subject.contains("Subscription", ignoreCase = true)) {
                         println("✅ Valid subscription email found")
 
-                        // Extract data using the correct Formspree format with colons
+                        // Extract data with enhanced parsing for multi-country support
                         val emailMatch = Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
                         val nameMatch = Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
                         val langMatch = Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val countryMatch = Regex("countries:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
 
                         if (emailMatch != null) {
                             val email = emailMatch.groupValues[1].trim()
                             val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
                             val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
+                            val countries = countryMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("CYPRUS")
 
-                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages")
+                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages, Countries: $countries")
 
-                            // Check if subscriber already exists to avoid duplicates
                             val currentSubscribers = loadSubscribers().toMutableList()
                             val existingSubscriber = currentSubscribers.find { it.email == email }
                             
                             if (existingSubscriber == null) {
-                                // Add new subscriber directly to the main subscriber list
                                 val newSubscriber = Subscriber(
                                     email = email,
                                     name = name,
                                     languages = languages,
+                                    countries = countries, // NEW: Multi-country support
                                     subscribed = true,
                                     subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
                                 )
                                 currentSubscribers.add(newSubscriber)
-                                
-                                // IMPORTANT: Save to persistent file immediately
                                 saveSubscribers(currentSubscribers)
-                                println("💾 Saved new subscriber to persistent file: $email")
+                                println("💾 Saved new subscriber: $email for countries: ${countries.joinToString(", ")}")
                                 
-                                // Also add to CSV as backup
-                                addSubscriberToCSV(email, name, languages)
+                                addSubscriberToCSV(email, name, languages, countries)
                             } else {
                                 println("⚠️ Subscriber $email already exists, skipping")
                             }
 
-                            // IMPORTANT: Mark as read AFTER successful processing
                             message.setFlag(Flags.Flag.SEEN, true)
-                            println("✅ Successfully processed and marked email as READ for: $email")
+                            println("✅ Successfully processed email for: $email")
                         } else {
                             println("❌ Could not extract email address from content")
-                            println("📋 Debugging regex matches:")
-                            println("   Email regex test: ${Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)}")
-                            println("   Name regex test: ${Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)}")
-                            println("   Languages regex test: ${Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)}")
-                            println("📋 Full content for debugging:")
-                            println(content)
                         }
-                    } else {
-                        println("⚠️ Non-subscription email, skipping: $subject")
                     }
                 } catch (e: Exception) {
                     println("❌ Error processing email: ${e.message}")
-                    e.printStackTrace()
                 }
             }
 
             inbox.close(false)
             store.close()
-
         } catch (e: Exception) {
             println("❌ Error accessing emails: ${e.message}")
-            e.printStackTrace()
         }
     }
 
-    private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>) {
+    // UPDATED: Add subscriber to CSV with country support
+    private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
         val csvFile = File("new_subscribers.csv")
-        val csvLine = "$email,${name ?: ""},${languages.joinToString(";")}"
+        val csvLine = "$email,${name ?: ""},${languages.joinToString(";")},${countries.joinToString(";")}"
         
         try {
-            // Check if subscriber already exists in CSV
             if (csvFile.exists()) {
                 val existingContent = csvFile.readText()
                 if (existingContent.contains(email)) {
@@ -613,7 +1100,6 @@ class AINewsSystem {
                 }
             }
             
-            // Append to CSV file
             csvFile.appendText("$csvLine\n")
             println("📧 Added subscriber to CSV: $email")
         } catch (e: Exception) {
@@ -622,7 +1108,6 @@ class AINewsSystem {
     }
 
     fun checkAndImportWebSubscriptions() {
-        // Check for new subscriptions from a manual CSV file
         val csvFile = File("new_subscribers.csv")
         if (csvFile.exists()) {
             try {
@@ -638,6 +1123,7 @@ class AINewsSystem {
                         val email = parts[0]
                         val name = if (parts[1].isNotEmpty()) parts[1] else null
                         val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
+                        val countries = if (parts.size > 3) parts[3].split(";") else listOf("CYPRUS")
 
                         val existing = currentSubscribers.find { it.email == email }
                         if (existing == null) {
@@ -645,18 +1131,18 @@ class AINewsSystem {
                                 email = email,
                                 name = name,
                                 languages = languages,
+                                countries = countries, // NEW
                                 subscribed = true,
                                 subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
                             ))
                             newCount++
-                            println("📧 Added subscriber from CSV: $email")
+                            println("📧 Added subscriber from CSV: $email for ${countries.joinToString(", ")}")
                         }
                     }
                 }
 
                 if (newCount > 0) {
                     saveSubscribers(currentSubscribers)
-                    // Rename the processed file
                     csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
                     println("📧 Added $newCount new subscribers from CSV")
                 }
@@ -667,185 +1153,8 @@ class AINewsSystem {
         }
     }
 
-    fun startSubscriptionServer(port: Int = 8080) {
-        println("⚠️ Starting HTTP server - if this fails, use CSV subscription method")
-        try {
-            println("🔧 Creating HTTP server on port $port...")
-
-            // Try binding to all interfaces explicitly
-            val address = InetSocketAddress("0.0.0.0", port)
-            println("🔗 Binding to address: ${address.hostString}:${address.port}")
-
-            val server = HttpServer.create(address, 0)
-            println("✅ HTTP server created successfully")
-
-            // Add a simple test endpoint
-            server.createContext("/") { exchange ->
-                println("📥 Received request to root path from ${exchange.remoteAddress}")
-                val response = "AI News Subscription Server is running! Time: ${java.time.Instant.now()}"
-                exchange.responseHeaders.add("Content-Type", "text/plain")
-                exchange.sendResponseHeaders(200, response.length.toLong())
-                exchange.responseBody.write(response.toByteArray())
-                exchange.responseBody.close()
-            }
-
-            server.createContext("/health") { exchange ->
-                println("📥 Health check request from ${exchange.remoteAddress}")
-                val response = """{"status":"healthy","timestamp":"${java.time.Instant.now()}","port":$port}"""
-                exchange.responseHeaders.add("Content-Type", "application/json")
-                exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-                exchange.sendResponseHeaders(200, response.length.toLong())
-                exchange.responseBody.write(response.toByteArray())
-                exchange.responseBody.close()
-            }
-
-            server.createContext("/subscribe") { exchange ->
-                println("📥 Received ${exchange.requestMethod} request to /subscribe from ${exchange.remoteAddress}")
-
-                exchange.responseHeaders.add("Access-Control-Allow-Origin", "*")
-                exchange.responseHeaders.add("Access-Control-Allow-Methods", "POST, OPTIONS")
-                exchange.responseHeaders.add("Access-Control-Allow-Headers", "Content-Type")
-
-                when (exchange.requestMethod) {
-                    "OPTIONS" -> {
-                        println("✅ Handling OPTIONS request")
-                        exchange.sendResponseHeaders(200, -1)
-                    }
-                    "POST" -> {
-                        try {
-                            val requestBody = exchange.requestBody.bufferedReader().use { it.readText() }
-                            println("📋 Request body: $requestBody")
-
-                            val json = JSONObject(requestBody)
-
-                            val email = json.getString("email")
-                            val name = json.optString("name", null)
-                            val languagesArray = json.getJSONArray("languages")
-                            val languages = mutableListOf<String>()
-
-                            for (i in 0 until languagesArray.length()) {
-                                languages.add(languagesArray.getString(i))
-                            }
-
-                            println("📧 Processing subscription for: $email")
-                            addSubscriber(email, name, languages)
-
-                            val successResponse = """{"success": true, "message": "Subscription successful!"}"""
-                            exchange.responseHeaders.add("Content-Type", "application/json")
-                            exchange.sendResponseHeaders(200, successResponse.toByteArray().size.toLong())
-                            exchange.responseBody.write(successResponse.toByteArray())
-                            exchange.responseBody.close()
-
-                            println("✅ New subscriber added via API: $email")
-
-                        } catch (e: Exception) {
-                            println("❌ Error processing subscription: ${e.message}")
-                            e.printStackTrace()
-
-                            val errorResponse = """{"success": false, "message": "Subscription failed: ${e.message}"}"""
-                            exchange.responseHeaders.add("Content-Type", "application/json")
-                            exchange.sendResponseHeaders(400, errorResponse.toByteArray().size.toLong())
-                            exchange.responseBody.write(errorResponse.toByteArray())
-                            exchange.responseBody.close()
-                        }
-                    }
-                    else -> {
-                        println("❌ Method not allowed: ${exchange.requestMethod}")
-                        exchange.sendResponseHeaders(405, -1)
-                    }
-                }
-            }
-
-            println("🔧 Setting server executor...")
-            server.executor = null
-
-            println("🚀 Starting HTTP server...")
-            server.start()
-
-            println("🚀 Subscription API server started on port $port")
-            println("🔗 API endpoint: http://0.0.0.0:$port/subscribe")
-            println("🔗 Health check: http://0.0.0.0:$port/health")
-            println("🔗 Root page: http://0.0.0.0:$port/")
-
-            // Test external port binding
-            println("🧪 Testing external port binding...")
-            try {
-                val testSocket = java.net.Socket()
-                testSocket.connect(InetSocketAddress("127.0.0.1", port), 2000)
-                val writer = testSocket.getOutputStream().bufferedWriter()
-                writer.write("GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
-                writer.flush()
-
-                val reader = testSocket.getInputStream().bufferedReader()
-                val response = reader.readLine()
-                testSocket.close()
-
-                println("✅ External connectivity test PASSED: $response")
-            } catch (e: Exception) {
-                println("❌ External connectivity test FAILED: ${e.message}")
-                println("🔍 This suggests Windows firewall or permission issues")
-            }
-
-        } catch (e: Exception) {
-            println("❌ CRITICAL ERROR starting subscription server: ${e.message}")
-            e.printStackTrace()
-            throw e
-        }
-    }
-
-    fun uploadToGitHubPages(html: String): String {
-        val repoName = "ainews-website"
-        val fileName = "index.html"
-
-        return try {
-            val getRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$fileName")
-                .addHeader("Authorization", "token $githubToken")
-                .build()
-
-            var sha: String? = null
-            client.newCall(getRequest).execute().use { response ->
-                if (response.isSuccessful) {
-                    val json = JSONObject(response.body?.string())
-                    sha = json.getString("sha")
-                }
-            }
-
-            val content = Base64.getEncoder().encodeToString(html.toByteArray())
-            val requestBody = JSONObject().apply {
-                put("message", "Update AI News - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
-                put("content", content)
-                if (sha != null) put("sha", sha)
-            }
-
-            val putRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$fileName")
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Content-Type", "application/json")
-                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(putRequest).execute().use { response ->
-                if (response.isSuccessful) {
-                    "https://liorr2389.github.io/$repoName/"
-                } else {
-                    println("Failed to upload to GitHub Pages: ${response.code}")
-                    ""
-                }
-            }
-        } catch (e: Exception) {
-            println("Error uploading to GitHub Pages: ${e.message}")
-            ""
-        }
-    }
-
-    fun setupCustomDomain() {
-        // CNAME setup code - simplified for brevity
-        println("✅ Setting up custom domain")
-    }
-
+    // UPDATED: Multi-country email notifications
     fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
-        // IMPORTANT: Reload subscribers to include newly processed emails
         val subscribers = loadSubscribers().filter { it.subscribed }
 
         if (subscribers.isEmpty()) {
@@ -859,24 +1168,35 @@ class AINewsSystem {
         }
 
         println("📧 Sending notifications to ${subscribers.size} subscribers...")
-        subscribers.forEach { subscriber ->
-            try {
-                println("📤 Sending email to ${subscriber.email}...")
-                sendEmailNotification(subscriber, articles, websiteUrl)
-                println("✅ Email sent to ${subscriber.email}")
-                Thread.sleep(1000) // Delay between sends to avoid rate limits
-            } catch (e: Exception) {
-                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+        
+        // Group subscribers by their country preferences and send targeted emails
+        val countries = listOf("CYPRUS", "ISRAEL", "GREECE")
+        countries.forEach { country ->
+            val countrySubscribers = subscribers.filter { subscriber ->
+                subscriber.countries.contains(country)
+            }
+            
+            if (countrySubscribers.isNotEmpty()) {
+                val countryArticles = articles.filter { it.country == country }
+                println("📧 Sending ${countrySubscribers.size} ${country.lowercase()} notifications for ${countryArticles.size} articles")
+                
+                countrySubscribers.forEach { subscriber ->
+                    try {
+                        sendCountryEmailNotification(subscriber, countryArticles, country, websiteUrl)
+                        println("✅ Email sent to ${subscriber.email} for $country")
+                        Thread.sleep(1000)
+                    } catch (e: Exception) {
+                        println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+                    }
+                }
             }
         }
-        println("✅ Finished sending ${subscribers.size} email notifications")
+        println("✅ Finished sending notifications")
     }
 
-    private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
-        if (emailPassword.isNullOrEmpty()) {
-            println("❌ Cannot send email - no email password configured")
-            return
-        }
+    // NEW: Send country-specific email notification
+    private fun sendCountryEmailNotification(subscriber: Subscriber, articles: List<Article>, country: String, websiteUrl: String) {
+        if (emailPassword.isNullOrEmpty()) return
 
         try {
             val props = Properties().apply {
@@ -894,35 +1214,49 @@ class AINewsSystem {
                 }
             })
 
-            // Enable debug mode
-            session.debug = true
+            val countryName = when(country) {
+                "CYPRUS" -> "Cyprus"
+                "ISRAEL" -> "Israel"
+                "GREECE" -> "Greece"
+                else -> country
+            }
+
+            val countryFlag = when(country) {
+                "CYPRUS" -> "🇨🇾"
+                "ISRAEL" -> "🇮🇱"
+                "GREECE" -> "🇬🇷"
+                else -> "🌍"
+            }
 
             val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(fromEmail, "AI News Cyprus"))
+                setFrom(InternetAddress(fromEmail, "AI News"))
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-                subject = "🤖 Your Daily Cyprus News Update - ${articles.size} new stories"
+                subject = "$countryFlag Your Daily $countryName News Digest - ${articles.size} new stories"
 
                 val htmlContent = """
-                <h1>🤖 AI News Cyprus</h1>
+                <h1>🤖 AI News - $countryName</h1>
                 <p>Hello ${subscriber.name ?: "there"}!</p>
-                <p>Fresh Cyprus news updates are available.</p>
-                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 View Full Website</a>
+                <p>Fresh $countryName news updates are available with ${articles.size} new articles.</p>
+                <a href="$websiteUrl${country.lowercase()}/index.html" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 View $countryName News</a>
+                <br><br>
+                <a href="$websiteUrl" style="background: #764ba2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 20px;">🌍 View All Countries</a>
+                <hr>
+                <p style="font-size: 0.9rem; color: #666;">
+                Countries: ${subscriber.countries.joinToString(", ")} | 
+                Languages: ${subscriber.languages.joinToString(", ")}
+                </p>
                 """.trimIndent()
 
                 setContent(htmlContent, "text/html; charset=utf-8")
             }
 
-            println("📤 Attempting to send email to ${subscriber.email}")
             Transport.send(message)
-            println("✅ Email successfully sent to ${subscriber.email}")
-
         } catch (e: Exception) {
             println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
-            e.printStackTrace()
         }
     }
 
-    fun addSubscriber(email: String, name: String?, languages: List<String>) {
+    fun addSubscriber(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
         val subscribers = loadSubscribers().toMutableList()
         val existingSubscriber = subscribers.find { it.email == email }
 
@@ -931,297 +1265,64 @@ class AINewsSystem {
                 email = email,
                 name = name,
                 languages = languages,
+                countries = countries, // NEW
                 subscribed = true,
                 subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
             )
             subscribers.add(newSubscriber)
             saveSubscribers(subscribers)
-            println("✅ Added new subscriber to persistent file: $email")
+            println("✅ Added new subscriber: $email for countries: ${countries.joinToString(", ")}")
         } else {
-            println("⚠️ Subscriber $email already exists in system")
+            println("⚠️ Subscriber $email already exists")
         }
     }
 
+    fun setupCustomDomain() {
+        println("✅ Setting up custom domain support")
+    }
+
+    // LEGACY: Keep old single-page generation for backward compatibility
     fun generateDailyWebsite(articles: List<Article>): String {
-        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
-        val grouped = articles.groupBy { it.category }
-
-        val articlesHtml = StringBuilder()
-        grouped.forEach { (category, items) ->
-            articlesHtml.append("""
-                <h2>
-                    <span class="lang en active">$category</span>
-                    <span class="lang he" dir="rtl">${translateText(category, "Hebrew")}</span>
-                    <span class="lang ru">${translateText(category, "Russian")}</span>
-                    <span class="lang el">${translateText(category, "Greek")}</span>
-                </h2>
-            """.trimIndent())
-
-            items.forEach { article ->
-                articlesHtml.append("""
-                    <div class="article">
-                        <div class="lang en active">
-                            <h3>${article.titleTranslations["en"] ?: article.title}</h3>
-                            <p>${article.summaryTranslations["en"] ?: article.summary}</p>
-                            <a href="${article.url}" target="_blank">Read more</a>
-                        </div>
-                        <div class="lang he" dir="rtl">
-                            <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
-                            <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <a href="${article.url}" target="_blank">קרא עוד</a>
-                        </div>
-                        <div class="lang ru">
-                            <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
-                            <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <a href="${article.url}" target="_blank">Читать далее</a>
-                        </div>
-                        <div class="lang el">
-                            <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
-                            <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <a href="${article.url}" target="_blank">Διαβάστε περισσότερα</a>
-                        </div>
-                    </div>
-                """.trimIndent())
-            }
-        }
-
-        return """<!DOCTYPE html>
-            <html>
-            <head>
-            <title>AI News - Cyprus Daily Digest for $dayOfWeek, $currentDate</title>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-                .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; }
-                .header { text-align: center; margin-bottom: 40px; }
-                .logo { font-size: 2rem; font-weight: bold; color: #667eea; }
-                .lang-buttons { text-align: center; margin: 30px 0; }
-                .lang-buttons button { margin: 5px; padding: 10px 20px; border: none; border-radius: 25px; background: #667eea; color: white; cursor: pointer; }
-                .lang-buttons button.active { background: #764ba2; }
-                .lang { display: none; }
-                .lang.active { display: block; }
-                .lang.he { direction: rtl; text-align: right; font-family: 'Arial', 'Tahoma', sans-serif; }
-                .lang.he h2, .lang.he h3 { text-align: right; direction: rtl; }
-                .lang.he p { text-align: right; direction: rtl; }
-                .lang.he a { float: left; margin-right: 0; margin-left: 10px; }
-                .lang.he .article { border-right: 4px solid #667eea; border-left: none; padding-right: 20px; padding-left: 20px; }
-                .article { margin: 20px 0; padding: 20px; border-left: 4px solid #667eea; background: #f9f9f9; }
-                .article.he { border-right: 4px solid #667eea; border-left: none; }
-                .article h3 { margin: 0 0 10px 0; color: #333; }
-                .article p { color: #666; margin: 10px 0; }
-                .article a { color: #667eea; text-decoration: none; font-weight: bold; }
-                .footer { text-align: center; margin-top: 40px; color: #666; }
-                .subscription { background: #667eea; color: white; padding: 30px; margin: 40px 0; border-radius: 10px; text-align: center; }
-                .subscription input { padding: 10px; margin: 10px; border: none; border-radius: 5px; }
-                .subscription button { background: #FFD700; color: #333; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-                .subscription .lang.he { direction: rtl; text-align: right; }
-                .subscription .lang.he input { text-align: right; direction: rtl; }
-            </style>
-            </head>
-            <body>
-            <div class="container">
-            <div class="header">
-            <div class="logo">🤖 AI News</div>
-            <p>Cyprus Daily Digest • $dayOfWeek, $currentDate</p>
-            </div>
-
-            <div class="lang-buttons">
-            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-            </div>
-
-            $articlesHtml
-
-            <div class="subscription">
-            <div class="lang en active">
-            <h3>🔔 Get Daily Notifications</h3>
-            <p>Get email notifications when fresh news is published</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST" id="subscription-form">
-            <input type="email" name="email" placeholder="your@email.com" required>
-            <input type="text" name="name" placeholder="Your name (optional)">
-            <input type="hidden" name="languages" value="en" id="hidden-languages">
-            <input type="hidden" name="_subject" value="AI News Cyprus Subscription">
-            <br>
-            <button type="submit">🔔 Subscribe</button>
-            </form>
-            <div id="message"></div>
-            </div>
-            <div class="lang he">
-            <h3>🔔 קבלו התראות יומיות</h3>
-            <p>קבלו התראות כאשר חדשות טריות מתפרסמות</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
-            <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
-            <input type="hidden" name="languages" value="he">
-            <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Hebrew)">
-            <br>
-            <button type="submit">🔔 הירשמו</button>
-            </form>
-            </div>
-            <div class="lang ru">
-            <h3>🔔 Получайте уведомления</h3>
-            <p>Получайте уведомления о свежих новостях</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="ваш@email.com" required>
-            <input type="text" name="name" placeholder="Ваше имя (необязательно)">
-            <input type="hidden" name="languages" value="ru">
-            <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Russian)">
-            <br>
-            <button type="submit">🔔 Подписаться</button>
-            </form>
-            </div>
-            <div class="lang el">
-            <h3>🔔 Λάβετε ειδοποιήσεις</h3>
-            <p>Λάβετε ειδοποιήσεις για φρέσκα νέα</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="το@email.σας" required>
-            <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
-            <input type="hidden" name="languages" value="el">
-            <input type="hidden" name="_subject" value="AI News Cyprus Subscription (Greek)">
-            <br>
-            <button type="submit">🔔 Εγγραφή</button>
-            </form>
-            </div>
-            </div>
-
-            <div class="footer">
-            <p>Generated automatically • Sources: Cyprus Mail, Kathimerini Cyprus, In-Cyprus, Alpha News, StockWatch, Cyprus Weekly, Financial Mirror, Politis</p>
-            <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-            </div>
-            </div>
-
-            <script>
-                let currentLang = 'en';
-
-                function setLang(lang) {
-                    document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                    document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                    document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                    document.getElementById('btn-' + lang).classList.add('active');
-                    currentLang = lang;
-
-                    // Update the hidden language field for the active form
-                    const hiddenField = document.querySelector('.lang.' + lang + ' input[name="languages"]');
-                    if (hiddenField) {
-                        hiddenField.value = lang;
-                    }
-                }
-
-                // Anti-bot detection for translation links
-                function translateAndOpen(originalUrl, targetLang) {
-                    // Add random delay to simulate human behavior
-                    const delay = Math.random() * 1000 + 500; // 500-1500ms delay
-
-                    setTimeout(function() {
-                        // Add cache buster and human-like parameters
-                        const timestamp = Date.now();
-                        const randomParam = Math.random().toString(36).substring(7);
-
-                        // Build translate URL with anti-detection measures
-                        const translateUrl = 'https://translate.google.com/translate' +
-                            '?sl=auto' +
-                            '&tl=' + targetLang +
-                            '&u=' + encodeURIComponent(originalUrl) +
-                            '&_x_tr_sl=auto' +
-                            '&_x_tr_tl=' + targetLang +
-                            '&_x_tr_hl=en' +
-                            '&ie=UTF-8' +
-                            '&prev=_t' +
-                            '&rurl=translate.google.com' +
-                            '&sp=nmt4' +
-                            '&xid=' + randomParam +
-                            '&usg=' + timestamp;
-
-                        // Open in new window/tab
-                        window.open(translateUrl, '_blank', 'noopener,noreferrer');
-                    }, delay);
-                }
-
-                // Alternative function for different translate services
-                function translateAlternative(originalUrl, targetLang) {
-                    // Fallback to other translation services if Google blocks
-                    const alternatives = {
-                        'he': 'https://www.bing.com/translator?from=en&to=he&text=' + encodeURIComponent(originalUrl),
-                        'ru': 'https://www.bing.com/translator?from=en&to=ru&text=' + encodeURIComponent(originalUrl),
-                        'el': 'https://www.bing.com/translator?from=en&to=el&text=' + encodeURIComponent(originalUrl)
-                    };
-
-                    if (alternatives[targetLang]) {
-                        window.open(alternatives[targetLang], '_blank');
-                    } else {
-                        // Fallback to original URL with instruction
-                        window.open(originalUrl, '_blank');
-                        alert('Please use your browser\'s built-in translator for this article.');
-                    }
-                }
-
-                // Show translation instructions when clicking non-English articles
-                document.addEventListener('click', function(e) {
-                    if (e.target.classList.contains('translate-tip')) {
-                        const lang = e.target.getAttribute('data-lang');
-                        const langNames = {
-                            'he': 'Hebrew (עברית)',
-                            'ru': 'Russian (Русский)', 
-                            'el': 'Greek (Ελληνικά)'
-                        };
-                        
-                        setTimeout(function() {
-                            alert('💡 Translation Tip: Right-click on the opened page and select "Translate to ' + langNames[lang] + '" for the best reading experience!');
-                        }, 1000);
-                    }
-                });
-
-                document.addEventListener('DOMContentLoaded', function() {
-                    setLang('en');
-                });
-            </script>
-            </body>
-            </html>""".trimIndent()
+        println("⚠️ Using legacy single-page generation - consider using generateCountryWebsite() instead")
+        return generateCountryWebsite(articles, "CYPRUS")
     }
 }
 
 fun main() {
-    println("🤖 Starting AI News Daily Update...")
+    println("🤖 Starting AI News Multi-Country Update...")
     
     val system = AINewsSystem()
     
-    // Skip HTTP server completely - go straight to CSV processing
-    println("📝 Using CSV-only subscription method")
-    
-    // Process new subscriptions automatically
     println("🔄 Processing new subscriptions...")
-    system.processFormspreeEmails()         // Check Gmail and add to CSV + mark as read
-    system.checkAndImportWebSubscriptions() // Process any existing CSV files
+    system.processFormspreeEmails()
+    system.checkAndImportWebSubscriptions()
 
-    // Add test subscriber
-    system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"))
+    // Add test subscriber with multi-country support
+    system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"), listOf("CYPRUS", "ISRAEL"))
 
-    // Debug: Check current subscribers AFTER processing new emails
     val existingSubscribers = system.loadSubscribers()
     println("📧 Current subscribers: ${existingSubscribers.size}")
     existingSubscribers.forEach { subscriber ->
-        println("   - ${subscriber.email} (${subscriber.languages.joinToString(", ")})")
+        println("   - ${subscriber.email} (${subscriber.countries.joinToString(", ")}) (${subscriber.languages.joinToString(", ")})")
     }
 
     try {
+        println("🌍 Starting multi-country news aggregation...")
         val articles = system.aggregateNews()
         
         if (articles.isNotEmpty()) {
-            val website = system.generateDailyWebsite(articles)
             system.setupCustomDomain()
             
-            val websiteUrl = system.uploadToGitHubPages(website)
+            val websiteUrl = system.uploadToGitHubPages(articles)
             if (websiteUrl.isNotEmpty()) {
-                println("🚀 Website uploaded: $websiteUrl")
+                println("🚀 Multi-country website uploaded: $websiteUrl")
+                println("🔗 Country pages:")
+                println("   🇨🇾 Cyprus: ${websiteUrl}cyprus/")
+                println("   🇮🇱 Israel: ${websiteUrl}israel/")  
+                println("   🇬🇷 Greece: ${websiteUrl}greece/")
                 
-                // IMPORTANT: Reload subscribers list to include newly added users
-                println("🔄 Reloading subscriber list to include new signups...")
-                system.sendDailyNotification(articles, "https://ainews.eu.com")
-                println("✅ AI News daily update complete!")
+                system.sendDailyNotification(articles, websiteUrl)
+                println("✅ AI News multi-country update complete!")
             }
         } else {
             println("⚠️ No new articles found today")
@@ -1231,19 +1332,16 @@ fun main() {
         e.printStackTrace()
     }
     
-    // For cronjob mode, exit after running once
-    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true // Default to cronjob mode
+    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true
     if (isCronjob) {
-        println("✅ Cronjob completed successfully")
+        println("✅ Multi-country cronjob completed successfully")
         return
     }
     
-    // Only keep running in regular mode (rarely used now)
-    println("🔄 Keeping application running and checking for new subscriptions...")
+    println("🔄 Keeping application running...")
     while (true) {
-        Thread.sleep(300000) // Check every 5 minutes
+        Thread.sleep(300000)
         try {
-            println("🔄 Periodic check for new subscriptions...")
             system.processFormspreeEmails()
             system.checkAndImportWebSubscriptions()
         } catch (e: Exception) {
