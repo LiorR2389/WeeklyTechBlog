@@ -1376,7 +1376,7 @@ class AINewsSystem {
             val requestBody = JSONObject().apply {
                 put("message", "Update $filePath - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
                 put("content", base64Content)
-                if (sha != null) put("sha", sha)
+                if (sha != null) put("sha", sha!!)
             }
 
             val putRequest = Request.Builder()
