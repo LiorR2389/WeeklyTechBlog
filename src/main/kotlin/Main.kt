@@ -1,4 +1,63 @@
-package com.ainews
+.tagline { font-size: 1.2rem; color: #666; margin-bottom: 20px; }
+                
+                .live-site-button {
+                    display: inline-block;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 12px 24px;
+                    text-decoration: none;
+                    border-radius: 25px;
+                    font-weight: 600;
+                    font-size: 1rem;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                }
+                
+                .live-site-button:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+                }
+                
+                .live-news-link {
+                    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%) !important;
+                    animation: pulse 2s infinite;
+                }
+                
+                .live-news-link:hover {
+                    background: linear-gradient(135deg, #ee5a24 0%, #d63031 100%) !important;
+                }
+                
+                @keyframes pulse {
+                    0% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7); }
+                    70% { box-shadow: 0 0 0 10px rgba(255, 107, 107, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0); }
+                }
+                
+                .article-translate-buttons {
+                    margin: 15px 0 10px 0;
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 5px;
+                }
+                
+                .translate-btn {
+                    background: rgba(102, 126, 234, 0.1);
+                    color: #667eea;
+                    border: 1px solid rgba(102, 126, 234, 0.3);
+                    padding: 4px 10px;
+                    border-radius: 12px;
+                    font-size: 0.8rem;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    text-decoration: none;
+                }
+                
+                .translate-btn:hover {
+                    background: #667eea;
+                    color: white;
+                    transform: translateY(-1px);
+                }
+                    package com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -672,23 +731,6 @@ class AINewsSystem {
                     transform: translateY(-2px);
                 }
                 
-                .live-button {
-                    background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%) !important;
-                    animation: pulse-live 2s infinite !important;
-                    font-weight: bold !important;
-                    box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3) !important;
-                }
-                
-                .live-button:hover {
-                    background: linear-gradient(135deg, #ff6666 0%, #ff0000 100%) !important;
-                    transform: translateY(-3px) scale(1.05) !important;
-                }
-                
-                @keyframes pulse-live {
-                    0%, 100% { opacity: 1; box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3); }
-                    50% { opacity: 0.8; box-shadow: 0 6px 20px rgba(255, 68, 68, 0.5); }
-                }
-                
                 .lang-buttons { 
                     text-align: center; 
                     margin: 30px 0; 
@@ -1024,7 +1066,7 @@ class AINewsSystem {
                 <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
                 <a href="../israel/index.html">🇮🇱 Israel</a>
                 <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="../live/index.html" class="live-button">🔴 LIVE NEWS</a>
+                <a href="https://ainews.eu.com" class="live-news-link" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
             </div>
 
             <div class="lang-buttons">
@@ -1239,6 +1281,9 @@ class AINewsSystem {
             <div class="logo">🤖 AI News</div>
             <div class="tagline">Your Multi-Country Daily News Digest</div>
             <p>Automated news aggregation from Cyprus, Israel, and Greece • $dayOfWeek, $currentDate</p>
+            <div style="margin-top: 20px;">
+                <a href="https://ainews.eu.com" class="live-site-button" target="_blank" rel="noopener noreferrer">🌐 View Live News Site</a>
+            </div>
             </div>
 
             <div class="stats">
@@ -1273,8 +1318,7 @@ class AINewsSystem {
             <p style="margin-top: 20px; font-size: 0.9rem;">
                 <a href="./cyprus/index.html" style="margin: 0 10px; color: #667eea;">🇨🇾 Cyprus</a> |
                 <a href="./israel/index.html" style="margin: 0 10px; color: #667eea;">🇮🇱 Israel</a> |
-                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a> |
-                <a href="./live/index.html" style="margin: 0 10px; color: #ff4444; font-weight: bold;">🔴 LIVE</a>
+                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a>
             </p>
             </div>
             </div>
