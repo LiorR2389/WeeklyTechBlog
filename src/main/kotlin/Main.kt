@@ -1,1007 +1,4 @@
-if (subject.contains("AI News", ignoreCase = true) && subject.contains("Subscription", ignoreCase = true)) {
-                        println("✅ Valid subscription email found")
-
-                        val emailMatch = Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val nameMatch = Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val langMatch = Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val countryMatch = Regex("countries:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-
-                        if (emailMatch != null) {
-                            val email = emailMatch.groupValues[1].trim()
-                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
-                            val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
-                            val countries = countryMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("CYPRUS")
-
-                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages, Countries: $countries")
-
-                            val currentSubscribers = loadSubscribers().toMutableList()
-                            val existingSubscriber = currentSubscribers.find { it.email == email }
-                            
-                            if (existingSubscriber == null) {
-                                val newSubscriber = Subscriber(
-                                    email = email,
-                                    name = name,
-                                    languages = languages,
-                                    countries = countries,
-                                    subscribed = true,
-                                    subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-                                )
-                                currentSubscribers.add(newSubscriber)
-                                saveSubscribers(currentSubscribers)
-                                println("💾 Saved new subscriber: $email for countries: ${countries.joinToString(", ")}")
-                                
-                                addSubscriberToCSV(email, name, languages, countries)
-                            } else {
-                                println("⚠️ Subscriber $email already exists, skipping")
-                            }
-
-                            message.setFlag(Flags.Flag.SEEN, true)
-                            println("✅ Successfully processed email for: $email")
-                        } else {
-                            println("❌ Could not extract email address from content")
-                        }
-                    }
-                } catch (e: Exception) {
-                    println("❌ Error processing email: ${e.message}")
-                }
-            }
-
-            inbox.close(false)
-            store.close()
-        } catch (e: Exception) {
-            println("❌ Error accessing emails: ${e.message}")
-        }
-    }
-
-    private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
-        val csvFile = File("new_subscribers.csv")
-        val csvLine = "$email,${name ?: ""},${languages.joinToString(";")},${countries.joinToString(";")}"
-        
-        try {
-            if (csvFile.exists()) {
-                val existingContent = csvFile.readText()
-                if (existingContent.contains(email)) {
-                    println("📧 Subscriber $email already exists in CSV, skipping")
-                    return
-                }
-            }
-            
-            csvFile.appendText("$csvLine\n")
-            println("📧 Added subscriber to CSV: $email")
-        } catch (e: Exception) {
-            println("❌ Error adding subscriber to CSV: ${e.message}")
-        }
-    }
-
-    fun checkAndImportWebSubscriptions() {
-        val csvFile = File("new_subscribers.csv")
-        if (csvFile.exists()) {
-            try {
-                val csvContent = csvFile.readText()
-                val lines = csvContent.split("\n").filter { it.trim().isNotEmpty() }
-
-                val currentSubscribers = loadSubscribers().toMutableList()
-                var newCount = 0
-
-                lines.forEach { line ->
-                    val parts = line.split(",").map { it.trim() }
-                    if (parts.size >= 2) {
-                        val email = parts[0]
-                        val name = if (parts[1].isNotEmpty()) parts[1] else null
-                        val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
-                        val countries = if (parts.size > 3) parts[3].split(";") else listOf("CYPRUS")
-
-                        val existing = currentSubscribers.find { it.email == email }
-                        if (existing == null) {
-                            currentSubscribers.add(Subscriber(
-                                email = email,
-                                name = name,
-                                languages = languages,
-                                countries = countries,
-                                subscribed = true,
-                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-                            ))
-                            newCount++
-                            println("📧 Added subscriber from CSV: $email for ${countries.joinToString(", ")}")
-                        }
-                    }
-                }
-
-                if (newCount > 0) {
-                    saveSubscribers(currentSubscribers)
-                    csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
-                    println("📧 Added $newCount new subscribers from CSV")
-                }
-
-            } catch (e: Exception) {
-                println("Error processing CSV: ${e.message}")
-            }
-        }
-    }
-
-    fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
-        val subscribers = loadSubscribers().filter { it.subscribed }
-
-        if (subscribers.isEmpty()) {
-            println("📧 No subscribers to notify")
-            return
-        }
-
-        if (emailPassword.isNullOrEmpty()) {
-            println("📧 Email notifications disabled - no password configured")
-            return
-        }
-
-        println("📧 Sending notifications to ${subscribers.size} subscribers...")
-        
-        subscribers.forEach { subscriber ->
-            try {
-                sendEmailNotification(subscriber, articles, websiteUrl)
-                println("✅ Email sent to ${subscriber.email}")
-                Thread.sleep(1000)
-            } catch (e: Exception) {
-                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
-            }
-        }
-        println("✅ Finished sending notifications")
-    }
-
-    private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
-        if (emailPassword.isNullOrEmpty()) return
-
-        try {
-            val props = Properties().apply {
-                put("mail.smtp.auth", "true")
-                put("mail.smtp.starttls.enable", "true")
-                put("mail.smtp.host", smtpHost)
-                put("mail.smtp.port", smtpPort)
-                put("mail.smtp.ssl.enable", "false")
-                put("mail.smtp.ssl.trust", smtpHost)
-            }
-
-            val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
-                override fun getPasswordAuthentication(): PasswordAuthentication {
-                    return PasswordAuthentication(fromEmail, emailPassword)
-                }
-            })
-
-            val subscriberCountryArticles = articles.filter { article ->
-                subscriber.countries.contains(article.country)
-            }
-
-            val message = MimeMessage(session).apply {
-                setFrom(InternetAddress(fromEmail, "AI News"))
-                setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-                subject = "🤖 Your Daily News Digest - ${subscriberCountryArticles.size} new stories"
-
-                val htmlContent = """
-                <h1>🤖 AI News</h1>
-                <p>Hello ${subscriber.name ?: "there"}!</p>
-                <p>Fresh news updates are available with ${subscriberCountryArticles.size} new articles from ${subscriber.countries.joinToString(", ")}.</p>
-                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 Read News</a>
-                """.trimIndent()
-
-                setContent(htmlContent, "text/html; charset=utf-8")
-            }
-
-            Transport.send(message)
-        } catch (e: Exception) {
-            println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
-        }
-    }
-
-    fun addSubscriber(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
-        val subscribers = loadSubscribers().toMutableList()
-        val existingSubscriber = subscribers.find { it.email == email }
-
-        if (existingSubscriber == null) {
-            val newSubscriber = Subscriber(
-                email = email,
-                name = name,
-                languages = languages,
-                countries = countries,
-                subscribed = true,
-                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-            )
-            subscribers.add(newSubscriber)
-            saveSubscribers(subscribers)
-            println("✅ Added new subscriber: $email for countries: ${countries.joinToString(", ")}")
-        } else {
-            println("⚠️ Subscriber $email already exists")
-        }
-    }
-
-    fun setupCustomDomain() {
-        println("✅ Setting up custom domain support")
-    }
-
-    fun generateDailyWebsite(articles: List<Article>): String {
-        println("⚠️ Using legacy single-page generation - consider using generateCountryWebsite() instead")
-        return generateCountryWebsite(articles, "CYPRUS")
-    }
-}
-
-fun main() {
-    println("🤖 Starting AI News Multi-Country Update...")
-    
-    val system = AINewsSystem()
-    
-    println("🔄 Processing new subscriptions...")
-    system.processFormspreeEmails()
-    system.checkAndImportWebSubscriptions()
-
-    system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"), listOf("CYPRUS", "ISRAEL"))
-
-    val existingSubscribers = system.loadSubscribers()
-    println("📧 Current subscribers: ${existingSubscribers.size}")
-    existingSubscribers.forEach { subscriber ->
-        println("   - ${subscriber.email} (${subscriber.countries.joinToString(", ")}) (${subscriber.languages.joinToString(", ")})")
-    }
-
-    try {
-        println("🌍 Starting multi-country news aggregation...")
-        val articles = system.aggregateNews()
-        
-        if (articles.isNotEmpty()) {
-            system.setupCustomDomain()
-            
-            val websiteUrl = system.uploadToGitHubPages(articles)
-            if (websiteUrl.isNotEmpty()) {
-                println("🚀 Multi-country website uploaded: $websiteUrl")
-                println("🔗 Country pages:")
-                println("   🇨🇾 Cyprus: ${websiteUrl}cyprus/")
-                println("   🇮🇱 Israel: ${websiteUrl}israel/")  
-                println("   🇬🇷 Greece: ${websiteUrl}greece/")
-                
-                system.sendDailyNotification(articles, websiteUrl)
-                println("✅ AI News multi-country update complete!")
-            }
-        } else {
-            println("⚠️ No new articles found today")
-        }
-    } catch (e: Exception) {
-        println("❌ Error: ${e.message}")
-        e.printStackTrace()
-    }
-    
-    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true
-    if (isCronjob) {
-        println("✅ Multi-country cronjob completed successfully")
-        return
-    }
-    
-    println("🔄 Keeping application running...")
-    while (true) {
-        Thread.sleep(300000)
-        try {
-            system.processFormspreeEmails()
-            system.checkAndImportWebSubscriptions()
-        } catch (e: Exception) {
-            println("⚠️ Error during periodic check: ${e.message}")
-        }
-    }
-}; 
-                    direction: rtl; 
-                }
-                
-                .lang.he a { 
-                    float: left; 
-                    margin-right: 0; 
-                    margin-left: 10px; 
-                }
-                
-                .lang.he .article { 
-                    border-right: 4px solid #667eea; 
-                    border-left: none; 
-                    padding-right: 20px; 
-                    padding-left: 20px; 
-                }
-                
-                .article { 
-                    margin: 20px 0; 
-                    padding: 24px; 
-                    border-left: 4px solid #667eea; 
-                    background: #f9f9f9; 
-                    border-radius: 8px;
-                    transition: all 0.3s ease;
-                }
-                
-                .article:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                }
-                
-                .article.he { 
-                    border-right: 4px solid #667eea; 
-                    border-left: none; 
-                }
-                
-                .article h3 { 
-                    margin: 0 0 15px 0; 
-                    color: #2d3748; 
-                    font-size: 1.3rem;
-                    font-weight: 600;
-                    line-height: 1.4;
-                }
-                
-                .article p { 
-                    color: #4a5568; 
-                    margin: 15px 0; 
-                    font-size: 1rem;
-                    line-height: 1.6;
-                    display: block;
-                    word-wrap: break-word;
-                    overflow-wrap: break-word;
-                }
-                
-                .article a { 
-                    color: #667eea; 
-                    text-decoration: none; 
-                    font-weight: 600; 
-                    display: inline-block;
-                    margin-top: 10px;
-                    padding: 8px 16px;
-                    background: rgba(102, 126, 234, 0.1);
-                    border-radius: 20px;
-                    transition: all 0.3s ease;
-                }
-                
-                .article a:hover {
-                    background: #667eea;
-                    color: white;
-                    transform: translateY(-1px);
-                }
-                
-                .footer { 
-                    text-align: center; 
-                    margin-top: 40px; 
-                    color: #718096;
-                    padding: 20px 0;
-                    border-top: 1px solid #e2e8f0;
-                }
-                
-                .subscription { 
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    color: white; 
-                    padding: 30px; 
-                    margin: 40px 0; 
-                    border-radius: 12px; 
-                    text-align: center; 
-                }
-                
-                .subscription input { 
-                    padding: 12px 16px; 
-                    margin: 10px; 
-                    border: none; 
-                    border-radius: 8px; 
-                    width: 100%;
-                    max-width: 300px;
-                    font-size: 1rem;
-                }
-                
-                .subscription button { 
-                    background: #FFD700; 
-                    color: #333; 
-                    border: none; 
-                    padding: 12px 24px; 
-                    border-radius: 8px; 
-                    cursor: pointer; 
-                    font-weight: bold; 
-                    font-size: 1rem;
-                    transition: all 0.3s ease;
-                }
-                
-                .subscription button:hover {
-                    background: #FFC700;
-                    transform: translateY(-2px);
-                }
-                
-                .subscription .lang.he { 
-                    direction: rtl; 
-                    text-align: right; 
-                }
-                
-                .subscription .lang.he input { 
-                    text-align: right; 
-                    direction: rtl; 
-                }
-                
-                .no-articles { 
-                    text-align: center; 
-                    padding: 60px 20px; 
-                    color: #718096; 
-                    background: #f7fafc;
-                    border-radius: 12px;
-                    margin: 20px 0;
-                }
-                
-                .back-to-top {
-                    position: fixed;
-                    bottom: 30px;
-                    right: 30px;
-                    background: #667eea;
-                    color: white;
-                    border: none;
-                    border-radius: 50%;
-                    width: 50px;
-                    height: 50px;
-                    font-size: 20px;
-                    cursor: pointer;
-                    display: none;
-                    z-index: 1000;
-                    transition: all 0.3s ease;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-                }
-                
-                .back-to-top:hover {
-                    background: #764ba2;
-                    transform: translateY(-3px);
-                }
-                
-                .back-to-top.visible {
-                    display: block;
-                }
-                
-                h2 {
-                    color: #2d3748;
-                    font-size: 1.5rem;
-                    font-weight: 700;
-                    margin: 30px 0 20px 0;
-                    padding-bottom: 10px;
-                    border-bottom: 2px solid #e2e8f0;
-                }
-                
-                @media (max-width: 768px) {
-                    body {
-                        padding: 10px;
-                    }
-                    
-                    .container {
-                        padding: 15px;
-                        border-radius: 8px;
-                    }
-                    
-                    .logo {
-                        font-size: 2rem;
-                    }
-                    
-                    .country-nav {
-                        flex-direction: column;
-                        align-items: center;
-                    }
-                    
-                    .country-nav a {
-                        width: 90%;
-                        max-width: 300px;
-                        margin: 5px 0;
-                        padding: 15px;
-                        font-size: 1rem;
-                    }
-                    
-                    .lang-buttons {
-                        flex-direction: column;
-                        align-items: center;
-                    }
-                    
-                    .lang-buttons button {
-                        width: 90%;
-                        max-width: 200px;
-                        margin: 5px 0;
-                        padding: 12px;
-                        font-size: 1rem;
-                    }
-                    
-                    .article {
-                        margin: 15px 0;
-                        padding: 20px;
-                    }
-                    
-                    .article h3 {
-                        font-size: 1.2rem;
-                    }
-                    
-                    .article p {
-                        font-size: 0.95rem;
-                    }
-                    
-                    .subscription {
-                        padding: 25px 15px;
-                        margin: 30px 0;
-                    }
-                    
-                    .subscription input {
-                        width: 90%;
-                        margin: 8px 0;
-                        font-size: 16px;
-                    }
-                    
-                    .subscription button {
-                        width: 90%;
-                        padding: 15px;
-                        margin: 10px 0;
-                        font-size: 1rem;
-                    }
-                    
-                    .back-to-top {
-                        bottom: 20px;
-                        right: 20px;
-                        width: 45px;
-                        height: 45px;
-                    }
-                    
-                    h2 {
-                        font-size: 1.3rem;
-                        margin: 25px 0 15px 0;
-                    }
-                }
-                
-                @media (max-width: 480px) {
-                    .container {
-                        padding: 10px;
-                    }
-                    
-                    .logo {
-                        font-size: 1.8rem;
-                    }
-                    
-                    .article {
-                        padding: 15px;
-                    }
-                    
-                    .subscription {
-                        padding: 20px 10px;
-                    }
-                }
-            </style>
-            </head>
-            <body>
-            <div class="container">
-            <div class="header">
-            <div class="logo">🤖 AI News</div>
-            <p>$countryFlag $countryDisplayName Daily Digest • $dayOfWeek, $currentDate</p>
-            </div>
-
-            <div class="country-nav">
-                <a href="../index.html">🏠 Home</a>
-                <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
-                <a href="../israel/index.html">🇮🇱 Israel</a>
-                <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="https://ainews.eu.com" class="live-news-link" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
-            </div>
-
-            <div class="lang-buttons">
-            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-            </div>
-
-            $articlesHtml
-
-            <div class="subscription">
-            <div class="lang en active">
-            <h3>🔔 Get Daily $countryDisplayName Notifications</h3>
-            <p>Get email notifications when fresh $countryDisplayName news is published</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="your@email.com" required>
-            <input type="text" name="name" placeholder="Your name (optional)">
-            <input type="hidden" name="languages" value="en">
-            <input type="hidden" name="countries" value="$country">
-            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription">
-            <br>
-            <button type="submit">🔔 Subscribe</button>
-            </form>
-            </div>
-            <div class="lang he">
-            <h3>🔔 קבלו התראות יומיות</h3>
-            <p>קבלו התראות כאשר חדשות $countryDisplayName טריות מתפרסמות</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
-            <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
-            <input type="hidden" name="languages" value="he">
-            <input type="hidden" name="countries" value="$country">
-            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Hebrew)">
-            <br>
-            <button type="submit">🔔 הירשמו</button>
-            </form>
-            </div>
-            <div class="lang ru">
-            <h3>🔔 Получайте уведомления</h3>
-            <p>Получайте уведомления о свежих новостях $countryDisplayName</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="ваш@email.com" required>
-            <input type="text" name="name" placeholder="Ваше имя (необязательно)">
-            <input type="hidden" name="languages" value="ru">
-            <input type="hidden" name="countries" value="$country">
-            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Russian)">
-            <br>
-            <button type="submit">🔔 Подписаться</button>
-            </form>
-            </div>
-            <div class="lang el">
-            <h3>🔔 Λάβετε ειδοποιήσεις</h3>
-            <p>Λάβετε ειδοποιήσεις για φρέσκα νέα $countryDisplayName</p>
-            <form action="https://formspree.io/f/xovlajpa" method="POST">
-            <input type="email" name="email" placeholder="το@email.σας" required>
-            <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
-            <input type="hidden" name="languages" value="el">
-            <input type="hidden" name="countries" value="$country">
-            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Greek)">
-            <br>
-            <button type="submit">🔔 Εγγραφή</button>
-            </form>
-            </div>
-            </div>
-
-            <div class="footer">
-            <p>Generated automatically • ${countryArticles.map { it.sourceId }.distinct().joinToString(", ")}</p>
-            <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-            </div>
-            </div>
-            
-            <button class="back-to-top" id="backToTop" onclick="scrollToTop()" title="Back to top">↑</button>
-
-            <script>
-                let currentLang = 'en';
-
-                function setLang(lang) {
-                    document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                    document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                    document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                    document.getElementById('btn-' + lang).classList.add('active');
-                    currentLang = lang;
-                }
-
-                function scrollToTop() {
-                    window.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                    });
-                }
-
-                function toggleBackToTopButton() {
-                    const backToTopButton = document.getElementById('backToTop');
-                    if (window.pageYOffset > 300) {
-                        backToTopButton.classList.add('visible');
-                    } else {
-                        backToTopButton.classList.remove('visible');
-                    }
-                }
-
-                document.addEventListener('DOMContentLoaded', function() {
-                    setLang('en');
-                    
-                    window.addEventListener('scroll', toggleBackToTopButton);
-                    
-                    document.querySelectorAll('a[target="_blank"]').forEach(link => {
-                        link.addEventListener('click', function() {
-                            this.style.opacity = '0.7';
-                            setTimeout(() => {
-                                this.style.opacity = '1';
-                            }, 1000);
-                        });
-                    });
-                    
-                    document.addEventListener('keydown', function(e) {
-                        if (e.key === 't' || e.key === 'T') {
-                            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-                                e.preventDefault();
-                                scrollToTop();
-                            }
-                        }
-                        
-                        if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                            e.preventDefault();
-                            const langs = ['en', 'he', 'ru', 'el'];
-                            const langIndex = parseInt(e.key) - 1;
-                            if (langs[langIndex]) {
-                                setLang(langs[langIndex]);
-                            }
-                        }
-                    });
-                });
-            </script>
-            </body>
-            </html>""".trimIndent()
-    }
-
-    // NEW: Generate main index page with links to all countries
-    fun generateMainIndexPage(articles: List<Article>): String {
-        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
-        val countries = articles.map { it.country }.distinct().sorted()
-        val articlesByCountry = articles.groupBy { it.country }
-
-        val countrySummary = StringBuilder()
-        countries.forEach { country ->
-            val countryArticles = articlesByCountry[country] ?: emptyList()
-            val countryName = when(country) {
-                "CYPRUS" -> "Cyprus"
-                "ISRAEL" -> "Israel" 
-                "GREECE" -> "Greece"
-                else -> country
-            }
-            val countryFlag = when(country) {
-                "CYPRUS" -> "🇨🇾"
-                "ISRAEL" -> "🇮🇱"
-                "GREECE" -> "🇬🇷"
-                else -> "🌍"
-            }
-            val countryPath = country.lowercase()
-
-            countrySummary.append("""
-                <div class="country-card">
-                    <h3>$countryFlag $countryName</h3>
-                    <p>${countryArticles.size} new articles today</p>
-                    <p>Latest categories: ${countryArticles.map { it.category }.distinct().take(3).joinToString(", ")}</p>
-                    <a href="./$countryPath/index.html" class="country-link">Read $countryName News →</a>
-                </div>
-            """.trimIndent())
-        }
-
-        return """<!DOCTYPE html>
-            <html>
-            <head>
-            <title>AI News - Multi-Country Daily Digest for $dayOfWeek, $currentDate</title>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <style>
-                body { font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
-                .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-                .header { text-align: center; margin-bottom: 40px; }
-                .logo { font-size: 3rem; font-weight: bold; color: #667eea; margin-bottom: 10px; }
-                .tagline { font-size: 1.2rem; color: #666; margin-bottom: 20px; }
-                
-                .live-site-button {
-                    display: inline-block;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    color: white;
-                    padding: 12px 24px;
-                    text-decoration: none;
-                    border-radius: 25px;
-                    font-weight: 600;
-                    font-size: 1rem;
-                    transition: all 0.3s ease;
-                    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-                }
-                
-                .live-site-button:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-                }
-                
-                .country-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 40px 0; }
-                .country-card { background: #f9f9f9; padding: 30px; border-radius: 15px; text-align: center; border: 2px solid transparent; transition: all 0.3s; }
-                .country-card:hover { border-color: #667eea; transform: translateY(-5px); }
-                .country-card h3 { font-size: 1.5rem; margin-bottom: 10px; color: #333; }
-                .country-card p { color: #666; margin: 10px 0; }
-                .country-link { display: inline-block; background: #667eea; color: white; padding: 12px 25px; text-decoration: none; border-radius: 25px; margin-top: 15px; transition: all 0.3s; }
-                .country-link:hover { background: #764ba2; transform: scale(1.05); }
-                .stats { background: #667eea; color: white; padding: 30px; border-radius: 15px; text-align: center; margin: 40px 0; }
-                .stats h3 { margin-bottom: 20px; }
-                .stats .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }
-                .stat-item { background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; }
-                .stat-number { font-size: 2rem; font-weight: bold; margin-bottom: 5px; }
-                .footer { text-align: center; margin-top: 40px; color: #666; }
-            </style>
-            </head>
-            <body>
-            <div class="container">
-            <div class="header">
-            <div class="logo">🤖 AI News</div>
-            <div class="tagline">Your Multi-Country Daily News Digest</div>
-            <p>Automated news aggregation from Cyprus, Israel, and Greece • $dayOfWeek, $currentDate</p>
-            <div style="margin-top: 20px;">
-                <a href="https://ainews.eu.com" class="live-site-button" target="_blank" rel="noopener noreferrer">🌐 View Live News Site</a>
-            </div>
-            </div>
-
-            <div class="stats">
-            <h3>Today's News Summary</h3>
-            <div class="stat-grid">
-                <div class="stat-item">
-                    <div class="stat-number">${articles.size}</div>
-                    <div>Total Articles</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">${countries.size}</div>
-                    <div>Countries</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">${articles.map { it.category }.distinct().size}</div>
-                    <div>Categories</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">4</div>
-                    <div>Languages</div>
-                </div>
-            </div>
-            </div>
-
-            <div class="country-grid">
-            $countrySummary
-            </div>
-
-            <div class="footer">
-            <p>Generated automatically every day at 7:00 AM • Powered by AI translation</p>
-            <p>🌐 <strong><a href="https://ainews.eu.com" style="color: #667eea;">ainews.eu.com</a></strong></p>
-            <p style="margin-top: 20px; font-size: 0.9rem;">
-                <a href="./cyprus/index.html" style="margin: 0 10px; color: #667eea;">🇨🇾 Cyprus</a> |
-                <a href="./israel/index.html" style="margin: 0 10px; color: #667eea;">🇮🇱 Israel</a> |
-                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a>
-            </p>
-            </div>
-            </div>
-            </body>
-            </html>""".trimIndent()
-    }
-
-    // Continue with all the remaining functions...
-    fun generateSitemap(): String {
-        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        return """<?xml version="1.0" encoding="UTF-8"?>
-            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-                <url>
-                    <loc>https://ainews.eu.com/</loc>
-                    <lastmod>$currentDate</lastmod>
-                    <changefreq>daily</changefreq>
-                    <priority>1.0</priority>
-                </url>
-                <url>
-                    <loc>https://ainews.eu.com/cyprus/index.html</loc>
-                    <lastmod>$currentDate</lastmod>
-                    <changefreq>daily</changefreq>
-                    <priority>0.8</priority>
-                </url>
-                <url>
-                    <loc>https://ainews.eu.com/israel/index.html</loc>
-                    <lastmod>$currentDate</lastmod>
-                    <changefreq>daily</changefreq>
-                    <priority>0.8</priority>
-                </url>
-                <url>
-                    <loc>https://ainews.eu.com/greece/index.html</loc>
-                    <lastmod>$currentDate</lastmod>
-                    <changefreq>daily</changefreq>
-                    <priority>0.8</priority>
-                </url>
-            </urlset>""".trimIndent()
-    }
-
-    fun uploadToGitHubPages(articles: List<Article>): String {
-        val repoName = "ainews-website"
-        val countries = listOf("CYPRUS", "ISRAEL", "GREECE")
-
-        return try {
-            println("🚀 Starting multi-country upload to GitHub Pages...")
-
-            val mainIndexHtml = generateMainIndexPage(articles)
-            uploadFileToGitHub(repoName, "index.html", mainIndexHtml)
-
-            countries.forEach { country ->
-                val countryPath = country.lowercase()
-                val countryHtml = generateCountryWebsite(articles, country)
-                uploadFileToGitHub(repoName, "$countryPath/index.html", countryHtml)
-                println("✅ Uploaded $countryPath page")
-            }
-
-            val sitemap = generateSitemap()
-            uploadFileToGitHub(repoName, "sitemap.xml", sitemap)
-
-            uploadFileToGitHub(repoName, "CNAME", "ainews.eu.com")
-
-            println("🚀 All pages uploaded successfully")
-            "https://ainews.eu.com/"
-        } catch (e: Exception) {
-            println("Error uploading to GitHub Pages: ${e.message}")
-            ""
-        }
-    }
-
-    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
-        try {
-            val getRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
-                .addHeader("Authorization", "token $githubToken")
-                .build()
-
-            var sha: String? = null
-            client.newCall(getRequest).execute().use { response ->
-                if (response.isSuccessful) {
-                    val json = JSONObject(response.body?.string())
-                    sha = json.getString("sha")
-                }
-            }
-
-            val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
-            val requestBody = JSONObject().apply {
-                put("message", "Update $filePath - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
-                put("content", base64Content)
-                if (sha != null) put("sha", sha)
-            }
-
-            val putRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Content-Type", "application/json")
-                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(putRequest).execute().use { response ->
-                if (!response.isSuccessful) {
-                    println("Failed to upload $filePath: ${response.code}")
-                }
-            }
-        } catch (e: Exception) {
-            println("Error uploading $filePath: ${e.message}")
-        }
-    }
-
-    // Email and subscriber functions remain the same
-    private fun extractEmailContent(message: Message): String {
-        return try {
-            when (val content = message.content) {
-                is String -> content
-                is jakarta.mail.Multipart -> {
-                    val sb = StringBuilder()
-                    for (i in 0 until content.count) {
-                        val bodyPart = content.getBodyPart(i)
-                        if (bodyPart.isMimeType("text/plain")) {
-                            sb.append(bodyPart.content.toString())
-                        } else if (bodyPart.isMimeType("text/html")) {
-                            if (sb.isEmpty()) {
-                                sb.append(bodyPart.content.toString())
-                            }
-                        }
-                    }
-                    sb.toString()
-                }
-                else -> content.toString()
-            }
-        } catch (e: Exception) {
-            println("❌ Error extracting email content: ${e.message}")
-            ""
-        }
-    }
-
-    fun processFormspreeEmails() {
-        println("📧 Checking for new Formspree subscription emails...")
-
-        if (emailPassword.isNullOrEmpty()) {
-            println("⚠️ Email processing disabled - no email password configured")
-            return
-        }
-
-        try {
-            val props = Properties().apply {
-                put("mail.store.protocol", "imaps")
-                put("mail.imaps.host", "imap.gmail.com")
-                put("mail.imaps.port", "993")
-                put("mail.imaps.ssl.enable", "true")
-            }
-
-            val session = Session.getInstance(props)
-            val store = session.getStore("imaps")
-            store.connect(fromEmail, emailPassword)
-
-            val inbox = store.getFolder("INBOX")
-            inbox.open(Folder.READ_WRITE)
-
-            val searchTerm = AndTerm(
-                FromTerm(InternetAddress("noreply@formspree.io")),
-                FlagTerm(Flags(Flags.Flag.SEEN), false)
-            )
-
-            val messages = inbox.search(searchTerm)
-            println("📬 Found ${messages.size} unread Formspree emails")
-
-            messages.forEach { message ->
-                try {
-                    val content = extractEmailContent(message)
-                    val subject = message.subject
-                    println("📋 Processing email - Subject: $subject")
-
-                    if (subject.contains("AI News", ignoreCase = true)package com.ainews
+package com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -1735,8 +732,1006 @@ class AINewsSystem {
                 }
                 
                 .lang.he p { 
-                    text-align: right
-                    direction: rtl;
+                    text-align: right; 
+                    direction: rtl; 
                 }
+                
+                .lang.he a { 
+                    float: left; 
+                    margin-right: 0; 
+                    margin-left: 10px; 
+                }
+                
+                .lang.he .article { 
+                    border-right: 4px solid #667eea; 
+                    border-left: none; 
+                    padding-right: 20px; 
+                    padding-left: 20px; 
+                }
+                
+                .article { 
+                    margin: 20px 0; 
+                    padding: 24px; 
+                    border-left: 4px solid #667eea; 
+                    background: #f9f9f9; 
+                    border-radius: 8px;
+                    transition: all 0.3s ease;
+                }
+                
+                .article:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }
+                
+                .article.he { 
+                    border-right: 4px solid #667eea; 
+                    border-left: none; 
+                }
+                
+                .article h3 { 
+                    margin: 0 0 15px 0; 
+                    color: #2d3748; 
+                    font-size: 1.3rem;
+                    font-weight: 600;
+                    line-height: 1.4;
+                }
+                
+                .article p { 
+                    color: #4a5568; 
+                    margin: 15px 0; 
+                    font-size: 1rem;
+                    line-height: 1.6;
+                    display: block;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                
+                .article a { 
+                    color: #667eea; 
+                    text-decoration: none; 
+                    font-weight: 600; 
+                    display: inline-block;
+                    margin-top: 10px;
+                    padding: 8px 16px;
+                    background: rgba(102, 126, 234, 0.1);
+                    border-radius: 20px;
+                    transition: all 0.3s ease;
+                }
+                
+                .article a:hover {
+                    background: #667eea;
+                    color: white;
+                    transform: translateY(-1px);
+                }
+                
+                .footer { 
+                    text-align: center; 
+                    margin-top: 40px; 
+                    color: #718096;
+                    padding: 20px 0;
+                    border-top: 1px solid #e2e8f0;
+                }
+                
+                .subscription { 
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    color: white; 
+                    padding: 30px; 
+                    margin: 40px 0; 
+                    border-radius: 12px; 
+                    text-align: center; 
+                }
+                
+                .subscription input { 
+                    padding: 12px 16px; 
+                    margin: 10px; 
+                    border: none; 
+                    border-radius: 8px; 
+                    width: 100%;
+                    max-width: 300px;
+                    font-size: 1rem;
+                }
+                
+                .subscription button { 
+                    background: #FFD700; 
+                    color: #333; 
+                    border: none; 
+                    padding: 12px 24px; 
+                    border-radius: 8px; 
+                    cursor: pointer; 
+                    font-weight: bold; 
+                    font-size: 1rem;
+                    transition: all 0.3s ease;
+                }
+                
+                .subscription button:hover {
+                    background: #FFC700;
+                    transform: translateY(-2px);
+                }
+                
+                .subscription .lang.he { 
+                    direction: rtl; 
+                    text-align: right; 
+                }
+                
+                .subscription .lang.he input { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .no-articles { 
+                    text-align: center; 
+                    padding: 60px 20px; 
+                    color: #718096; 
+                    background: #f7fafc;
+                    border-radius: 12px;
+                    margin: 20px 0;
+                }
+                
+                .back-to-top {
+                    position: fixed;
+                    bottom: 30px;
+                    right: 30px;
+                    background: #667eea;
+                    color: white;
+                    border: none;
+                    border-radius: 50%;
+                    width: 50px;
+                    height: 50px;
+                    font-size: 20px;
+                    cursor: pointer;
+                    display: none;
+                    z-index: 1000;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                }
+                
+                .back-to-top:hover {
+                    background: #764ba2;
+                    transform: translateY(-3px);
+                }
+                
+                .back-to-top.visible {
+                    display: block;
+                }
+                
+                h2 {
+                    color: #2d3748;
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    margin: 30px 0 20px 0;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #e2e8f0;
+                }
+                
+                @media (max-width: 768px) {
+                    body {
+                        padding: 10px;
+                    }
+                    
+                    .container {
+                        padding: 15px;
+                        border-radius: 8px;
+                    }
+                    
+                    .logo {
+                        font-size: 2rem;
+                    }
+                    
+                    .country-nav {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    
+                    .country-nav a {
+                        width: 90%;
+                        max-width: 300px;
+                        margin: 5px 0;
+                        padding: 15px;
+                        font-size: 1rem;
+                    }
+                    
+                    .lang-buttons {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    
+                    .lang-buttons button {
+                        width: 90%;
+                        max-width: 200px;
+                        margin: 5px 0;
+                        padding: 12px;
+                        font-size: 1rem;
+                    }
+                    
+                    .article {
+                        margin: 15px 0;
+                        padding: 20px;
+                    }
+                    
+                    .article h3 {
+                        font-size: 1.2rem;
+                    }
+                    
+                    .article p {
+                        font-size: 0.95rem;
+                    }
+                    
+                    .subscription {
+                        padding: 25px 15px;
+                        margin: 30px 0;
+                    }
+                    
+                    .subscription input {
+                        width: 90%;
+                        margin: 8px 0;
+                        font-size: 16px;
+                    }
+                    
+                    .subscription button {
+                        width: 90%;
+                        padding: 15px;
+                        margin: 10px 0;
+                        font-size: 1rem;
+                    }
+                    
+                    .back-to-top {
+                        bottom: 20px;
+                        right: 20px;
+                        width: 45px;
+                        height: 45px;
+                    }
+                    
+                    h2 {
+                        font-size: 1.3rem;
+                        margin: 25px 0 15px 0;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .container {
+                        padding: 10px;
+                    }
+                    
+                    .logo {
+                        font-size: 1.8rem;
+                    }
+                    
+                    .article {
+                        padding: 15px;
+                    }
+                    
+                    .subscription {
+                        padding: 20px 10px;
+                    }
+                }
+            </style>
+            </head>
+            <body>
+            <div class="container">
+            <div class="header">
+            <div class="logo">🤖 AI News</div>
+            <p>$countryFlag $countryDisplayName Daily Digest • $dayOfWeek, $currentDate</p>
+            </div>
+
+            <div class="country-nav">
+                <a href="../index.html">🏠 Home</a>
+                <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
+                <a href="../israel/index.html">🇮🇱 Israel</a>
+                <a href="../greece/index.html">🇬🇷 Greece</a>
+                <a href="https://ainews.eu.com" class="live-news-link" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
+            </div>
+
+            <div class="lang-buttons">
+            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+            </div>
+
+            $articlesHtml
+
+            <div class="subscription">
+            <div class="lang en active">
+            <h3>🔔 Get Daily $countryDisplayName Notifications</h3>
+            <p>Get email notifications when fresh $countryDisplayName news is published</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="your@email.com" required>
+            <input type="text" name="name" placeholder="Your name (optional)">
+            <input type="hidden" name="languages" value="en">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription">
+            <br>
+            <button type="submit">🔔 Subscribe</button>
+            </form>
+            </div>
+            <div class="lang he">
+            <h3>🔔 קבלו התראות יומיות</h3>
+            <p>קבלו התראות כאשר חדשות $countryDisplayName טריות מתפרסמות</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
+            <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
+            <input type="hidden" name="languages" value="he">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Hebrew)">
+            <br>
+            <button type="submit">🔔 הירשמו</button>
+            </form>
+            </div>
+            <div class="lang ru">
+            <h3>🔔 Получайте уведомления</h3>
+            <p>Получайте уведомления о свежих новостях $countryDisplayName</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="ваш@email.com" required>
+            <input type="text" name="name" placeholder="Ваше имя (необязательно)">
+            <input type="hidden" name="languages" value="ru">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Russian)">
+            <br>
+            <button type="submit">🔔 Подписаться</button>
+            </form>
+            </div>
+            <div class="lang el">
+            <h3>🔔 Λάβετε ειδοποιήσεις</h3>
+            <p>Λάβετε ειδοποιήσεις για φρέσκα νέα $countryDisplayName</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="το@email.σας" required>
+            <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
+            <input type="hidden" name="languages" value="el">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Greek)">
+            <br>
+            <button type="submit">🔔 Εγγραφή</button>
+            </form>
+            </div>
+            </div>
+
+            <div class="footer">
+            <p>Generated automatically • ${countryArticles.map { it.sourceId }.distinct().joinToString(", ")}</p>
+            <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+            </div>
+            </div>
+            
+            <button class="back-to-top" id="backToTop" onclick="scrollToTop()" title="Back to top">↑</button>
+
+            <script>
+                let currentLang = 'en';
+
+                function setLang(lang) {
+                    document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                    document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                    document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                    document.getElementById('btn-' + lang).classList.add('active');
+                    currentLang = lang;
+                }
+
+                function scrollToTop() {
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+                }
+
+                function toggleBackToTopButton() {
+                    const backToTopButton = document.getElementById('backToTop');
+                    if (window.pageYOffset > 300) {
+                        backToTopButton.classList.add('visible');
+                    } else {
+                        backToTopButton.classList.remove('visible');
+                    }
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    setLang('en');
+                    
+                    window.addEventListener('scroll', toggleBackToTopButton);
+                    
+                    document.querySelectorAll('a[target="_blank"]').forEach(link => {
+                        link.addEventListener('click', function() {
+                            this.style.opacity = '0.7';
+                            setTimeout(() => {
+                                this.style.opacity = '1';
+                            }, 1000);
+                        });
+                    });
+                    
+                    document.addEventListener('keydown', function(e) {
+                        if (e.key === 't' || e.key === 'T') {
+                            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                                e.preventDefault();
+                                scrollToTop();
+                            }
+                        }
+                        
+                        if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                            e.preventDefault();
+                            const langs = ['en', 'he', 'ru', 'el'];
+                            const langIndex = parseInt(e.key) - 1;
+                            if (langs[langIndex]) {
+                                setLang(langs[langIndex]);
+                            }
+                        }
+                    });
+                });
+            </script>
+            </body>
+            </html>""".trimIndent()
+    }
+
+    // NEW: Generate main index page with links to all countries
+    fun generateMainIndexPage(articles: List<Article>): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
+        val countries = articles.map { it.country }.distinct().sorted()
+        val articlesByCountry = articles.groupBy { it.country }
+
+        val countrySummary = StringBuilder()
+        countries.forEach { country ->
+            val countryArticles = articlesByCountry[country] ?: emptyList()
+            val countryName = when(country) {
+                "CYPRUS" -> "Cyprus"
+                "ISRAEL" -> "Israel" 
+                "GREECE" -> "Greece"
+                else -> country
+            }
+            val countryFlag = when(country) {
+                "CYPRUS" -> "🇨🇾"
+                "ISRAEL" -> "🇮🇱"
+                "GREECE" -> "🇬🇷"
+                else -> "🌍"
+            }
+            val countryPath = country.lowercase()
+
+            countrySummary.append("""
+                <div class="country-card">
+                    <h3>$countryFlag $countryName</h3>
+                    <p>${countryArticles.size} new articles today</p>
+                    <p>Latest categories: ${countryArticles.map { it.category }.distinct().take(3).joinToString(", ")}</p>
+                    <a href="./$countryPath/index.html" class="country-link">Read $countryName News →</a>
+                </div>
+            """.trimIndent())
+        }
+
+        return """<!DOCTYPE html>
+            <html>
+            <head>
+            <title>AI News - Multi-Country Daily Digest for $dayOfWeek, $currentDate</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+                .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+                .header { text-align: center; margin-bottom: 40px; }
+                .logo { font-size: 3rem; font-weight: bold; color: #667eea; margin-bottom: 10px; }
+                .tagline { font-size: 1.2rem; color: #666; margin-bottom: 20px; }
+                
+                .live-site-button {
+                    display: inline-block;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 12px 24px;
+                    text-decoration: none;
+                    border-radius: 25px;
+                    font-weight: 600;
+                    font-size: 1rem;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                }
+                
+                .live-site-button:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+                }
+                
+                .country-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 40px 0; }
+                .country-card { background: #f9f9f9; padding: 30px; border-radius: 15px; text-align: center; border: 2px solid transparent; transition: all 0.3s; }
+                .country-card:hover { border-color: #667eea; transform: translateY(-5px); }
+                .country-card h3 { font-size: 1.5rem; margin-bottom: 10px; color: #333; }
+                .country-card p { color: #666; margin: 10px 0; }
+                .country-link { display: inline-block; background: #667eea; color: white; padding: 12px 25px; text-decoration: none; border-radius: 25px; margin-top: 15px; transition: all 0.3s; }
+                .country-link:hover { background: #764ba2; transform: scale(1.05); }
+                .stats { background: #667eea; color: white; padding: 30px; border-radius: 15px; text-align: center; margin: 40px 0; }
+                .stats h3 { margin-bottom: 20px; }
+                .stats .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 20px; }
+                .stat-item { background: rgba(255,255,255,0.1); padding: 20px; border-radius: 10px; }
+                .stat-number { font-size: 2rem; font-weight: bold; margin-bottom: 5px; }
+                .footer { text-align: center; margin-top: 40px; color: #666; }
+            </style>
+            </head>
+            <body>
+            <div class="container">
+            <div class="header">
+            <div class="logo">🤖 AI News</div>
+            <div class="tagline">Your Multi-Country Daily News Digest</div>
+            <p>Automated news aggregation from Cyprus, Israel, and Greece • $dayOfWeek, $currentDate</p>
+            <div style="margin-top: 20px;">
+                <a href="https://ainews.eu.com" class="live-site-button" target="_blank" rel="noopener noreferrer">🌐 View Live News Site</a>
+            </div>
+            </div>
+
+            <div class="stats">
+            <h3>Today's News Summary</h3>
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-number">${articles.size}</div>
+                    <div>Total Articles</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${countries.size}</div>
+                    <div>Countries</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">${articles.map { it.category }.distinct().size}</div>
+                    <div>Categories</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">4</div>
+                    <div>Languages</div>
+                </div>
+            </div>
+            </div>
+
+            <div class="country-grid">
+            $countrySummary
+            </div>
+
+            <div class="footer">
+            <p>Generated automatically every day at 7:00 AM • Powered by AI translation</p>
+            <p>🌐 <strong><a href="https://ainews.eu.com" style="color: #667eea;">ainews.eu.com</a></strong></p>
+            <p style="margin-top: 20px; font-size: 0.9rem;">
+                <a href="./cyprus/index.html" style="margin: 0 10px; color: #667eea;">🇨🇾 Cyprus</a> |
+                <a href="./israel/index.html" style="margin: 0 10px; color: #667eea;">🇮🇱 Israel</a> |
+                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a>
+            </p>
+            </div>
+            </div>
+            </body>
+            </html>""".trimIndent()
+    }
+
+    fun generateSitemap(): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        return """<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                <url>
+                    <loc>https://ainews.eu.com/</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>1.0</priority>
+                </url>
+                <url>
+                    <loc>https://ainews.eu.com/cyprus/index.html</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>0.8</priority>
+                </url>
+                <url>
+                    <loc>https://ainews.eu.com/israel/index.html</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>0.8</priority>
+                </url>
+                <url>
+                    <loc>https://ainews.eu.com/greece/index.html</loc>
+                    <lastmod>$currentDate</lastmod>
+                    <changefreq>daily</changefreq>
+                    <priority>0.8</priority>
+                </url>
+            </urlset>""".trimIndent()
+    }
+
+    fun uploadToGitHubPages(articles: List<Article>): String {
+        val repoName = "ainews-website"
+        val countries = listOf("CYPRUS", "ISRAEL", "GREECE")
+
+        return try {
+            println("🚀 Starting multi-country upload to GitHub Pages...")
+
+            val mainIndexHtml = generateMainIndexPage(articles)
+            uploadFileToGitHub(repoName, "index.html", mainIndexHtml)
+
+            countries.forEach { country ->
+                val countryPath = country.lowercase()
+                val countryHtml = generateCountryWebsite(articles, country)
+                uploadFileToGitHub(repoName, "$countryPath/index.html", countryHtml)
+                println("✅ Uploaded $countryPath page")
+            }
+
+            val sitemap = generateSitemap()
+            uploadFileToGitHub(repoName, "sitemap.xml", sitemap)
+
+            uploadFileToGitHub(repoName, "CNAME", "ainews.eu.com")
+
+            println("🚀 All pages uploaded successfully")
+            "https://ainews.eu.com/"
+        } catch (e: Exception) {
+            println("Error uploading to GitHub Pages: ${e.message}")
+            ""
+        }
+    }
+
+    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
+        try {
+            val getRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .build()
+
+            var sha: String? = null
+            client.newCall(getRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    sha = json.getString("sha")
+                }
+            }
+
+            val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
+            val requestBody = JSONObject().apply {
+                put("message", "Update $filePath - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+                put("content", base64Content)
+                if (sha != null) put("sha", sha)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("Failed to upload $filePath: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            println("Error uploading $filePath: ${e.message}")
+        }
+    }
+
+    // Email and subscriber functions
+    private fun extractEmailContent(message: Message): String {
+        return try {
+            when (val content = message.content) {
+                is String -> content
+                is jakarta.mail.Multipart -> {
+                    val sb = StringBuilder()
+                    for (i in 0 until content.count) {
+                        val bodyPart = content.getBodyPart(i)
+                        if (bodyPart.isMimeType("text/plain")) {
+                            sb.append(bodyPart.content.toString())
+                        } else if (bodyPart.isMimeType("text/html")) {
+                            if (sb.isEmpty()) {
+                                sb.append(bodyPart.content.toString())
+                            }
+                        }
+                    }
+                    sb.toString()
+                }
+                else -> content.toString()
+            }
+        } catch (e: Exception) {
+            println("❌ Error extracting email content: ${e.message}")
+            ""
+        }
+    }
+
+    fun processFormspreeEmails() {
+        println("📧 Checking for new Formspree subscription emails...")
+
+        if (emailPassword.isNullOrEmpty()) {
+            println("⚠️ Email processing disabled - no email password configured")
+            return
+        }
+
+        try {
+            val props = Properties().apply {
+                put("mail.store.protocol", "imaps")
+                put("mail.imaps.host", "imap.gmail.com")
+                put("mail.imaps.port", "993")
+                put("mail.imaps.ssl.enable", "true")
+            }
+
+            val session = Session.getInstance(props)
+            val store = session.getStore("imaps")
+            store.connect(fromEmail, emailPassword)
+
+            val inbox = store.getFolder("INBOX")
+            inbox.open(Folder.READ_WRITE)
+
+            val searchTerm = AndTerm(
+                FromTerm(InternetAddress("noreply@formspree.io")),
+                FlagTerm(Flags(Flags.Flag.SEEN), false)
+            )
+
+            val messages = inbox.search(searchTerm)
+            println("📬 Found ${messages.size} unread Formspree emails")
+
+            messages.forEach { message ->
+                try {
+                    val content = extractEmailContent(message)
+                    val subject = message.subject
+                    println("📋 Processing email - Subject: $subject")
+
+                    if (subject.contains("AI News", ignoreCase = true) && subject.contains("Subscription", ignoreCase = true)) {
+                        println("✅ Valid subscription email found")
+
+                        val emailMatch = Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val nameMatch = Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val langMatch = Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+                        val countryMatch = Regex("countries:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
+
+                        if (emailMatch != null) {
+                            val email = emailMatch.groupValues[1].trim()
+                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
+                            val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
+                            val countries = countryMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("CYPRUS")
+
+                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages, Countries: $countries")
+
+                            val currentSubscribers = loadSubscribers().toMutableList()
+                            val existingSubscriber = currentSubscribers.find { it.email == email }
+                            
+                            if (existingSubscriber == null) {
+                                val newSubscriber = Subscriber(
+                                    email = email,
+                                    name = name,
+                                    languages = languages,
+                                    countries = countries,
+                                    subscribed = true,
+                                    subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                                )
+                                currentSubscribers.add(newSubscriber)
+                                saveSubscribers(currentSubscribers)
+                                println("💾 Saved new subscriber: $email for countries: ${countries.joinToString(", ")}")
+                                
+                                addSubscriberToCSV(email, name, languages, countries)
+                            } else {
+                                println("⚠️ Subscriber $email already exists, skipping")
+                            }
+
+                            message.setFlag(Flags.Flag.SEEN, true)
+                            println("✅ Successfully processed email for: $email")
+                        } else {
+                            println("❌ Could not extract email address from content")
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("❌ Error processing email: ${e.message}")
+                }
+            }
+
+            inbox.close(false)
+            store.close()
+        } catch (e: Exception) {
+            println("❌ Error accessing emails: ${e.message}")
+        }
+    }
+
+    private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
+        val csvFile = File("new_subscribers.csv")
+        val csvLine = "$email,${name ?: ""},${languages.joinToString(";")},${countries.joinToString(";")}"
+        
+        try {
+            if (csvFile.exists()) {
+                val existingContent = csvFile.readText()
+                if (existingContent.contains(email)) {
+                    println("📧 Subscriber $email already exists in CSV, skipping")
+                    return
+                }
+            }
+            
+            csvFile.appendText("$csvLine\n")
+            println("📧 Added subscriber to CSV: $email")
+        } catch (e: Exception) {
+            println("❌ Error adding subscriber to CSV: ${e.message}")
+        }
+    }
+
+    fun checkAndImportWebSubscriptions() {
+        val csvFile = File("new_subscribers.csv")
+        if (csvFile.exists()) {
+            try {
+                val csvContent = csvFile.readText()
+                val lines = csvContent.split("\n").filter { it.trim().isNotEmpty() }
+
+                val currentSubscribers = loadSubscribers().toMutableList()
+                var newCount = 0
+
+                lines.forEach { line ->
+                    val parts = line.split(",").map { it.trim() }
+                    if (parts.size >= 2) {
+                        val email = parts[0]
+                        val name = if (parts[1].isNotEmpty()) parts[1] else null
+                        val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
+                        val countries = if (parts.size > 3) parts[3].split(";") else listOf("CYPRUS")
+
+                        val existing = currentSubscribers.find { it.email == email }
+                        if (existing == null) {
+                            currentSubscribers.add(Subscriber(
+                                email = email,
+                                name = name,
+                                languages = languages,
+                                countries = countries,
+                                subscribed = true,
+                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                            ))
+                            newCount++
+                            println("📧 Added subscriber from CSV: $email for ${countries.joinToString(", ")}")
+                        }
+                    }
+                }
+
+                if (newCount > 0) {
+                    saveSubscribers(currentSubscribers)
+                    csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
+                    println("📧 Added $newCount new subscribers from CSV")
+                }
+
+            } catch (e: Exception) {
+                println("Error processing CSV: ${e.message}")
+            }
+        }
+    }
+
+    fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
+        val subscribers = loadSubscribers().filter { it.subscribed }
+
+        if (subscribers.isEmpty()) {
+            println("📧 No subscribers to notify")
+            return
+        }
+
+        if (emailPassword.isNullOrEmpty()) {
+            println("📧 Email notifications disabled - no password configured")
+            return
+        }
+
+        println("📧 Sending notifications to ${subscribers.size} subscribers...")
+        
+        subscribers.forEach { subscriber ->
+            try {
+                sendEmailNotification(subscriber, articles, websiteUrl)
+                println("✅ Email sent to ${subscriber.email}")
+                Thread.sleep(1000)
+            } catch (e: Exception) {
+                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+            }
+        }
+        println("✅ Finished sending notifications")
+    }
+
+    private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
+        if (emailPassword.isNullOrEmpty()) return
+
+        try {
+            val props = Properties().apply {
+                put("mail.smtp.auth", "true")
+                put("mail.smtp.starttls.enable", "true")
+                put("mail.smtp.host", smtpHost)
+                put("mail.smtp.port", smtpPort)
+                put("mail.smtp.ssl.enable", "false")
+                put("mail.smtp.ssl.trust", smtpHost)
+            }
+
+            val session = Session.getInstance(props, object : jakarta.mail.Authenticator() {
+                override fun getPasswordAuthentication(): PasswordAuthentication {
+                    return PasswordAuthentication(fromEmail, emailPassword)
+                }
+            })
+
+            val subscriberCountryArticles = articles.filter { article ->
+                subscriber.countries.contains(article.country)
+            }
+
+            val message = MimeMessage(session).apply {
+                setFrom(InternetAddress(fromEmail, "AI News"))
+                setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
+                subject = "🤖 Your Daily News Digest - ${subscriberCountryArticles.size} new stories"
+
+                val htmlContent = """
+                <h1>🤖 AI News</h1>
+                <p>Hello ${subscriber.name ?: "there"}!</p>
+                <p>Fresh news updates are available with ${subscriberCountryArticles.size} new articles from ${subscriber.countries.joinToString(", ")}.</p>
+                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 Read News</a>
+                """.trimIndent()
+
+                setContent(htmlContent, "text/html; charset=utf-8")
+            }
+
+            Transport.send(message)
+        } catch (e: Exception) {
+            println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+        }
+    }
+
+    fun addSubscriber(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
+        val subscribers = loadSubscribers().toMutableList()
+        val existingSubscriber = subscribers.find { it.email == email }
+
+        if (existingSubscriber == null) {
+            val newSubscriber = Subscriber(
+                email = email,
+                name = name,
+                languages = languages,
+                countries = countries,
+                subscribed = true,
+                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+            )
+            subscribers.add(newSubscriber)
+            saveSubscribers(subscribers)
+            println("✅ Added new subscriber: $email for countries: ${countries.joinToString(", ")}")
+        } else {
+            println("⚠️ Subscriber $email already exists")
+        }
+    }
+
+    fun setupCustomDomain() {
+        println("✅ Setting up custom domain support")
+    }
+
+    fun generateDailyWebsite(articles: List<Article>): String {
+        println("⚠️ Using legacy single-page generation - consider using generateCountryWebsite() instead")
+        return generateCountryWebsite(articles, "CYPRUS")
+    }
+}
+
+fun main() {
+    println("🤖 Starting AI News Multi-Country Update...")
+    
+    val system = AINewsSystem()
+    
+    println("🔄 Processing new subscriptions...")
+    system.processFormspreeEmails()
+    system.checkAndImportWebSubscriptions()
+
+    system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"), listOf("CYPRUS", "ISRAEL"))
+
+    val existingSubscribers = system.loadSubscribers()
+    println("📧 Current subscribers: ${existingSubscribers.size}")
+    existingSubscribers.forEach { subscriber ->
+        println("   - ${subscriber.email} (${subscriber.countries.joinToString(", ")}) (${subscriber.languages.joinToString(", ")})")
+    }
+
+    try {
+        println("🌍 Starting multi-country news aggregation...")
+        val articles = system.aggregateNews()
+        
+        if (articles.isNotEmpty()) {
+            system.setupCustomDomain()
+            
+            val websiteUrl = system.uploadToGitHubPages(articles)
+            if (websiteUrl.isNotEmpty()) {
+                println("🚀 Multi-country website uploaded: $websiteUrl")
+                println("🔗 Country pages:")
+                println("   🇨🇾 Cyprus: ${websiteUrl}cyprus/")
+                println("   🇮🇱 Israel: ${websiteUrl}israel/")  
+                println("   🇬🇷 Greece: ${websiteUrl}greece/")
+                
+                system.sendDailyNotification(articles, websiteUrl)
+                println("✅ AI News multi-country update complete!")
+            }
+        } else {
+            println("⚠️ No new articles found today")
+        }
+    } catch (e: Exception) {
+        println("❌ Error: ${e.message}")
+        e.printStackTrace()
+    }
+    
+    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true
+    if (isCronjob) {
+        println("✅ Multi-country cronjob completed successfully")
+        return
+    }
+    
+    println("🔄 Keeping application running...")
+    while (true) {
+        Thread.sleep(300000)
+        try {
+            system.processFormspreeEmails()
+            system.checkAndImportWebSubscriptions()
+        } catch (e: Exception) {
+            println("⚠️ Error during periodic check: ${e.message}")
+        }
     }
 }
