@@ -1,9 +1,13 @@
 FROM gradle:8.11.1-jdk17
 
+# Copy everything first
 COPY . /app
 WORKDIR /app
 
-RUN gradle build --no-daemon
+# Make gradlew executable and use it instead of gradle
+RUN chmod +x ./gradlew
+RUN ./gradlew build --no-daemon
+
 EXPOSE 8080
 
-CMD ["gradle", "run", "--no-daemon"]
+CMD ["./gradlew", "run", "--no-daemon"]
