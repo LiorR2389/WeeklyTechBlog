@@ -383,7 +383,7 @@ class AINewsSystem {
             if (linkElements.isNotEmpty()) {
                 foundLinks = true
                 
-                linkElements.take(10).forEach { linkElement -> // Back to 10 articles
+                linkElements.take(2).forEach { linkElement -> // TESTING MODE: Only 2 articles per source
                     try {
                         val title = linkElement.text().trim()
                         var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
@@ -438,7 +438,7 @@ class AINewsSystem {
                                 )
                             ))
                             
-                            Thread.sleep(2000) // Increased delay for proper scraping and translation
+                            Thread.sleep(500) // TESTING MODE: Reduced delay
                         } else {
                             println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
@@ -501,7 +501,7 @@ class AINewsSystem {
                     }
                 }
                 
-                Thread.sleep(500) // Reduced delay between sources
+                Thread.sleep(200) // TESTING MODE: Reduced delay between sources
             } catch (e: Exception) {
                 println("Error scraping ${source.sourceName}: ${e.message}")
             }
@@ -1018,7 +1018,7 @@ class AINewsSystem {
                 <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
                 <a href="../israel/index.html">🇮🇱 Israel</a>
                 <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="https://ainews.eu.com" class="live-news-link" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
+                <a href="https://ainews.eu.com/live/" class="live-news-link" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
             </div>
 
             <div class="lang-buttons">
@@ -1206,20 +1206,28 @@ class AINewsSystem {
                 
                 .live-site-button {
                     display: inline-block;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
                     color: white;
-                    padding: 12px 24px;
+                    padding: 16px 32px;
                     text-decoration: none;
                     border-radius: 25px;
                     font-weight: 600;
-                    font-size: 1rem;
+                    font-size: 1.2rem;
                     transition: all 0.3s ease;
-                    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+                    box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+                    animation: pulse 2s infinite;
+                }
+                
+                @keyframes pulse {
+                    0% { box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4); }
+                    50% { box-shadow: 0 6px 20px rgba(255, 107, 107, 0.6); }
+                    100% { box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4); }
                 }
                 
                 .live-site-button:hover {
                     transform: translateY(-2px);
-                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+                    box-shadow: 0 8px 25px rgba(255, 107, 107, 0.5);
+                    background: linear-gradient(135deg, #ee5a24 0%, #d63031 100%);
                 }
                 
                 .country-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 40px 0; }
@@ -1243,8 +1251,8 @@ class AINewsSystem {
             <div class="logo">🤖 AI News</div>
             <div class="tagline">Your Multi-Country Daily News Digest</div>
             <p>Automated news aggregation from Cyprus, Israel, and Greece • $dayOfWeek, $currentDate</p>
-            <div style="margin-top: 20px;">
-                <a href="https://ainews.eu.com" class="live-site-button" target="_blank" rel="noopener noreferrer">🌐 View Live News Site</a>
+            <div style="margin-top: 30px;">
+                <a href="https://ainews.eu.com/live/" class="live-site-button">🔴 LIVE Breaking News</a>
             </div>
             </div>
 

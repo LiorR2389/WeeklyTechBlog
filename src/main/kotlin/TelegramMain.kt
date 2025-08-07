@@ -25,7 +25,7 @@ data class TelegramNewsMessage(
     val isBreaking: Boolean = false,
     val priority: Int = 1, // 1=urgent, 2=important, 3=normal
     val processed: Boolean = false,
-    val translations: Map<String, String> = emptyMap() // Added missing translations field
+    val translations: Map<String, String> = emptyMap()
 )
 
 class TelegramLiveScraper {
@@ -160,6 +160,14 @@ class TelegramLiveScraper {
                             System.currentTimeMillis()
                         }
                         
+                        // Generate translations for each message
+                        val translations = mapOf(
+                            "en" to messageText,
+                            "he" to translateText(messageText, "Hebrew"),
+                            "ru" to translateText(messageText, "Russian"),
+                            "el" to translateText(messageText, "Greek")
+                        )
+                        
                         val message = TelegramNewsMessage(
                             messageId = (messageText.hashCode().toLong() + timestamp), // Simple ID generation
                             text = messageText,
@@ -167,12 +175,7 @@ class TelegramLiveScraper {
                             date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp)),
                             isBreaking = isBreakingNews(messageText),
                             priority = calculatePriority(messageText),
-                            translations = mapOf(
-                                "en" to messageText,
-                                "he" to translateText(messageText, "Hebrew"),
-                                "ru" to translateText(messageText, "Russian"),
-                                "el" to translateText(messageText, "Greek")
-                            )
+                            translations = translations
                         )
                         
                         messages.add(message)
@@ -232,7 +235,7 @@ class TelegramLiveScraper {
             val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(100)
             saveProcessedMessages(recentMessages)
             
-            // Update live website
+            // Update live website with translations
             updateLiveWebsite(recentMessages.take(20)) // Show last 20 on website
             
             // Upload to GitHub Pages
@@ -293,14 +296,31 @@ class TelegramLiveScraper {
                     else -> "📢 NEWS"
                 }
                 
+                // Generate multi-language content for each message
+                val englishText = message.translations["en"] ?: message.text
+                val hebrewText = message.translations["he"] ?: "טקסט בעברית"
+                val russianText = message.translations["ru"] ?: "Текст на русском"  
+                val greekText = message.translations["el"] ?: "Κείμενο στα ελληνικά"
+                
                 """
-    <div class="$messageClass">
-        <div class="timestamp">📅 ${message.date}</div>
-        <div class="priority $priorityClass">
-            $priorityLabel
-        </div>
-        <div class="text">${message.text}</div>
+<div class="$messageClass">
+    <div class="timestamp">📅 ${message.date}</div>
+    <div class="priority $priorityClass">
+        $priorityLabel
     </div>
+    <div class="lang en active">
+        <div class="text">$englishText</div>
+    </div>
+    <div class="lang he" dir="rtl">
+        <div class="text" dir="rtl">$hebrewText</div>
+    </div>
+    <div class="lang ru">
+        <div class="text">$russianText</div>
+    </div>
+    <div class="lang el">
+        <div class="text">$greekText</div>
+    </div>
+</div>
                 """.trimIndent()
             }
         }
@@ -378,6 +398,46 @@ class TelegramLiveScraper {
                     background: #764ba2;
                     transform: translateY(-2px);
                 }
+                
+                .lang-buttons { 
+                    text-align: center; 
+                    margin: 30px 0; 
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 8px;
+                }
+                
+                .lang-buttons button { 
+                    padding: 10px 16px; 
+                    border: none; 
+                    border-radius: 20px; 
+                    background: #667eea; 
+                    color: white; 
+                    cursor: pointer; 
+                    font-size: 0.9rem;
+                    min-width: 80px;
+                    transition: all 0.3s ease;
+                }
+                
+                .lang-buttons button.active { 
+                    background: #764ba2; 
+                    transform: scale(1.05);
+                }
+                
+                .lang-buttons button:hover { 
+                    background: #764ba2; 
+                }
+                
+                .lang { display: none; }
+                .lang.active { display: block; }
+                
+                .lang.he { 
+                    direction: rtl; 
+                    text-align: right; 
+                    font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
+                }
+                
                 .message { 
                     margin: 20px 0; 
                     padding: 25px; 
@@ -489,6 +549,17 @@ class TelegramLiveScraper {
                         padding: 12px 20px; 
                     }
                     .stats { grid-template-columns: repeat(2, 1fr); }
+                    .lang-buttons {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    .lang-buttons button {
+                        width: 90%;
+                        max-width: 200px;
+                        margin: 5px 0;
+                        padding: 12px;
+                        font-size: 1rem;
+                    }
                 }
             </style>
         </head>
@@ -509,6 +580,13 @@ class TelegramLiveScraper {
                 <a href="../israel/index.html">🇮🇱 Israel</a>
                 <a href="../greece/index.html">🇬🇷 Greece</a>
                 <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
+            </div>
+
+            <div class="lang-buttons">
+                <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+                <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+                <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+                <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
             </div>
 
             <div class="stats">
@@ -542,12 +620,39 @@ class TelegramLiveScraper {
                 </p>
             </div>
         </div>
+        
+        <script>
+            let currentLang = 'en';
+
+            function setLang(lang) {
+                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                document.getElementById('btn-' + lang).classList.add('active');
+                currentLang = lang;
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                setLang('en');
+                
+                document.addEventListener('keydown', function(e) {
+                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                        e.preventDefault();
+                        const langs = ['en', 'he', 'ru', 'el'];
+                        const langIndex = parseInt(e.key) - 1;
+                        if (langs[langIndex]) {
+                            setLang(langs[langIndex]);
+                        }
+                    }
+                });
+            });
+        </script>
         </body>
         </html>
         """.trimIndent()
         
         File("live_news.html").writeText(liveHtml)
-        println("📄 Live website updated with ${recentMessages.size} recent messages")
+        println("📄 Live website updated with ${recentMessages.size} recent messages and translations")
     }
     
     private fun uploadToGitHub() {
@@ -586,108 +691,4 @@ class TelegramLiveScraper {
             // Upload file
             val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
             val requestBody = JSONObject().apply {
-                put("message", "Update live news - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
-                put("content", base64Content)
-                if (sha != null) put("sha", sha)
-            }
-
-            val putRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Content-Type", "application/json")
-                .put(requestBody.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(putRequest).execute().use { response ->
-                if (response.isSuccessful) {
-                    println("✅ Successfully uploaded $filePath")
-                } else {
-                    println("❌ Failed to upload $filePath: ${response.code}")
-                }
-            }
-        } catch (e: Exception) {
-            println("❌ Error uploading $filePath: ${e.message}")
-        }
-    }
-    
-    // Translation function for live messages
-    private fun translateText(text: String, targetLanguage: String): String {
-        if (openAiApiKey.isNullOrEmpty()) {
-            return when (targetLanguage) {
-                "Hebrew" -> "תרגום לעברית"
-                "Russian" -> "Перевод на русский"
-                "Greek" -> "Μετάφραση στα ελληνικά"
-                else -> text
-            }
-        }
-
-        return try {
-            val requestBody = """
-                {
-                  "model": "gpt-4o-mini",
-                  "messages": [
-                    {"role": "system", "content": "Translate breaking news messages accurately and concisely. Keep the urgency and tone."},
-                    {"role": "user", "content": "Translate to $targetLanguage: $text"}
-                  ],
-                  "temperature": 0.1,
-                  "max_tokens": 200
-                }
-            """.trimIndent()
-
-            val request = Request.Builder()
-                .url("https://api.openai.com/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $openAiApiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(requestBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val json = JSONObject(response.body?.string())
-                    val translation = json.getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                        .trim()
-                    
-                    println("🌐 Translated to $targetLanguage: ${translation.take(50)}...")
-                    translation
-                } else {
-                    println("❌ Translation failed for $targetLanguage")
-                    text
-                }
-            }
-        } catch (e: Exception) {
-            println("❌ Translation error for $targetLanguage: ${e.message}")
-            text
-        }
-    }
-}
-
-fun main() {
-    println("🔴 Starting TELEGRAM Live News Scraper for @cyprus_control...")
-    println("📱 Using web scraping approach (no authentication needed)")
-    println("⚡ Running in CRON MODE - single check and exit")
-    
-    // Environment variables check
-    val githubToken = System.getenv("GITHUB_TOKEN")
-    
-    println("\n🔧 Configuration Check:")
-    println("   GITHUB_TOKEN: ${if (githubToken.isNullOrEmpty()) "❌ MISSING" else "✅ SET"}")
-    println("   Target Channel: @cyprus_control")
-    println("   Method: Web scraping (public channel)")
-    
-    try {
-        val scraper = TelegramLiveScraper()
-        scraper.start()
-        
-        println("✅ Telegram scraper completed successfully")
-        
-    } catch (e: Exception) {
-        println("❌ Fatal error: ${e.message}")
-        e.printStackTrace()
-        kotlin.system.exitProcess(1) // Exit with error code for cron job
-    }
-    
-    println("🏁 Exiting...")
-}
+                put("message
