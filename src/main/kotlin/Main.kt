@@ -672,6 +672,23 @@ class AINewsSystem {
                     transform: translateY(-2px);
                 }
                 
+                .live-button {
+                    background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%) !important;
+                    animation: pulse-live 2s infinite !important;
+                    font-weight: bold !important;
+                    box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3) !important;
+                }
+                
+                .live-button:hover {
+                    background: linear-gradient(135deg, #ff6666 0%, #ff0000 100%) !important;
+                    transform: translateY(-3px) scale(1.05) !important;
+                }
+                
+                @keyframes pulse-live {
+                    0%, 100% { opacity: 1; box-shadow: 0 4px 15px rgba(255, 68, 68, 0.3); }
+                    50% { opacity: 0.8; box-shadow: 0 6px 20px rgba(255, 68, 68, 0.5); }
+                }
+                
                 .lang-buttons { 
                     text-align: center; 
                     margin: 30px 0; 
@@ -1007,6 +1024,7 @@ class AINewsSystem {
                 <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
                 <a href="../israel/index.html">🇮🇱 Israel</a>
                 <a href="../greece/index.html">🇬🇷 Greece</a>
+                <a href="../live/index.html" class="live-button">🔴 LIVE NEWS</a>
             </div>
 
             <div class="lang-buttons">
@@ -1255,7 +1273,8 @@ class AINewsSystem {
             <p style="margin-top: 20px; font-size: 0.9rem;">
                 <a href="./cyprus/index.html" style="margin: 0 10px; color: #667eea;">🇨🇾 Cyprus</a> |
                 <a href="./israel/index.html" style="margin: 0 10px; color: #667eea;">🇮🇱 Israel</a> |
-                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a>
+                <a href="./greece/index.html" style="margin: 0 10px; color: #667eea;">🇬🇷 Greece</a> |
+                <a href="./live/index.html" style="margin: 0 10px; color: #ff4444; font-weight: bold;">🔴 LIVE</a>
             </p>
             </div>
             </div>

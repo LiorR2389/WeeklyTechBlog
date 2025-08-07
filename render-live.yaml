@@ -1,0 +1,32 @@
+# render-live.yaml
+# NEW render service for Telegram live scraping
+# This is SEPARATE from your existing render.yaml
+
+services:
+  - type: cron
+    name: telegram-live-scraper
+    env: docker
+    plan: free  # Can use free tier for cron jobs!
+    schedule: "*/10 * * * *"  # Every 10 minutes
+    dockerContext: .
+    
+    # Build the same way as your existing service
+    buildCommand: gradle build --no-daemon
+    
+    # Use the telegram command
+    startCommand: gradle runTelegram --no-daemon
+    
+    # Environment variables for Telegram
+    envVars:
+      - key: TELEGRAM_PHONE
+        sync: false  # Your phone number (e.g., +357xxxxxxxx)
+      - key: GITHUB_TOKEN
+        sync: false  # Reuse your existing token
+      - key: OPENAI_API_KEY
+        sync: false  # Reuse your existing key
+      
+    # Keep it running always
+    autoDeploy: true
+    
+    # Health check (optional)
+    healthCheckPath: /health
