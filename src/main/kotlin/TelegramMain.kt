@@ -2,10 +2,6 @@ package com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
-import com.pengrad.telegrambot.TelegramBot
-import com.pengrad.telegrambot.UpdatesListener
-import com.pengrad.telegrambot.model.Update
-import com.pengrad.telegrambot.request.GetUpdates
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -18,8 +14,7 @@ import java.util.Base64
 
 /**
  * TELEGRAM LIVE NEWS SCRAPER
- * Monitors @cyprus_control using Telegram HTTP API
- * Much simpler approach - just monitors public channel via HTTP requests
+ * Monitors @cyprus_control using web scraping
  */
 
 data class TelegramNewsMessage(
@@ -29,7 +24,8 @@ data class TelegramNewsMessage(
     val date: String,
     val isBreaking: Boolean = false,
     val priority: Int = 1, // 1=urgent, 2=important, 3=normal
-    val processed: Boolean = false
+    val processed: Boolean = false,
+    val translations: Map<String, String> = emptyMap() // Added missing translations field
 )
 
 class TelegramLiveScraper {
@@ -84,11 +80,7 @@ class TelegramLiveScraper {
         try {
             println("🔍 Checking @$channelUsername for new messages...")
             
-            // Use Telegram's public API to get channel messages
-            // This works for public channels without authentication
-            val url = "https://api.telegram.org/bot$getDummyBotToken/getUpdates"
-            
-            // Alternative: Use web scraping approach for public channels
+            // Use web scraping approach for public channels
             return scrapePublicChannel()
             
         } catch (e: Exception) {
@@ -140,7 +132,6 @@ class TelegramLiveScraper {
         
         try {
             // Simple regex to find message blocks
-            // This is a basic implementation - could be improved with JSoup
             val messagePattern = Regex(
                 """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
                 RegexOption.DOT_MATCHES_ALL
@@ -175,7 +166,13 @@ class TelegramLiveScraper {
                             timestamp = timestamp,
                             date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp)),
                             isBreaking = isBreakingNews(messageText),
-                            priority = calculatePriority(messageText)
+                            priority = calculatePriority(messageText),
+                            translations = mapOf(
+                                "en" to messageText,
+                                "he" to translateText(messageText, "Hebrew"),
+                                "ru" to translateText(messageText, "Russian"),
+                                "el" to translateText(messageText, "Greek")
+                            )
                         )
                         
                         messages.add(message)
@@ -273,28 +270,38 @@ class TelegramLiveScraper {
         val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())
         val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy").format(Date())
         
-        // Translate recent messages
-        val translatedMessages = if (openAiApiKey?.isNotEmpty() == true) {
-            recentMessages.map { message ->
-                message.copy(
-                    translations = mapOf(
-                        "en" to message.text,
-                        "he" to translateText(message.text, "Hebrew"),
-                        "ru" to translateText(message.text, "Russian"),
-                        "el" to translateText(message.text, "Greek")
-                    )
-                )
-            }
+        val messagesHtml = if (recentMessages.isEmpty()) {
+            """
+                <div class="no-messages">
+                    <h3>No recent messages</h3>
+                    <p>Monitoring @cyprus_control for breaking news...</p>
+                    <p>This page updates automatically every 10 minutes</p>
+                </div>
+            """.trimIndent()
         } else {
-            recentMessages.map { message ->
-                message.copy(
-                    translations = mapOf(
-                        "en" to message.text,
-                        "he" to "תרגום לעברית",
-                        "ru" to "Перевод на русский",
-                        "el" to "Μετάφραση στα ελληνικά"
-                    )
-                )
+            recentMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
+                val priorityClass = "priority-${message.priority}"
+                val messageClass = when {
+                    message.isBreaking -> "message breaking"
+                    message.priority == 1 -> "message urgent"
+                    else -> "message"
+                }
+                
+                val priorityLabel = when(message.priority) {
+                    1 -> "🔥 URGENT"
+                    2 -> "⚡ IMPORTANT"
+                    else -> "📢 NEWS"
+                }
+                
+                """
+    <div class="$messageClass">
+        <div class="timestamp">📅 ${message.date}</div>
+        <div class="priority $priorityClass">
+            $priorityLabel
+        </div>
+        <div class="text">${message.text}</div>
+    </div>
+                """.trimIndent()
             }
         }
         
@@ -332,462 +339,6 @@ class TelegramLiveScraper {
                 }
                 .live-indicator { 
                     background: #ff4444; 
-                    color: white; 
-                    padding: 8px 16px; 
-                    border-radius: 25px; 
-                    display: inline-block; 
-                    margin-bottom: 15px; 
-                    font-weight: bold;
-                    animation: pulse 2s infinite; 
-                }
-                @keyframes pulse { 
-                    0%, 100% { opacity: 1; transform: scale(1); } 
-                    50% { opacity: 0.8; transform: scale(1.05); } 
-                }
-                .logo {
-                    font-size: 2.5rem;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin-bottom: 10px;
-                }
-                .navigation {
-                    text-align: center;
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .navigation a {
-                    display: inline-block;
-                    margin: 0 10px;
-                    padding: 8px 16px;
-                    background: #667eea;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 20px;
-                    transition: all 0.3s;
-                }
-                .navigation a:hover {
-                    background: #764ba2;
-                    transform: translateY(-2px);
-                }
-                
-                /* Language Support */
-                .lang-buttons { 
-                    text-align: center; 
-                    margin: 30px 0; 
-                    display: flex;
-                    flex-wrap: wrap;
-                    justify-content: center;
-                    gap: 8px;
-                }
-                
-                .lang-buttons button { 
-                    padding: 10px 16px; 
-                    border: none; 
-                    border-radius: 20px; 
-                    background: #667eea; 
-                    color: white; 
-                    cursor: pointer; 
-                    font-size: 0.9rem;
-                    min-width: 80px;
-                    transition: all 0.3s ease;
-                }
-                
-                .lang-buttons button.active { 
-                    background: #764ba2; 
-                    transform: scale(1.05);
-                }
-                
-                .lang-buttons button:hover { 
-                    background: #764ba2; 
-                }
-                
-                .lang { display: none; }
-                .lang.active { display: block; }
-                
-                .lang.he { 
-                    direction: rtl; 
-                    text-align: right; 
-                    font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
-                }
-                
-                .lang.he h1, .lang.he h2, .lang.he h3 { 
-                    text-align: right; 
-                    direction: rtl; 
-                }
-                
-                .lang.he p { 
-                    text-align: right; 
-                    direction: rtl; 
-                }
-                
-                .lang.he .message { 
-                    border-right: 4px solid #4CAF50; 
-                    border-left: none; 
-                    text-align: right;
-                }
-                
-                .lang.he .message.breaking { 
-                    border-right-color: #ff4444; 
-                }
-                
-                .lang.he .message.urgent { 
-                    border-right-color: #ff9800; 
-                }
-                
-                .message { 
-                    margin: 20px 0; 
-                    padding: 25px; 
-                    border-left: 4px solid #4CAF50; 
-                    background: #f9f9f9; 
-                    border-radius: 10px;
-                    transition: all 0.3s ease;
-                }
-                .message:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                }
-                .message.breaking { 
-                    border-left-color: #ff4444; 
-                    background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
-                }
-                .message.urgent { 
-                    border-left-color: #ff9800; 
-                    background: linear-gradient(135deg, #fff8f0 0%, #fff3e0 100%);
-                }
-                .timestamp { 
-                    color: #666; 
-                    font-size: 0.9rem; 
-                    margin-bottom: 10px; 
-                    font-weight: 500;
-                }
-                .text { 
-                    font-size: 1.1rem; 
-                    line-height: 1.7; 
-                    color: #333;
-                    margin-bottom: 10px;
-                }
-                .priority { 
-                    display: inline-block; 
-                    padding: 4px 12px; 
-                    border-radius: 15px; 
-                    font-size: 0.8rem; 
-                    font-weight: bold;
-                    margin-bottom: 10px; 
-                }
-                .priority-1 { 
-                    background: #ffcdd2; 
-                    color: #c62828; 
-                }
-                .priority-2 { 
-                    background: #ffe0b2; 
-                    color: #f57c00; 
-                }
-                .priority-3 { 
-                    background: #e1bee7; 
-                    color: #7b1fa2; 
-                }
-                .stats {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                    gap: 15px;
-                    margin: 20px 0;
-                    padding: 20px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .stat-item {
-                    text-align: center;
-                    padding: 15px;
-                    background: white;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                }
-                .stat-number {
-                    font-size: 1.8rem;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin-bottom: 5px;
-                }
-                .stat-label {
-                    font-size: 0.9rem;
-                    color: #666;
-                }
-                .footer {
-                    text-align: center;
-                    margin-top: 40px;
-                    padding: 20px 0;
-                    border-top: 2px solid #f0f0f0;
-                    color: #666;
-                }
-                .footer a {
-                    color: #667eea;
-                    text-decoration: none;
-                    font-weight: 500;
-                }
-                .footer a:hover {
-                    text-decoration: underline;
-                }
-                .no-messages {
-                    text-align: center;
-                    padding: 60px 20px;
-                    color: #666;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                }
-                @media (max-width: 768px) {
-                    body { padding: 10px; }
-                    .container { padding: 20px; }
-                    .logo { font-size: 2rem; }
-                    .navigation a { 
-                        display: block; 
-                        margin: 5px 0; 
-                        padding: 12px 20px; 
-                    }
-                    .stats { grid-template-columns: repeat(2, 1fr); }
-                    .lang-buttons {
-                        flex-direction: column;
-                        align-items: center;
-                    }
-                    .lang-buttons button {
-                        width: 90%;
-                        max-width: 200px;
-                        margin: 5px 0;
-                        padding: 12px;
-                        font-size: 1rem;
-                    }
-                }
-            </style>
-        </head>
-        <body>
-        <div class="container">
-            <div class="header">
-                <div class="live-indicator">🔴 LIVE</div>
-                <div class="logo">🤖 AI News</div>
-                
-                <div class="lang en active">
-                    <h1>🇨🇾 Cyprus Breaking News</h1>
-                    <p>Real-time updates from @cyprus_control</p>
-                    <p><strong>$currentDate</strong></p>
-                    <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
-                </div>
-                
-                <div class="lang he">
-                    <h1>🇨🇾 חדשות מהירות מקפריסין</h1>
-                    <p>עדכונים בזמן אמת מ-@cyprus_control</p>
-                    <p><strong>$currentDate</strong></p>
-                    <p style="font-size: 0.9rem; color: #666;">עודכן לאחרונה: $currentTime</p>
-                </div>
-                
-                <div class="lang ru">
-                    <h1>🇨🇾 Срочные новости Кипра</h1>
-                    <p>Обновления в реальном времени от @cyprus_control</p>
-                    <p><strong>$currentDate</strong></p>
-                    <p style="font-size: 0.9rem; color: #666;">Последнее обновление: $currentTime</p>
-                </div>
-                
-                <div class="lang el">
-                    <h1>🇨🇾 Τελευταία Νέα από την Κύπρο</h1>
-                    <p>Ενημερώσεις σε πραγματικό χρόνο από @cyprus_control</p>
-                    <p><strong>$currentDate</strong></p>
-                    <p style="font-size: 0.9rem; color: #666;">Τελευταία ενημέρωση: $currentTime</p>
-                </div>
-            </div>
-
-            <div class="lang-buttons">
-                <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-                <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-                <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-                <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-            </div>
-
-            <div class="navigation">
-                <a href="../index.html">🏠 Home</a>
-                <a href="../cyprus/index.html">📰 Daily Cyprus</a>
-                <a href="../israel/index.html">🇮🇱 Israel</a>
-                <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
-            </div>
-
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="stat-number">${translatedMessages.size}</div>
-                    <div class="stat-label lang en active">Recent Messages</div>
-                    <div class="stat-label lang he">הודעות אחרונות</div>
-                    <div class="stat-label lang ru">Последние сообщения</div>
-                    <div class="stat-label lang el">Πρόσφατα μηνύματα</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">${translatedMessages.count { it.isBreaking }}</div>
-                    <div class="stat-label lang en active">Breaking News</div>
-                    <div class="stat-label lang he">חדשות מהירות</div>
-                    <div class="stat-label lang ru">Срочные новости</div>
-                    <div class="stat-label lang el">Έκτακτα νέα</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">${translatedMessages.count { it.priority == 1 }}</div>
-                    <div class="stat-label lang en active">Urgent Updates</div>
-                    <div class="stat-label lang he">עדכונים דחופים</div>
-                    <div class="stat-label lang ru">Срочные обновления</div>
-                    <div class="stat-label lang el">Επείγουσες ενημερώσεις</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">10 min</div>
-                    <div class="stat-label lang en active">Update Frequency</div>
-                    <div class="stat-label lang he">תדירות עדכון</div>
-                    <div class="stat-label lang ru">Частота обновления</div>
-                    <div class="stat-label lang el">Συχνότητα ενημέρωσης</div>
-                </div>
-            </div>
-
-            ${if (translatedMessages.isEmpty()) {
-                """
-                <div class="no-messages">
-                    <div class="lang en active">
-                        <h3>No recent messages</h3>
-                        <p>Monitoring @cyprus_control for breaking news...</p>
-                        <p>This page updates automatically every 10 minutes</p>
-                    </div>
-                    <div class="lang he">
-                        <h3>אין הודעות אחרונות</h3>
-                        <p>מעקב אחר @cyprus_control לחדשות מהירות...</p>
-                        <p>העמוד מתעדכן אוטומטית כל 10 דקות</p>
-                    </div>
-                    <div class="lang ru">
-                        <h3>Нет последних сообщений</h3>
-                        <p>Мониторинг @cyprus_control для срочных новостей...</p>
-                        <p>Страница обновляется автоматически каждые 10 минут</p>
-                    </div>
-                    <div class="lang el">
-                        <h3>Δεν υπάρχουν πρόσφατα μηνύματα</h3>
-                        <p>Παρακολούθηση @cyprus_control για έκτακτα νέα...</p>
-                        <p>Η σελίδα ενημερώνεται αυτόματα κάθε 10 λεπτά</p>
-                    </div>
-                </div>
-                """.trimIndent()
-            } else {
-                translatedMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
-                    val priorityClass = "priority-${message.priority}"
-                    val messageClass = when {
-                        message.isBreaking -> "message breaking"
-                        message.priority == 1 -> "message urgent"
-                        else -> "message"
-                    }
-                    
-                    """
-                    <div class="$messageClass">
-                        <div class="timestamp">📅 ${message.date}</div>
-                        
-                        <div class="priority $priorityClass lang en active">
-                            ${when(message.priority) {
-                                1 -> "🔥 URGENT"
-                                2 -> "⚡ IMPORTANT"
-                                else -> "📢 NEWS"
-                            }}
-                        </div>
-                        <div class="priority $priorityClass lang he">
-                            ${when(message.priority) {
-                                1 -> "🔥 דחוף"
-                                2 -> "⚡ חשוב"
-                                else -> "📢 חדשות"
-                            }}
-                        </div>
-                        <div class="priority $priorityClass lang ru">
-                            ${when(message.priority) {
-                                1 -> "🔥 СРОЧНО"
-                                2 -> "⚡ ВАЖНО"
-                                else -> "📢 НОВОСТИ"
-                            }}
-                        </div>
-                        <div class="priority $priorityClass lang el">
-                            ${when(message.priority) {
-                                1 -> "🔥 ΕΠΕΙΓΟΝ"
-                                2 -> "⚡ ΣΗΜΑΝΤΙΚΟ"
-                                else -> "📢 ΕΙΔΗΣΕΙΣ"
-                            }}
-                        </div>
-                        
-                        <div class="text lang en active">${message.translations["en"] ?: message.text}</div>
-                        <div class="text lang he">${message.translations["he"] ?: "תרגום לעברית"}</div>
-                        <div class="text lang ru">${message.translations["ru"] ?: "Перевод на русский"}</div>
-                        <div class="text lang el">${message.translations["el"] ?: "Μετάφραση στα ελληνικά"}</div>
-                    </div>
-                    """.trimIndent()
-                }
-            }}
-
-            <div class="footer">
-                <div class="lang en active">
-                    <p>🤖 <strong>Automated Live Monitoring</strong></p>
-                    <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-                    <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-                    <p style="margin-top: 15px; font-size: 0.8rem;">
-                        This page automatically refreshes every 5 minutes<br>
-                        For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
-                    </p>
-                </div>
-                <div class="lang he">
-                    <p>🤖 <strong>מעקב אוטומטי בזמן אמת</strong></p>
-                    <p>מתעדכן כל 10 דקות • מקור: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-                    <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-                    <p style="margin-top: 15px; font-size: 0.8rem;">
-                        העמוד מתרענן אוטומטית כל 5 דקות<br>
-                        לחדשות יומיות מקיפות, בקרו ב<a href="../index.html">עמוד הבית הראשי</a>
-                    </p>
-                </div>
-                <div class="lang ru">
-                    <p>🤖 <strong>Автоматический мониторинг в реальном времени</strong></p>
-                    <p>Обновления каждые 10 минут • Источник: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-                    <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-                    <p style="margin-top: 15px; font-size: 0.8rem;">
-                        Страница автоматически обновляется каждые 5 минуты<br>
-                        Для ежедневных подробных новостей посетите нашу <a href="../index.html">главную страницу</a>
-                    </p>
-                </div>
-                <div class="lang el">
-                    <p>🤖 <strong>Αυτόματη παρακολούθηση σε πραγματικό χρόνο</strong></p>
-                    <p>Ενημερώσεις κάθε 10 λεπτά • Πηγή: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-                    <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-                    <p style="margin-top: 15px; font-size: 0.8rem;">
-                        Η σελίδα ανανεώνεται αυτόματα κάθε 5 λεπτά<br>
-                        Για καθημερινά περιεκτικά νέα, επισκεφθείτε την <a href="../index.html">κύρια αρχική σελίδα</a>
-                    </p>
-                </div>
-            </div>
-        </div>
-
-        <script>
-            let currentLang = 'en';
-
-            function setLang(lang) {
-                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-' + lang).classList.add('active');
-                currentLang = lang;
-                
-                // Update body direction for Hebrew
-                if (lang === 'he') {
-                    document.body.setAttribute('dir', 'rtl');
-                } else {
-                    document.body.setAttribute('dir', 'ltr');
-                }
-            }
-
-            // Initialize
-            document.addEventListener('DOMContentLoaded', function() {
-                setLang('en');
-            });
-        </script>
-        </body>
-        </html>
-        """.trimIndent()
-        
-        File("live_news.html").writeText(liveHtml)
-        println("📄 Live website updated with ${translatedMessages.size} recent messages (with translations)")
-    }; 
                     color: white; 
                     padding: 8px 16px; 
                     border-radius: 25px; 
@@ -979,38 +530,7 @@ class TelegramLiveScraper {
                 </div>
             </div>
 
-            ${if (recentMessages.isEmpty()) {
-                """
-                <div class="no-messages">
-                    <h3>No recent messages</h3>
-                    <p>Monitoring @cyprus_control for breaking news...</p>
-                    <p>This page updates automatically every 10 minutes</p>
-                </div>
-                """.trimIndent()
-            } else {
-                recentMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
-                    val priorityClass = "priority-${message.priority}"
-                    val messageClass = when {
-                        message.isBreaking -> "message breaking"
-                        message.priority == 1 -> "message urgent"
-                        else -> "message"
-                    }
-                    
-                    """
-                    <div class="$messageClass">
-                        <div class="timestamp">📅 ${message.date}</div>
-                        <div class="priority $priorityClass">
-                            ${when(message.priority) {
-                                1 -> "🔥 URGENT"
-                                2 -> "⚡ IMPORTANT"
-                                else -> "📢 NEWS"
-                            }}
-                        </div>
-                        <div class="text">${message.text}</div>
-                    </div>
-                    """.trimIndent()
-                }
-            }}
+            $messagesHtml
 
             <div class="footer">
                 <p>🤖 <strong>Automated Live Monitoring</strong></p>
@@ -1090,7 +610,7 @@ class TelegramLiveScraper {
         }
     }
     
-    // NEW: Translation function for live messages
+    // Translation function for live messages
     private fun translateText(text: String, targetLanguage: String): String {
         if (openAiApiKey.isNullOrEmpty()) {
             return when (targetLanguage) {
