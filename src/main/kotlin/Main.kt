@@ -587,22 +587,22 @@ class AINewsSystem {
                             <div class="lang en active">
                                 <h3>${article.titleTranslations["en"] ?: article.title}</h3>
                                 <p>${article.summaryTranslations["en"] ?: article.summary}</p>
-                                <a href="${article.url}" target="_blank">Read more</a>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">Read more</a>
                             </div>
                             <div class="lang he" dir="rtl">
                                 <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                                 <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                                <a href="${article.url}" target="_blank">קרא עוד</a>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">קרא עוד</a>
                             </div>
                             <div class="lang ru">
                                 <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
                                 <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                                <a href="${article.url}" target="_blank">Читать далее</a>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">Читать далее</a>
                             </div>
                             <div class="lang el">
                                 <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
                                 <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                                <a href="${article.url}" target="_blank">Διαβάστε περισσότερα</a>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">Διαβάστε περισσότερα</a>
                             </div>
                         </div>
                     """.trimIndent())
@@ -617,35 +617,382 @@ class AINewsSystem {
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
-                body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-                .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 10px; }
-                .header { text-align: center; margin-bottom: 40px; }
-                .logo { font-size: 2rem; font-weight: bold; color: #667eea; }
-                .country-nav { text-align: center; margin: 20px 0; }
-                .country-nav a { margin: 0 10px; padding: 8px 16px; background: #667eea; color: white; text-decoration: none; border-radius: 20px; font-size: 0.9rem; }
-                .country-nav a:hover { background: #764ba2; }
-                .lang-buttons { text-align: center; margin: 30px 0; }
-                .lang-buttons button { margin: 5px; padding: 10px 20px; border: none; border-radius: 25px; background: #667eea; color: white; cursor: pointer; }
-                .lang-buttons button.active { background: #764ba2; }
+                body { 
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; 
+                    margin: 0;
+                    padding: 20px; 
+                    background: #f5f5f5; 
+                    line-height: 1.6;
+                }
+                
+                .container { 
+                    max-width: 800px; 
+                    margin: 0 auto; 
+                    background: white; 
+                    padding: 20px;
+                    border-radius: 12px; 
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                }
+                
+                .header { 
+                    text-align: center; 
+                    margin-bottom: 30px; 
+                }
+                
+                .logo { 
+                    font-size: 2.5rem; 
+                    font-weight: bold; 
+                    color: #667eea; 
+                    margin-bottom: 10px;
+                }
+                
+                .country-nav { 
+                    text-align: center; 
+                    margin: 20px 0; 
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 10px;
+                }
+                
+                .country-nav a { 
+                    padding: 12px 16px; 
+                    background: #667eea; 
+                    color: white; 
+                    text-decoration: none; 
+                    border-radius: 25px; 
+                    font-size: 0.9rem;
+                    min-width: 100px;
+                    text-align: center;
+                    transition: all 0.3s ease;
+                }
+                
+                .country-nav a:hover { 
+                    background: #764ba2; 
+                    transform: translateY(-2px);
+                }
+                
+                .lang-buttons { 
+                    text-align: center; 
+                    margin: 30px 0; 
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 8px;
+                }
+                
+                .lang-buttons button { 
+                    padding: 10px 16px; 
+                    border: none; 
+                    border-radius: 20px; 
+                    background: #667eea; 
+                    color: white; 
+                    cursor: pointer; 
+                    font-size: 0.9rem;
+                    min-width: 80px;
+                    transition: all 0.3s ease;
+                }
+                
+                .lang-buttons button.active { 
+                    background: #764ba2; 
+                    transform: scale(1.05);
+                }
+                
+                .lang-buttons button:hover { 
+                    background: #764ba2; 
+                }
+                
                 .lang { display: none; }
                 .lang.active { display: block; }
-                .lang.he { direction: rtl; text-align: right; font-family: 'Arial', 'Tahoma', sans-serif; }
-                .lang.he h2, .lang.he h3 { text-align: right; direction: rtl; }
-                .lang.he p { text-align: right; direction: rtl; }
-                .lang.he a { float: left; margin-right: 0; margin-left: 10px; }
-                .lang.he .article { border-right: 4px solid #667eea; border-left: none; padding-right: 20px; padding-left: 20px; }
-                .article { margin: 20px 0; padding: 20px; border-left: 4px solid #667eea; background: #f9f9f9; }
-                .article.he { border-right: 4px solid #667eea; border-left: none; }
-                .article h3 { margin: 0 0 10px 0; color: #333; }
-                .article p { color: #666; margin: 10px 0; }
-                .article a { color: #667eea; text-decoration: none; font-weight: bold; }
-                .footer { text-align: center; margin-top: 40px; color: #666; }
-                .subscription { background: #667eea; color: white; padding: 30px; margin: 40px 0; border-radius: 10px; text-align: center; }
-                .subscription input { padding: 10px; margin: 10px; border: none; border-radius: 5px; }
-                .subscription button { background: #FFD700; color: #333; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-                .subscription .lang.he { direction: rtl; text-align: right; }
-                .subscription .lang.he input { text-align: right; direction: rtl; }
-                .no-articles { text-align: center; padding: 40px; color: #666; }
+                
+                .lang.he { 
+                    direction: rtl; 
+                    text-align: right; 
+                    font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
+                }
+                
+                .lang.he h2, .lang.he h3 { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .lang.he p { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .lang.he a { 
+                    float: left; 
+                    margin-right: 0; 
+                    margin-left: 10px; 
+                }
+                
+                .lang.he .article { 
+                    border-right: 4px solid #667eea; 
+                    border-left: none; 
+                    padding-right: 20px; 
+                    padding-left: 20px; 
+                }
+                
+                .article { 
+                    margin: 20px 0; 
+                    padding: 24px; 
+                    border-left: 4px solid #667eea; 
+                    background: #f9f9f9; 
+                    border-radius: 8px;
+                    transition: all 0.3s ease;
+                }
+                
+                .article:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }
+                
+                .article.he { 
+                    border-right: 4px solid #667eea; 
+                    border-left: none; 
+                }
+                
+                .article h3 { 
+                    margin: 0 0 15px 0; 
+                    color: #2d3748; 
+                    font-size: 1.3rem;
+                    font-weight: 600;
+                    line-height: 1.4;
+                }
+                
+                .article p { 
+                    color: #4a5568; 
+                    margin: 15px 0; 
+                    font-size: 1rem;
+                    line-height: 1.6;
+                    /* Ensure full paragraph is visible */
+                    display: block;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                
+                .article a { 
+                    color: #667eea; 
+                    text-decoration: none; 
+                    font-weight: 600; 
+                    display: inline-block;
+                    margin-top: 10px;
+                    padding: 8px 16px;
+                    background: rgba(102, 126, 234, 0.1);
+                    border-radius: 20px;
+                    transition: all 0.3s ease;
+                }
+                
+                .article a:hover {
+                    background: #667eea;
+                    color: white;
+                    transform: translateY(-1px);
+                }
+                
+                .footer { 
+                    text-align: center; 
+                    margin-top: 40px; 
+                    color: #718096;
+                    padding: 20px 0;
+                    border-top: 1px solid #e2e8f0;
+                }
+                
+                .subscription { 
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    color: white; 
+                    padding: 30px; 
+                    margin: 40px 0; 
+                    border-radius: 12px; 
+                    text-align: center; 
+                }
+                
+                .subscription input { 
+                    padding: 12px 16px; 
+                    margin: 10px; 
+                    border: none; 
+                    border-radius: 8px; 
+                    width: 100%;
+                    max-width: 300px;
+                    font-size: 1rem;
+                }
+                
+                .subscription button { 
+                    background: #FFD700; 
+                    color: #333; 
+                    border: none; 
+                    padding: 12px 24px; 
+                    border-radius: 8px; 
+                    cursor: pointer; 
+                    font-weight: bold; 
+                    font-size: 1rem;
+                    transition: all 0.3s ease;
+                }
+                
+                .subscription button:hover {
+                    background: #FFC700;
+                    transform: translateY(-2px);
+                }
+                
+                .subscription .lang.he { 
+                    direction: rtl; 
+                    text-align: right; 
+                }
+                
+                .subscription .lang.he input { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .no-articles { 
+                    text-align: center; 
+                    padding: 60px 20px; 
+                    color: #718096; 
+                    background: #f7fafc;
+                    border-radius: 12px;
+                    margin: 20px 0;
+                }
+                
+                /* Back to Top Button */
+                .back-to-top {
+                    position: fixed;
+                    bottom: 30px;
+                    right: 30px;
+                    background: #667eea;
+                    color: white;
+                    border: none;
+                    border-radius: 50%;
+                    width: 50px;
+                    height: 50px;
+                    font-size: 20px;
+                    cursor: pointer;
+                    display: none;
+                    z-index: 1000;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                }
+                
+                .back-to-top:hover {
+                    background: #764ba2;
+                    transform: translateY(-3px);
+                }
+                
+                .back-to-top.visible {
+                    display: block;
+                }
+                
+                /* Category Headers */
+                h2 {
+                    color: #2d3748;
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    margin: 30px 0 20px 0;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #e2e8f0;
+                }
+                
+                /* Mobile Responsive Design */
+                @media (max-width: 768px) {
+                    body {
+                        padding: 10px;
+                    }
+                    
+                    .container {
+                        padding: 15px;
+                        border-radius: 8px;
+                    }
+                    
+                    .logo {
+                        font-size: 2rem;
+                    }
+                    
+                    .country-nav {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    
+                    .country-nav a {
+                        width: 90%;
+                        max-width: 300px;
+                        margin: 5px 0;
+                        padding: 15px;
+                        font-size: 1rem;
+                    }
+                    
+                    .lang-buttons {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    
+                    .lang-buttons button {
+                        width: 90%;
+                        max-width: 200px;
+                        margin: 5px 0;
+                        padding: 12px;
+                        font-size: 1rem;
+                    }
+                    
+                    .article {
+                        margin: 15px 0;
+                        padding: 20px;
+                    }
+                    
+                    .article h3 {
+                        font-size: 1.2rem;
+                    }
+                    
+                    .article p {
+                        font-size: 0.95rem;
+                    }
+                    
+                    .subscription {
+                        padding: 25px 15px;
+                        margin: 30px 0;
+                    }
+                    
+                    .subscription input {
+                        width: 90%;
+                        margin: 8px 0;
+                        font-size: 16px; /* Prevents zoom on iOS */
+                    }
+                    
+                    .subscription button {
+                        width: 90%;
+                        padding: 15px;
+                        margin: 10px 0;
+                        font-size: 1rem;
+                    }
+                    
+                    .back-to-top {
+                        bottom: 20px;
+                        right: 20px;
+                        width: 45px;
+                        height: 45px;
+                    }
+                    
+                    h2 {
+                        font-size: 1.3rem;
+                        margin: 25px 0 15px 0;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .container {
+                        padding: 10px;
+                    }
+                    
+                    .logo {
+                        font-size: 1.8rem;
+                    }
+                    
+                    .article {
+                        padding: 15px;
+                    }
+                    
+                    .subscription {
+                        padding: 20px 10px;
+                    }
+                }
             </style>
             </head>
             <body>
@@ -731,6 +1078,9 @@ class AINewsSystem {
             <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
             </div>
             </div>
+            
+            <!-- Back to Top Button -->
+            <button class="back-to-top" id="backToTop" onclick="scrollToTop()" title="Back to top">↑</button>
 
             <script>
                 let currentLang = 'en';
@@ -743,8 +1093,61 @@ class AINewsSystem {
                     currentLang = lang;
                 }
 
+                // Back to top functionality
+                function scrollToTop() {
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+                }
+
+                // Show/hide back to top button based on scroll position
+                function toggleBackToTopButton() {
+                    const backToTopButton = document.getElementById('backToTop');
+                    if (window.pageYOffset > 300) {
+                        backToTopButton.classList.add('visible');
+                    } else {
+                        backToTopButton.classList.remove('visible');
+                    }
+                }
+
+                // Add smooth scrolling and better UX
                 document.addEventListener('DOMContentLoaded', function() {
                     setLang('en');
+                    
+                    // Show back to top button on scroll
+                    window.addEventListener('scroll', toggleBackToTopButton);
+                    
+                    // Add loading states to external links
+                    document.querySelectorAll('a[target="_blank"]').forEach(link => {
+                        link.addEventListener('click', function() {
+                            this.style.opacity = '0.7';
+                            setTimeout(() => {
+                                this.style.opacity = '1';
+                            }, 1000);
+                        });
+                    });
+                    
+                    // Add keyboard navigation
+                    document.addEventListener('keydown', function(e) {
+                        // Press 'T' to scroll to top
+                        if (e.key === 't' || e.key === 'T') {
+                            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                                e.preventDefault();
+                                scrollToTop();
+                            }
+                        }
+                        
+                        // Press number keys 1-4 to switch languages
+                        if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                            e.preventDefault();
+                            const langs = ['en', 'he', 'ru', 'el'];
+                            const langIndex = parseInt(e.key) - 1;
+                            if (langs[langIndex]) {
+                                setLang(langs[langIndex]);
+                            }
+                        }
+                    });
                 });
             </script>
             </body>
