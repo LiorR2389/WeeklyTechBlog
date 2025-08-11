@@ -43,15 +43,51 @@ class TelegramLiveScraper {
     private val githubToken = System.getenv("GITHUB_TOKEN")
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     
+    // Environment detection
+    private val isProduction = System.getenv("PRODUCTION")?.toBoolean() ?: false
+    private val isStaging = System.getenv("STAGING")?.toBoolean() ?: false
+    
+    // Configuration based on environment
+    private val config = when {
+        isProduction -> ProductionConfig()
+        isStaging -> StagingConfig()
+        else -> LocalConfig()
+    }
+    
+    data class ProductionConfig(
+        val repoName: String = "ainews-website",
+        val livePath: String = "live/index.html",
+        val updateFrequency: Int = 10,
+        val environment: String = "PRODUCTION"
+    )
+    
+    data class StagingConfig(
+        val repoName: String = "ainews-website",
+        val livePath: String = "staging/live/index.html", // Different path for staging
+        val updateFrequency: Int = 15,
+        val environment: String = "STAGING"
+    )
+    
+    data class LocalConfig(
+        val repoName: String = "ainews-website",
+        val livePath: String = "dev/live/index.html", // Different path for local testing
+        val updateFrequency: Int = 30,
+        val environment: String = "LOCAL"
+    )
+    
     // Target channel (cyprus_control)
+    private val channelUsername = "cyprus_control"
     private val channelUsername = "cyprus_control"
     
     private val processedMessagesFile = File("processed_telegram_messages.json")
     private val lastCheckFile = File("last_telegram_check.txt")
     
     fun start() {
-        println("🚀 Starting Simple Telegram Monitor for @$channelUsername")
+        println("🚀 Starting Telegram Monitor for @$channelUsername")
+        println("🌍 Environment: ${config.environment}")
         println("📱 Using HTTP API approach (no authentication needed for public channels)")
+        println("⏰ Update frequency: ${config.updateFrequency} minutes")
+        println("📂 Deploy path: ${config.livePath}")
         
         startMonitoringLoop()
     }
@@ -321,6 +357,55 @@ class TelegramLiveScraper {
             val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500)
             saveProcessedMessages(recentMessages)
             
+            // Update missing translations for older messages
+            val messagesNeedingTranslation = recentMessages.filter { message ->
+                val hasValidTranslations = message.translations?.let { translations ->
+                    translations["en"]?.isNotEmpty() == true && 
+                    translations["en"] != "English translation unavailable" &&
+                    translations["he"]?.isNotEmpty() == true &&
+                    translations["he"] != "תרגום לא זמין" &&
+                    translations["el"]?.isNotEmpty() == true &&
+                    translations["el"] != "Μετάφραση μη διαθέσιμη"
+                } ?: false
+                
+                !hasValidTranslations
+            }
+            
+            println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
+            
+            // Update translations for messages that need them (limit to prevent API overuse)
+            val messagesToUpdate = messagesNeedingTranslation.take(10) // Limit to 10 per run
+            messagesToUpdate.forEach { oldMessage ->
+                try {
+                    val updatedTranslations = mapOf(
+                        "en" to translateText(oldMessage.text, "English"),
+                        "he" to translateText(oldMessage.text, "Hebrew"),
+                        "ru" to oldMessage.text, // Keep original Russian
+                        "el" to translateText(oldMessage.text, "Greek")
+                    )
+                    
+                    // Update the message in the list
+                    val messageIndex = recentMessages.indexOfFirst { it.messageId == oldMessage.messageId }
+                    if (messageIndex != -1) {
+                        val updatedMessage = oldMessage.copy(translations = updatedTranslations)
+                        recentMessages[messageIndex] = updatedMessage
+                    }
+                    
+                    println("✅ Updated translations for message: ${oldMessage.text.take(50)}...")
+                    
+                    // Small delay to avoid API rate limits
+                    Thread.sleep(200)
+                } catch (e: Exception) {
+                    println("⚠️ Failed to update translation for message: ${e.message}")
+                }
+            }
+            
+            // Save updated messages with new translations
+            if (messagesToUpdate.isNotEmpty()) {
+                saveProcessedMessages(recentMessages)
+                println("💾 Saved ${messagesToUpdate.size} updated message translations")
+            }
+            
             // Show last 30 messages on website (approximately 5-6 hours of recent news)
             updateLiveWebsite(recentMessages.take(30))
             
@@ -382,11 +467,33 @@ class TelegramLiveScraper {
                     else -> "📢 NEWS"
                 }
                 
-                // Generate multi-language content for each message
-                val englishText = message.translations?.get("en") ?: "English translation unavailable"
-                val hebrewText = message.translations?.get("he") ?: "תרגום לא זמין"
-                val russianText = message.translations?.get("ru") ?: message.text // Original Russian  
-                val greekText = message.translations?.get("el") ?: "Μετάφραση μη διαθέσιμη"
+                // Generate multi-language content for each message with fallback translation
+                val englishText = message.translations?.get("en").let { translation ->
+                    if (translation.isNullOrEmpty() || translation == "English translation unavailable") {
+                        // Translate on-the-fly for older messages
+                        translateText(message.text, "English")
+                    } else {
+                        translation
+                    }
+                }
+                
+                val hebrewText = message.translations?.get("he").let { translation ->
+                    if (translation.isNullOrEmpty() || translation == "תרגום לא זמין") {
+                        translateText(message.text, "Hebrew")
+                    } else {
+                        translation
+                    }
+                }
+                
+                val russianText = message.translations?.get("ru") ?: message.text // Always show original Russian
+                
+                val greekText = message.translations?.get("el").let { translation ->
+                    if (translation.isNullOrEmpty() || translation == "Μετάφραση μη διαθέσιμη") {
+                        translateText(message.text, "Greek")
+                    } else {
+                        translation
+                    }
+                }
                 
                 """
 <div class="$messageClass">
@@ -665,7 +772,7 @@ class TelegramLiveScraper {
     
     <div class="navigation">
         <a href="../index.html">🏠 Home</a>
-        <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
+        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
         <a href="../israel/index.html">🇮🇱 Israel</a>
         <a href="../greece/index.html">🇬🇷 Greece</a>
         <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
@@ -760,9 +867,15 @@ class TelegramLiveScraper {
             }
             
             val liveContent = File("live_news.html").readText()
-            uploadFileToGitHub("ainews-website", "live/index.html", liveContent)
+            uploadFileToGitHub(config.repoName, config.livePath, liveContent)
             
-            println("🚀 Live page uploaded to GitHub Pages: https://ainews.eu.com/live/")
+            val liveUrl = when {
+                isProduction -> "https://ainews.eu.com/live/"
+                isStaging -> "https://ainews.eu.com/staging/live/"
+                else -> "https://ainews.eu.com/dev/live/"
+            }
+            
+            println("🚀 Live page uploaded to: $liveUrl")
             
         } catch (e: Exception) {
             println("❌ Error uploading to GitHub: ${e.message}")
