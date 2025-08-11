@@ -223,6 +223,53 @@ class TelegramLiveScraper {
         }
     }
     
+    private fun translateText(text: String, targetLanguage: String): String {
+        if (openAiApiKey.isNullOrEmpty()) {
+            return when (targetLanguage) {
+                "Hebrew" -> "כותרת בעברית"
+                "Russian" -> "Заголовок на русском"
+                "Greek" -> "Τίτλος στα ελληνικά"
+                else -> text
+            }
+        }
+
+        return try {
+            val requestBody = """
+                {
+                  "model": "gpt-4o-mini",
+                  "messages": [
+                    {"role": "system", "content": "Translate news headlines and summaries accurately. Keep translations concise and natural."},
+                    {"role": "user", "content": "Translate to $targetLanguage: $text"}
+                  ],
+                  "temperature": 0.1,
+                  "max_tokens": 200
+                }
+            """.trimIndent()
+
+            val request = Request.Builder()
+                .url("https://api.openai.com/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $openAiApiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    val translation = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                        .trim()
+                    translation
+                } else text
+            }
+        } catch (e: Exception) {
+            println("Translation error: ${e.message}")
+            text
+        }
+    }
+    
     private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         try {
             println("🔥 Processing ${newMessages.size} new messages...")
@@ -308,18 +355,7 @@ class TelegramLiveScraper {
     <div class="priority $priorityClass">
         $priorityLabel
     </div>
-    <div class="lang en active">
-        <div class="text">$englishText</div>
-    </div>
-    <div class="lang he" dir="rtl">
-        <div class="text" dir="rtl">$hebrewText</div>
-    </div>
-    <div class="lang ru">
-        <div class="text">$russianText</div>
-    </div>
-    <div class="lang el">
-        <div class="text">$greekText</div>
-    </div>
+    <div class="text">$englishText</div>
 </div>
                 """.trimIndent()
             }
@@ -332,7 +368,7 @@ class TelegramLiveScraper {
             <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="refresh" content="300"> <!-- Auto refresh every 5 minutes -->
+            <meta http-equiv="refresh" content="300">
             <meta name="description" content="Live breaking news from Cyprus - Real-time updates from @cyprus_control">
             <style>
                 body { 
@@ -377,67 +413,6 @@ class TelegramLiveScraper {
                     color: #667eea;
                     margin-bottom: 10px;
                 }
-                .navigation {
-                    text-align: center;
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .navigation a {
-                    display: inline-block;
-                    margin: 0 10px;
-                    padding: 8px 16px;
-                    background: #667eea;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 20px;
-                    transition: all 0.3s;
-                }
-                .navigation a:hover {
-                    background: #764ba2;
-                    transform: translateY(-2px);
-                }
-                
-                .lang-buttons { 
-                    text-align: center; 
-                    margin: 30px 0; 
-                    display: flex;
-                    flex-wrap: wrap;
-                    justify-content: center;
-                    gap: 8px;
-                }
-                
-                .lang-buttons button { 
-                    padding: 10px 16px; 
-                    border: none; 
-                    border-radius: 20px; 
-                    background: #667eea; 
-                    color: white; 
-                    cursor: pointer; 
-                    font-size: 0.9rem;
-                    min-width: 80px;
-                    transition: all 0.3s ease;
-                }
-                
-                .lang-buttons button.active { 
-                    background: #764ba2; 
-                    transform: scale(1.05);
-                }
-                
-                .lang-buttons button:hover { 
-                    background: #764ba2; 
-                }
-                
-                .lang { display: none; }
-                .lang.active { display: block; }
-                
-                .lang.he { 
-                    direction: rtl; 
-                    text-align: right; 
-                    font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
-                }
-                
                 .message { 
                     margin: 20px 0; 
                     padding: 25px; 
@@ -543,23 +518,7 @@ class TelegramLiveScraper {
                     body { padding: 10px; }
                     .container { padding: 20px; }
                     .logo { font-size: 2rem; }
-                    .navigation a { 
-                        display: block; 
-                        margin: 5px 0; 
-                        padding: 12px 20px; 
-                    }
                     .stats { grid-template-columns: repeat(2, 1fr); }
-                    .lang-buttons {
-                        flex-direction: column;
-                        align-items: center;
-                    }
-                    .lang-buttons button {
-                        width: 90%;
-                        max-width: 200px;
-                        margin: 5px 0;
-                        padding: 12px;
-                        font-size: 1rem;
-                    }
                 }
             </style>
         </head>
@@ -572,21 +531,6 @@ class TelegramLiveScraper {
                 <p>Real-time updates from @cyprus_control</p>
                 <p><strong>$currentDate</strong></p>
                 <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
-            </div>
-
-            <div class="navigation">
-                <a href="../index.html">🏠 Home</a>
-                <a href="../cyprus/index.html">📰 Daily Cyprus</a>
-                <a href="../israel/index.html">🇮🇱 Israel</a>
-                <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
-            </div>
-
-            <div class="lang-buttons">
-                <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-                <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-                <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-                <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
             </div>
 
             <div class="stats">
@@ -620,39 +564,12 @@ class TelegramLiveScraper {
                 </p>
             </div>
         </div>
-        
-        <script>
-            let currentLang = 'en';
-
-            function setLang(lang) {
-                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-' + lang).classList.add('active');
-                currentLang = lang;
-            }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                setLang('en');
-                
-                document.addEventListener('keydown', function(e) {
-                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                        e.preventDefault();
-                        const langs = ['en', 'he', 'ru', 'el'];
-                        const langIndex = parseInt(e.key) - 1;
-                        if (langs[langIndex]) {
-                            setLang(langs[langIndex]);
-                        }
-                    }
-                });
-            });
-        </script>
         </body>
         </html>
         """.trimIndent()
         
         File("live_news.html").writeText(liveHtml)
-        println("📄 Live website updated with ${recentMessages.size} recent messages and translations")
+        println("📄 Live website updated with ${recentMessages.size} recent messages")
     }
     
     private fun uploadToGitHub() {
@@ -688,7 +605,42 @@ class TelegramLiveScraper {
                 }
             }
 
-            // Upload file
+            // Upload file with proper JSON structure
             val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
-            val requestBody = JSONObject().apply {
-                put("message
+            val requestBodyJson = JSONObject()
+            requestBodyJson.put("message", "Update live news - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+            requestBodyJson.put("content", base64Content)
+            if (sha != null) {
+                requestBodyJson.put("sha", sha!!)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("Failed to upload $filePath: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            println("Error uploading $filePath: ${e.message}")
+        }
+    }
+}
+
+fun main() {
+    println("🚀 Starting Telegram Live News Scraper...")
+    
+    try {
+        val scraper = TelegramLiveScraper()
+        scraper.start()
+    } catch (e: Exception) {
+        println("❌ Fatal error: ${e.message}")
+        e.printStackTrace()
+        System.exit(1)
+    }
+}

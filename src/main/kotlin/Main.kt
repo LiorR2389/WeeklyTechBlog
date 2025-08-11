@@ -383,7 +383,7 @@ class AINewsSystem {
             if (linkElements.isNotEmpty()) {
                 foundLinks = true
                 
-                linkElements.take(2).forEach { linkElement -> // TESTING MODE: Only 2 articles per source
+                linkElements.take(10).forEach { linkElement -> 
                     try {
                         val title = linkElement.text().trim()
                         var articleUrl = linkElement.attr("abs:href").ifEmpty { linkElement.attr("href") }
@@ -438,7 +438,7 @@ class AINewsSystem {
                                 )
                             ))
                             
-                            Thread.sleep(500) // TESTING MODE: Reduced delay
+                            Thread.sleep(2000) 
                         } else {
                             println("❌ Invalid article: title='$title', url='$articleUrl'")
                         }
@@ -501,7 +501,7 @@ class AINewsSystem {
                     }
                 }
                 
-                Thread.sleep(200) // TESTING MODE: Reduced delay between sources
+                Thread.sleep(500) 
             } catch (e: Exception) {
                 println("Error scraping ${source.sourceName}: ${e.message}")
             }
