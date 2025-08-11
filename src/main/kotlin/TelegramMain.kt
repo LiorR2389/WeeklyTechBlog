@@ -26,10 +26,10 @@ data class TelegramNewsMessage(
     val priority: Int = 1, // 1=urgent, 2=important, 3=normal
     val processed: Boolean = false,
     val translations: Map<String, String> = mapOf(
-        "en" to "",
-        "he" to "טקסט בעברית", 
-        "ru" to "Текст на русском",
-        "el" to "Κείμενο στα ελληνικά"
+        "en" to "English translation unavailable",
+        "he" to "תרגום לא זמין", 
+        "ru" to "", // Will contain original Russian text
+        "el" to "Μετάφραση μη διαθέσιμη"
     )
 )
 
@@ -165,20 +165,20 @@ class TelegramLiveScraper {
                             System.currentTimeMillis()
                         }
                         
-                        // Generate translations for each message
+                        // Generate translations for each message (FROM Russian TO other languages)
                         val translations = try {
                             mapOf(
-                                "en" to messageText,
+                                "en" to translateText(messageText, "English"),
                                 "he" to translateText(messageText, "Hebrew"),
-                                "ru" to translateText(messageText, "Russian"),
+                                "ru" to messageText, // Keep original Russian
                                 "el" to translateText(messageText, "Greek")
                             )
                         } catch (e: Exception) {
                             println("⚠️ Error generating translations: ${e.message}")
                             mapOf(
-                                "en" to messageText,
+                                "en" to "English translation unavailable",
                                 "he" to "טקסט בעברית",
-                                "ru" to "Текст на русском",
+                                "ru" to messageText, // Keep original Russian
                                 "el" to "Κείμενο στα ελληνικά"
                             )
                         }
@@ -242,23 +242,30 @@ class TelegramLiveScraper {
         if (openAiApiKey.isNullOrEmpty()) {
             println("⚠️ No OpenAI API key, using fallback translations")
             return when (targetLanguage) {
-                "Hebrew" -> "כותרת בעברית"
-                "Russian" -> "Заголовок на русском"
-                "Greek" -> "Τίτλος στα ελληνικά"
+                "English" -> "English translation unavailable (no API key)"
+                "Hebrew" -> "תרגום לא זמין"
+                "Greek" -> "Μετάφραση μη διαθέσιμη"
                 else -> text
             }
         }
 
         return try {
+            val systemPrompt = when (targetLanguage) {
+                "English" -> "You are translating Russian news text to English. Provide accurate, natural English translations of Russian news content."
+                "Hebrew" -> "You are translating Russian news text to Hebrew. Provide accurate, natural Hebrew translations of Russian news content."
+                "Greek" -> "You are translating Russian news text to Greek. Provide accurate, natural Greek translations of Russian news content."
+                else -> "Translate this text accurately and naturally."
+            }
+
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
-                    {"role": "system", "content": "Translate news headlines and summaries accurately. Keep translations concise and natural."},
-                    {"role": "user", "content": "Translate to $targetLanguage: $text"}
+                    {"role": "system", "content": "$systemPrompt"},
+                    {"role": "user", "content": "Translate this Russian text to $targetLanguage: $text"}
                   ],
                   "temperature": 0.1,
-                  "max_tokens": 200
+                  "max_tokens": 300
                 }
             """.trimIndent()
 
@@ -277,24 +284,24 @@ class TelegramLiveScraper {
                         .getJSONObject("message")
                         .getString("content")
                         .trim()
-                    println("✅ Translated '$text' to $targetLanguage: '$translation'")
+                    println("✅ Translated Russian text to $targetLanguage: '${text.take(50)}...' -> '${translation.take(50)}...'")
                     translation
                 } else {
                     println("❌ Translation API failed with code: ${response.code}")
                     when (targetLanguage) {
-                        "Hebrew" -> "כותרת בעברית"
-                        "Russian" -> "Заголовок на русском"
-                        "Greek" -> "Τίτλος στα ελληνικά"
+                        "English" -> "English translation failed"
+                        "Hebrew" -> "תרגום נכשל"
+                        "Greek" -> "Η μετάφραση απέτυχε"
                         else -> text
                     }
                 }
             }
         } catch (e: Exception) {
-            println("❌ Translation error for '$text' to $targetLanguage: ${e.message}")
+            println("❌ Translation error for Russian text to $targetLanguage: ${e.message}")
             when (targetLanguage) {
-                "Hebrew" -> "כותרת בעברית"
-                "Russian" -> "Заголовок на русском"
-                "Greek" -> "Τίτλος στα ελληνικά"
+                "English" -> "Translation error - Russian text"
+                "Hebrew" -> "שגיאת תרגום - טקסט רוסי"
+                "Greek" -> "Σφάλμα μετάφρασης - ρωσικό κείμενο"
                 else -> text
             }
         }
@@ -374,10 +381,10 @@ class TelegramLiveScraper {
                 }
                 
                 // Generate multi-language content for each message
-                val englishText = message.translations?.get("en") ?: message.text
-                val hebrewText = message.translations?.get("he") ?: "טקסט בעברית"
-                val russianText = message.translations?.get("ru") ?: "Текст на русском"  
-                val greekText = message.translations?.get("el") ?: "Κείμενο στα ελληνικά"
+                val englishText = message.translations?.get("en") ?: "English translation unavailable"
+                val hebrewText = message.translations?.get("he") ?: "תרגום לא זמין"
+                val russianText = message.translations?.get("ru") ?: message.text // Original Russian  
+                val greekText = message.translations?.get("el") ?: "Μετάφραση μη διαθέσιμη"
                 
                 """
 <div class="$messageClass">
