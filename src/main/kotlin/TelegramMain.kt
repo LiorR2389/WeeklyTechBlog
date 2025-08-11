@@ -315,12 +315,14 @@ class TelegramLiveScraper {
             val processedMessages = loadProcessedMessages().toMutableList()
             processedMessages.addAll(newMessages)
             
-            // Keep only last 100 messages to avoid file getting too large
-            val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(100)
+            // Keep last 3-4 days of messages (approximately 300-400 messages)
+            // Assuming ~5-8 messages per hour, 24 hours = ~120-200 messages per day
+            // 3-4 days = ~360-800 messages, so we'll keep 500 for safety
+            val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500)
             saveProcessedMessages(recentMessages)
             
-            // Update live website with translations
-            updateLiveWebsite(recentMessages.take(20)) // Show last 20 on website
+            // Show last 30 messages on website (approximately 5-6 hours of recent news)
+            updateLiveWebsite(recentMessages.take(30))
             
             // Upload to GitHub Pages
             uploadToGitHub()
@@ -663,7 +665,7 @@ class TelegramLiveScraper {
     
     <div class="navigation">
         <a href="../index.html">🏠 Home</a>
-        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
+        <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
         <a href="../israel/index.html">🇮🇱 Israel</a>
         <a href="../greece/index.html">🇬🇷 Greece</a>
         <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
