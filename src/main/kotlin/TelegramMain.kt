@@ -1,14 +1,4 @@
-.lang-buttons {
-                        flex-direction: column;
-                        align-items: center;
-                    }
-                    .lang-buttons button {
-                        width: 90%;
-                        max-width: 200px;
-                        margin: 5px 0;
-                        padding: 12px;
-                        font-size: 1rem;
-                    }package com.ainews
+package com.ainews
 
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -499,6 +489,7 @@ class TelegramLiveScraper {
                     direction: rtl; 
                     text-align: right; 
                 }
+                
                 .message { 
                     margin: 20px 0; 
                     padding: 25px; 
@@ -604,7 +595,23 @@ class TelegramLiveScraper {
                     body { padding: 10px; }
                     .container { padding: 20px; }
                     .logo { font-size: 2rem; }
+                    .navigation a { 
+                        display: block; 
+                        margin: 5px 0; 
+                        padding: 12px 20px; 
+                    }
                     .stats { grid-template-columns: repeat(2, 1fr); }
+                    .lang-buttons {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    .lang-buttons button {
+                        width: 90%;
+                        max-width: 200px;
+                        margin: 5px 0;
+                        padding: 12px;
+                        font-size: 1rem;
+                    }
                 }
             </style>
         </head>
@@ -665,12 +672,53 @@ class TelegramLiveScraper {
                 </p>
             </div>
         </div>
+        
+        <script>
+            let currentLang = 'en';
+
+            function setLang(lang) {
+                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                document.getElementById('btn-' + lang).classList.add('active');
+                currentLang = lang;
+                
+                // Save language preference (but don't use localStorage in artifacts)
+                try {
+                    localStorage.setItem('liveNewsLang', lang);
+                } catch (e) {
+                    // Silently fail if localStorage not available
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                // Load saved language preference
+                let savedLang = 'en';
+                try {
+                    savedLang = localStorage.getItem('liveNewsLang') || 'en';
+                } catch (e) {
+                    // Silently fail if localStorage not available
+                }
+                setLang(savedLang);
+                
+                document.addEventListener('keydown', function(e) {
+                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                        e.preventDefault();
+                        const langs = ['en', 'he', 'ru', 'el'];
+                        const langIndex = parseInt(e.key) - 1;
+                        if (langs[langIndex]) {
+                            setLang(langs[langIndex]);
+                        }
+                    }
+                });
+            });
+        </script>
         </body>
         </html>
         """.trimIndent()
         
         File("live_news.html").writeText(liveHtml)
-        println("📄 Live website updated with ${recentMessages.size} recent messages")
+        println("📄 Live website updated with ${recentMessages.size} recent messages and translations")
     }
     
     private fun uploadToGitHub() {
@@ -730,18 +778,3 @@ class TelegramLiveScraper {
         } catch (e: Exception) {
             println("Error uploading $filePath: ${e.message}")
         }
-    }
-}
-
-fun main() {
-    println("🚀 Starting Telegram Live News Scraper...")
-    
-    try {
-        val scraper = TelegramLiveScraper()
-        scraper.start()
-    } catch (e: Exception) {
-        println("❌ Fatal error: ${e.message}")
-        e.printStackTrace()
-        System.exit(1)
-    }
-}
