@@ -217,15 +217,9 @@ class TelegramLiveScraper {
             }
             
             val liveContent = File("live_news.html").readText()
-            uploadFileToGitHub(config.repoName, config.livePath, liveContent)
+            uploadFileToGitHub("ainews-website", "live/index.html", liveContent)
             
-            val liveUrl = when {
-                isProduction -> "https://ainews.eu.com/live/"
-                isStaging -> "https://ainews.eu.com/staging/live/"
-                else -> "https://ainews.eu.com/dev/live/"
-            }
-            
-            println("🚀 Live page uploaded to: $liveUrl")
+            println("🚀 Live page uploaded to GitHub Pages: https://ainews.eu.com/live/")
             
         } catch (e: Exception) {
             println("❌ Error uploading to GitHub: ${e.message}")
@@ -333,10 +327,7 @@ fun main() {
     
     fun start() {
         println("🚀 Starting Telegram Monitor for @$channelUsername")
-        println("🌍 Environment: ${config.environment}")
         println("📱 Using HTTP API approach (no authentication needed for public channels)")
-        println("⏰ Update frequency: ${config.updateFrequency} minutes")
-        println("📂 Deploy path: ${config.livePath}")
         
         startMonitoringLoop()
     }
