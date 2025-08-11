@@ -36,7 +36,257 @@ data class TelegramNewsMessage(
 class TelegramLiveScraper {
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px 0;
+            border-top: 2px solid #f0f0f0;
+            color: #666;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        .no-messages {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 20px; }
+            .logo { font-size: 2rem; }
+            .navigation a { 
+                display: block; 
+                margin: 5px 0; 
+                padding: 12px 20px; 
+            }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .lang-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            .lang-buttons button {
+                width: 90%;
+                max-width: 200px;
+                margin: 5px 0;
+                padding: 12px;
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="live-indicator">🔴 LIVE</div>
+        <div class="logo">🤖 AI News</div>
+        <h1>🇨🇾 Cyprus Breaking News</h1>
+        <p>Real-time updates from @cyprus_control</p>
+        <p><strong>$currentDate</strong></p>
+        <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
+    </div>
+    
+    <div class="navigation">
+        <a href="../index.html">🏠 Home</a>
+        <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
+        <a href="../israel/index.html">🇮🇱 Israel</a>
+        <a href="../greece/index.html">🇬🇷 Greece</a>
+        <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
+    </div>
+
+    <div class="lang-buttons">
+        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+    </div>
+
+    <div class="stats">
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.size}</div>
+            <div class="stat-label">Recent Messages</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.count { it.isBreaking }}</div>
+            <div class="stat-label">Breaking News</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.count { it.priority == 1 }}</div>
+            <div class="stat-label">Urgent Updates</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">10 min</div>
+            <div class="stat-label">Update Frequency</div>
+        </div>
+    </div>
+
+    $messagesHtml
+
+    <div class="footer">
+        <p>🤖 <strong>Automated Live Monitoring</strong></p>
+        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+        <p style="margin-top: 15px; font-size: 0.8rem;">
+            This page automatically refreshes every 5 minutes<br>
+            For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
+        </p>
+    </div>
+</div>
+
+<script>
+    let currentLang = 'en';
+
+    function setLang(lang) {
+        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('btn-' + lang).classList.add('active');
+        currentLang = lang;
+        
+        try {
+            localStorage.setItem('liveNewsLang', lang);
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        let savedLang = 'en';
+        try {
+            savedLang = localStorage.getItem('liveNewsLang') || 'en';
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+        setLang(savedLang);
+        
+        document.addEventListener('keydown', function(e) {
+            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                const langs = ['en', 'he', 'ru', 'el'];
+                const langIndex = parseInt(e.key) - 1;
+                if (langs[langIndex]) {
+                    setLang(langs[langIndex]);
+                }
+            }
+        });
+    });
+</script>
+</body>
+</html>""".trimIndent()
+    }
+    
+    private fun uploadToGitHub() {
+        try {
+            if (githubToken.isNullOrEmpty()) {
+                println("⚠️ No GitHub token, skipping upload")
+                return
+            }
+            
+            val liveContent = File("live_news.html").readText()
+            uploadFileToGitHub(config.repoName, config.livePath, liveContent)
+            
+            val liveUrl = when {
+                isProduction -> "https://ainews.eu.com/live/"
+                isStaging -> "https://ainews.eu.com/staging/live/"
+                else -> "https://ainews.eu.com/dev/live/"
+            }
+            
+            println("🚀 Live page uploaded to: $liveUrl")
+            
+        } catch (e: Exception) {
+            println("❌ Error uploading to GitHub: ${e.message}")
+        }
+    }
+    
+    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
+        try {
+            // Get existing file SHA (if exists)
+            val getRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .build()
+
+            var sha: String? = null
+            client.newCall(getRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    sha = json.getString("sha")
+                }
+            }
+
+            // Upload file with proper JSON structure
+            val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
+            val requestBodyJson = JSONObject()
+            requestBodyJson.put("message", "Update live news - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+            requestBodyJson.put("content", base64Content)
+            if (sha != null) {
+                requestBodyJson.put("sha", sha!!)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("Failed to upload $filePath: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            println("Error uploading $filePath: ${e.message}")
+        }
+    }
+}
+
+fun main() {
+    println("🚀 Starting Telegram Live News Scraper...")
+    
+    try {
+        val scraper = TelegramLiveScraper()
+        scraper.start()
+    } catch (e: Exception) {
+        println("❌ Fatal error: ${e.message}")
+        e.printStackTrace()
+        System.exit(1)
+    }
+}connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
     
@@ -76,7 +326,6 @@ class TelegramLiveScraper {
     )
     
     // Target channel (cyprus_control)
-    private val channelUsername = "cyprus_control"
     private val channelUsername = "cyprus_control"
     
     private val processedMessagesFile = File("processed_telegram_messages.json")
@@ -354,19 +603,18 @@ class TelegramLiveScraper {
             // Keep last 3-4 days of messages (approximately 300-400 messages)
             // Assuming ~5-8 messages per hour, 24 hours = ~120-200 messages per day
             // 3-4 days = ~360-800 messages, so we'll keep 500 for safety
-            val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500)
-            saveProcessedMessages(recentMessages)
+            val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
             
             // Update missing translations for older messages
             val messagesNeedingTranslation = recentMessages.filter { message ->
-                val hasValidTranslations = message.translations?.let { translations ->
+                val hasValidTranslations = message.translations.let { translations ->
                     translations["en"]?.isNotEmpty() == true && 
                     translations["en"] != "English translation unavailable" &&
                     translations["he"]?.isNotEmpty() == true &&
                     translations["he"] != "תרגום לא זמין" &&
                     translations["el"]?.isNotEmpty() == true &&
                     translations["el"] != "Μετάφραση μη διαθέσιμη"
-                } ?: false
+                }
                 
                 !hasValidTranslations
             }
@@ -401,8 +649,8 @@ class TelegramLiveScraper {
             }
             
             // Save updated messages with new translations
+            saveProcessedMessages(recentMessages)
             if (messagesToUpdate.isNotEmpty()) {
-                saveProcessedMessages(recentMessages)
                 println("💾 Saved ${messagesToUpdate.size} updated message translations")
             }
             
@@ -468,7 +716,7 @@ class TelegramLiveScraper {
                 }
                 
                 // Generate multi-language content for each message with fallback translation
-                val englishText = message.translations?.get("en").let { translation ->
+                val englishText = message.translations["en"].let { translation ->
                     if (translation.isNullOrEmpty() || translation == "English translation unavailable") {
                         // Translate on-the-fly for older messages
                         translateText(message.text, "English")
@@ -477,7 +725,7 @@ class TelegramLiveScraper {
                     }
                 }
                 
-                val hebrewText = message.translations?.get("he").let { translation ->
+                val hebrewText = message.translations["he"].let { translation ->
                     if (translation.isNullOrEmpty() || translation == "תרגום לא זמין") {
                         translateText(message.text, "Hebrew")
                     } else {
@@ -485,9 +733,9 @@ class TelegramLiveScraper {
                     }
                 }
                 
-                val russianText = message.translations?.get("ru") ?: message.text // Always show original Russian
+                val russianText = message.translations["ru"] ?: message.text // Always show original Russian
                 
-                val greekText = message.translations?.get("el").let { translation ->
+                val greekText = message.translations["el"].let { translation ->
                     if (translation.isNullOrEmpty() || translation == "Μετάφραση μη διαθέσιμη") {
                         translateText(message.text, "Greek")
                     } else {
@@ -686,254 +934,4 @@ class TelegramLiveScraper {
             background: #e1bee7; 
             color: #7b1fa2; 
         }
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        .stat-item {
-            text-align: center;
-            padding: 15px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        .stat-number {
-            font-size: 1.8rem;
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 5px;
-        }
-        .stat-label {
-            font-size: 0.9rem;
-            color: #666;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 40px;
-            padding: 20px 0;
-            border-top: 2px solid #f0f0f0;
-            color: #666;
-        }
-        .footer a {
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        .footer a:hover {
-            text-decoration: underline;
-        }
-        .no-messages {
-            text-align: center;
-            padding: 60px 20px;
-            color: #666;
-            background: #f8f9fa;
-            border-radius: 10px;
-            margin: 20px 0;
-        }
-        @media (max-width: 768px) {
-            body { padding: 10px; }
-            .container { padding: 20px; }
-            .logo { font-size: 2rem; }
-            .navigation a { 
-                display: block; 
-                margin: 5px 0; 
-                padding: 12px 20px; 
-            }
-            .stats { grid-template-columns: repeat(2, 1fr); }
-            .lang-buttons {
-                flex-direction: column;
-                align-items: center;
-            }
-            .lang-buttons button {
-                width: 90%;
-                max-width: 200px;
-                margin: 5px 0;
-                padding: 12px;
-                font-size: 1rem;
-            }
-        }
-    </style>
-</head>
-<body>
-<div class="container">
-    <div class="header">
-        <div class="live-indicator">🔴 LIVE</div>
-        <div class="logo">🤖 AI News</div>
-        <h1>🇨🇾 Cyprus Breaking News</h1>
-        <p>Real-time updates from @cyprus_control</p>
-        <p><strong>$currentDate</strong></p>
-        <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
-    </div>
-    
-    <div class="navigation">
-        <a href="../index.html">🏠 Home</a>
-        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
-        <a href="../israel/index.html">🇮🇱 Israel</a>
-        <a href="../greece/index.html">🇬🇷 Greece</a>
-        <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
-    </div>
-
-    <div class="lang-buttons">
-        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-    </div>
-
-    <div class="stats">
-        <div class="stat-item">
-            <div class="stat-number">${recentMessages.size}</div>
-            <div class="stat-label">Recent Messages</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">${recentMessages.count { it.isBreaking }}</div>
-            <div class="stat-label">Breaking News</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">${recentMessages.count { it.priority == 1 }}</div>
-            <div class="stat-label">Urgent Updates</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">10 min</div>
-            <div class="stat-label">Update Frequency</div>
-        </div>
-    </div>
-
-    $messagesHtml
-
-    <div class="footer">
-        <p>🤖 <strong>Automated Live Monitoring</strong></p>
-        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-        <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-        <p style="margin-top: 15px; font-size: 0.8rem;">
-            This page automatically refreshes every 5 minutes<br>
-            For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
-        </p>
-    </div>
-</div>
-
-<script>
-    let currentLang = 'en';
-
-    function setLang(lang) {
-        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-        document.getElementById('btn-' + lang).classList.add('active');
-        currentLang = lang;
-        
-        try {
-            localStorage.setItem('liveNewsLang', lang);
-        } catch (e) {
-            // Silently fail if localStorage not available
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        let savedLang = 'en';
-        try {
-            savedLang = localStorage.getItem('liveNewsLang') || 'en';
-        } catch (e) {
-            // Silently fail if localStorage not available
-        }
-        setLang(savedLang);
-        
-        document.addEventListener('keydown', function(e) {
-            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                e.preventDefault();
-                const langs = ['en', 'he', 'ru', 'el'];
-                const langIndex = parseInt(e.key) - 1;
-                if (langs[langIndex]) {
-                    setLang(langs[langIndex]);
-                }
-            }
-        });
-    });
-</script>
-</body>
-</html>""".trimIndent()
-    }
-    
-    private fun uploadToGitHub() {
-        try {
-            if (githubToken.isNullOrEmpty()) {
-                println("⚠️ No GitHub token, skipping upload")
-                return
-            }
-            
-            val liveContent = File("live_news.html").readText()
-            uploadFileToGitHub(config.repoName, config.livePath, liveContent)
-            
-            val liveUrl = when {
-                isProduction -> "https://ainews.eu.com/live/"
-                isStaging -> "https://ainews.eu.com/staging/live/"
-                else -> "https://ainews.eu.com/dev/live/"
-            }
-            
-            println("🚀 Live page uploaded to: $liveUrl")
-            
-        } catch (e: Exception) {
-            println("❌ Error uploading to GitHub: ${e.message}")
-        }
-    }
-    
-    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
-        try {
-            // Get existing file SHA (if exists)
-            val getRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
-                .addHeader("Authorization", "token $githubToken")
-                .build()
-
-            var sha: String? = null
-            client.newCall(getRequest).execute().use { response ->
-                if (response.isSuccessful) {
-                    val json = JSONObject(response.body?.string())
-                    sha = json.getString("sha")
-                }
-            }
-
-            // Upload file with proper JSON structure
-            val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
-            val requestBodyJson = JSONObject()
-            requestBodyJson.put("message", "Update live news - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
-            requestBodyJson.put("content", base64Content)
-            if (sha != null) {
-                requestBodyJson.put("sha", sha!!)
-            }
-
-            val putRequest = Request.Builder()
-                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
-                .addHeader("Authorization", "token $githubToken")
-                .addHeader("Content-Type", "application/json")
-                .put(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(putRequest).execute().use { response ->
-                if (!response.isSuccessful) {
-                    println("Failed to upload $filePath: ${response.code}")
-                }
-            }
-        } catch (e: Exception) {
-            println("Error uploading $filePath: ${e.message}")
-        }
-    }
-}
-
-fun main() {
-    println("🚀 Starting Telegram Live News Scraper...")
-    
-    try {
-        val scraper = TelegramLiveScraper()
-        scraper.start()
-    } catch (e: Exception) {
-        println("❌ Fatal error: ${e.message}")
-        e.printStackTrace()
-        System.exit(1)
-    }
-}
+        .
