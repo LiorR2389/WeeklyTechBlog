@@ -372,353 +372,345 @@ class TelegramLiveScraper {
             }
         }
         
-        val liveHtml = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="refresh" content="300">
-            <meta name="description" content="Live breaking news from Cyprus - Real-time updates from @cyprus_control">
-            <style>
-                body { 
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-                    margin: 0; 
-                    padding: 20px; 
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    line-height: 1.6;
-                }
-                .container { 
-                    max-width: 800px; 
-                    margin: 0 auto; 
-                    background: white; 
-                    padding: 30px; 
-                    border-radius: 15px; 
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                }
-                .header { 
-                    text-align: center; 
-                    margin-bottom: 30px; 
-                    padding-bottom: 20px;
-                    border-bottom: 2px solid #f0f0f0;
-                }
-                .live-indicator { 
-                    background: #ff4444; 
-                    color: white; 
-                    padding: 8px 16px; 
-                    border-radius: 25px; 
-                    display: inline-block; 
-                    margin-bottom: 15px; 
-                    font-weight: bold;
-                    animation: pulse 2s infinite; 
-                }
-                @keyframes pulse { 
-                    0%, 100% { opacity: 1; transform: scale(1); } 
-                    50% { opacity: 0.8; transform: scale(1.05); } 
-                }
-                .logo {
-                    font-size: 2.5rem;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin-bottom: 10px;
-                }
-                .navigation {
-                    text-align: center;
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .navigation a {
-                    display: inline-block;
-                    margin: 0 10px;
-                    padding: 8px 16px;
-                    background: #667eea;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 20px;
-                    transition: all 0.3s;
-                }
-                .navigation a:hover {
-                    background: #764ba2;
-                    transform: translateY(-2px);
-                }
-                
-                .lang-buttons { 
-                    text-align: center; 
-                    margin: 30px 0; 
-                    display: flex;
-                    flex-wrap: wrap;
-                    justify-content: center;
-                    gap: 8px;
-                }
-                
-                .lang-buttons button { 
-                    padding: 10px 16px; 
-                    border: none; 
-                    border-radius: 20px; 
-                    background: #667eea; 
-                    color: white; 
-                    cursor: pointer; 
-                    font-size: 0.9rem;
-                    min-width: 80px;
-                    transition: all 0.3s ease;
-                }
-                
-                .lang-buttons button.active { 
-                    background: #764ba2; 
-                    transform: scale(1.05);
-                }
-                
-                .lang-buttons button:hover { 
-                    background: #764ba2; 
-                }
-                
-                .lang { display: none; }
-                .lang.active { display: block; }
-                
-                .lang.he { 
-                    direction: rtl; 
-                    text-align: right; 
-                    font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
-                }
-                
-                .lang.he .text { 
-                    direction: rtl; 
-                    text-align: right; 
-                }
-                
-                .message { 
-                    margin: 20px 0; 
-                    padding: 25px; 
-                    border-left: 4px solid #4CAF50; 
-                    background: #f9f9f9; 
-                    border-radius: 10px;
-                    transition: all 0.3s ease;
-                }
-                .message:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                }
-                .message.breaking { 
-                    border-left-color: #ff4444; 
-                    background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
-                }
-                .message.urgent { 
-                    border-left-color: #ff9800; 
-                    background: linear-gradient(135deg, #fff8f0 0%, #fff3e0 100%);
-                }
-                .timestamp { 
-                    color: #666; 
-                    font-size: 0.9rem; 
-                    margin-bottom: 10px; 
-                    font-weight: 500;
-                }
-                .text { 
-                    font-size: 1.1rem; 
-                    line-height: 1.7; 
-                    color: #333;
-                    margin-bottom: 10px;
-                }
-                .priority { 
-                    display: inline-block; 
-                    padding: 4px 12px; 
-                    border-radius: 15px; 
-                    font-size: 0.8rem; 
-                    font-weight: bold;
-                    margin-bottom: 10px; 
-                }
-                .priority-1 { 
-                    background: #ffcdd2; 
-                    color: #c62828; 
-                }
-                .priority-2 { 
-                    background: #ffe0b2; 
-                    color: #f57c00; 
-                }
-                .priority-3 { 
-                    background: #e1bee7; 
-                    color: #7b1fa2; 
-                }
-                .stats {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                    gap: 15px;
-                    margin: 20px 0;
-                    padding: 20px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .stat-item {
-                    text-align: center;
-                    padding: 15px;
-                    background: white;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                }
-                .stat-number {
-                    font-size: 1.8rem;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin-bottom: 5px;
-                }
-                .stat-label {
-                    font-size: 0.9rem;
-                    color: #666;
-                }
-                .footer {
-                    text-align: center;
-                    margin-top: 40px;
-                    padding: 20px 0;
-                    border-top: 2px solid #f0f0f0;
-                    color: #666;
-                }
-                .footer a {
-                    color: #667eea;
-                    text-decoration: none;
-                    font-weight: 500;
-                }
-                .footer a:hover {
-                    text-decoration: underline;
-                }
-                .no-messages {
-                    text-align: center;
-                    padding: 60px 20px;
-                    color: #666;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                }
-                @media (max-width: 768px) {
-                    body { padding: 10px; }
-                    .container { padding: 20px; }
-                    .logo { font-size: 2rem; }
-                    .navigation a { 
-                        display: block; 
-                        margin: 5px 0; 
-                        padding: 12px 20px; 
-                    }
-                    .stats { grid-template-columns: repeat(2, 1fr); }
-                    .lang-buttons {
-                        flex-direction: column;
-                        align-items: center;
-                    }
-                    .lang-buttons button {
-                        width: 90%;
-                        max-width: 200px;
-                        margin: 5px 0;
-                        padding: 12px;
-                        font-size: 1rem;
-                    }
-                }
-            </style>
-        </head>
-        <body>
-        <div class="container">
-            <div class="header">
-                <div class="live-indicator">🔴 LIVE</div>
-                <div class="logo">🤖 AI News</div>
-                <h1>🇨🇾 Cyprus Breaking News</h1>
-                <p>Real-time updates from @cyprus_control</p>
-                <p><strong>$currentDate</strong></p>
-                <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
-            </div>
-            
-            <div class="navigation">
-                <a href="../index.html">🏠 Home</a>
-                <a href="../cyprus/index.html">📰 Daily Cyprus</a>
-                <a href="../israel/index.html">🇮🇱 Israel</a>
-                <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
-            </div>
-
-            <div class="lang-buttons">
-                <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-                <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-                <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-                <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-            </div>
-
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="stat-number">${recentMessages.size}</div>
-                    <div class="stat-label">Recent Messages</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">${recentMessages.count { it.isBreaking }}</div>
-                    <div class="stat-label">Breaking News</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">${recentMessages.count { it.priority == 1 }}</div>
-                    <div class="stat-label">Urgent Updates</div>
-                </div>
-                <div class="stat-item">
-                    <div class="stat-number">10 min</div>
-                    <div class="stat-label">Update Frequency</div>
-                </div>
-            </div>
-
-            $messagesHtml
-
-            <div class="footer">
-                <p>🤖 <strong>Automated Live Monitoring</strong></p>
-                <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-                <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-                <p style="margin-top: 15px; font-size: 0.8rem;">
-                    This page automatically refreshes every 5 minutes<br>
-                    For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
-                </p>
-            </div>
-        </div>
-        
-        <script>
-            let currentLang = 'en';
-
-            function setLang(lang) {
-                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-' + lang).classList.add('active');
-                currentLang = lang;
-                
-                // Save language preference (but don't use localStorage in artifacts)
-                try {
-                    localStorage.setItem('liveNewsLang', lang);
-                } catch (e) {
-                    // Silently fail if localStorage not available
-                }
-            }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                // Load saved language preference
-                let savedLang = 'en';
-                try {
-                    savedLang = localStorage.getItem('liveNewsLang') || 'en';
-                } catch (e) {
-                    // Silently fail if localStorage not available
-                }
-                setLang(savedLang);
-                
-                document.addEventListener('keydown', function(e) {
-                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                        e.preventDefault();
-                        const langs = ['en', 'he', 'ru', 'el'];
-                        const langIndex = parseInt(e.key) - 1;
-                        if (langs[langIndex]) {
-                            setLang(langs[langIndex]);
-                        }
-                    }
-                });
-            });
-        </script>
-        </body>
-        </html>
-        """.trimIndent()
+        val liveHtml = generateLiveHtmlPage(currentDate, currentTime, recentMessages, messagesHtml)
         
         File("live_news.html").writeText(liveHtml)
         println("📄 Live website updated with ${recentMessages.size} recent messages and translations")
+    }
+    
+    private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
+        return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="300">
+    <meta name="description" content="Live breaking news from Cyprus - Real-time updates from @cyprus_control">
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            margin: 0; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 30px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 30px; 
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .live-indicator { 
+            background: #ff4444; 
+            color: white; 
+            padding: 8px 16px; 
+            border-radius: 25px; 
+            display: inline-block; 
+            margin-bottom: 15px; 
+            font-weight: bold;
+            animation: pulse 2s infinite; 
+        }
+        @keyframes pulse { 
+            0%, 100% { opacity: 1; transform: scale(1); } 
+            50% { opacity: 0.8; transform: scale(1.05); } 
+        }
+        .logo {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        .navigation {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .navigation a {
+            display: inline-block;
+            margin: 0 10px;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 20px;
+            transition: all 0.3s;
+        }
+        .navigation a:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+        .lang-buttons { 
+            text-align: center; 
+            margin: 30px 0; 
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+        }
+        .lang-buttons button { 
+            padding: 10px 16px; 
+            border: none; 
+            border-radius: 20px; 
+            background: #667eea; 
+            color: white; 
+            cursor: pointer; 
+            font-size: 0.9rem;
+            min-width: 80px;
+            transition: all 0.3s ease;
+        }
+        .lang-buttons button.active { 
+            background: #764ba2; 
+            transform: scale(1.05);
+        }
+        .lang-buttons button:hover { 
+            background: #764ba2; 
+        }
+        .lang { display: none; }
+        .lang.active { display: block; }
+        .lang.he { 
+            direction: rtl; 
+            text-align: right; 
+            font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
+        }
+        .lang.he .text { 
+            direction: rtl; 
+            text-align: right; 
+        }
+        .message { 
+            margin: 20px 0; 
+            padding: 25px; 
+            border-left: 4px solid #4CAF50; 
+            background: #f9f9f9; 
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        .message:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .message.breaking { 
+            border-left-color: #ff4444; 
+            background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
+        }
+        .message.urgent { 
+            border-left-color: #ff9800; 
+            background: linear-gradient(135deg, #fff8f0 0%, #fff3e0 100%);
+        }
+        .timestamp { 
+            color: #666; 
+            font-size: 0.9rem; 
+            margin-bottom: 10px; 
+            font-weight: 500;
+        }
+        .text { 
+            font-size: 1.1rem; 
+            line-height: 1.7; 
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .priority { 
+            display: inline-block; 
+            padding: 4px 12px; 
+            border-radius: 15px; 
+            font-size: 0.8rem; 
+            font-weight: bold;
+            margin-bottom: 10px; 
+        }
+        .priority-1 { 
+            background: #ffcdd2; 
+            color: #c62828; 
+        }
+        .priority-2 { 
+            background: #ffe0b2; 
+            color: #f57c00; 
+        }
+        .priority-3 { 
+            background: #e1bee7; 
+            color: #7b1fa2; 
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px 0;
+            border-top: 2px solid #f0f0f0;
+            color: #666;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        .no-messages {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 20px; }
+            .logo { font-size: 2rem; }
+            .navigation a { 
+                display: block; 
+                margin: 5px 0; 
+                padding: 12px 20px; 
+            }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .lang-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            .lang-buttons button {
+                width: 90%;
+                max-width: 200px;
+                margin: 5px 0;
+                padding: 12px;
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="live-indicator">🔴 LIVE</div>
+        <div class="logo">🤖 AI News</div>
+        <h1>🇨🇾 Cyprus Breaking News</h1>
+        <p>Real-time updates from @cyprus_control</p>
+        <p><strong>$currentDate</strong></p>
+        <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
+    </div>
+    
+    <div class="navigation">
+        <a href="../index.html">🏠 Home</a>
+        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
+        <a href="../israel/index.html">🇮🇱 Israel</a>
+        <a href="../greece/index.html">🇬🇷 Greece</a>
+        <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
+    </div>
+
+    <div class="lang-buttons">
+        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+    </div>
+
+    <div class="stats">
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.size}</div>
+            <div class="stat-label">Recent Messages</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.count { it.isBreaking }}</div>
+            <div class="stat-label">Breaking News</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.count { it.priority == 1 }}</div>
+            <div class="stat-label">Urgent Updates</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">10 min</div>
+            <div class="stat-label">Update Frequency</div>
+        </div>
+    </div>
+
+    $messagesHtml
+
+    <div class="footer">
+        <p>🤖 <strong>Automated Live Monitoring</strong></p>
+        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+        <p style="margin-top: 15px; font-size: 0.8rem;">
+            This page automatically refreshes every 5 minutes<br>
+            For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
+        </p>
+    </div>
+</div>
+
+<script>
+    let currentLang = 'en';
+
+    function setLang(lang) {
+        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('btn-' + lang).classList.add('active');
+        currentLang = lang;
+        
+        try {
+            localStorage.setItem('liveNewsLang', lang);
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        let savedLang = 'en';
+        try {
+            savedLang = localStorage.getItem('liveNewsLang') || 'en';
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+        setLang(savedLang);
+        
+        document.addEventListener('keydown', function(e) {
+            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                const langs = ['en', 'he', 'ru', 'el'];
+                const langIndex = parseInt(e.key) - 1;
+                if (langs[langIndex]) {
+                    setLang(langs[langIndex]);
+                }
+            }
+        });
+    });
+</script>
+</body>
+</html>""".trimIndent()
     }
     
     private fun uploadToGitHub() {
@@ -778,3 +770,18 @@ class TelegramLiveScraper {
         } catch (e: Exception) {
             println("Error uploading $filePath: ${e.message}")
         }
+    }
+}
+
+fun main() {
+    println("🚀 Starting Telegram Live News Scraper...")
+    
+    try {
+        val scraper = TelegramLiveScraper()
+        scraper.start()
+    } catch (e: Exception) {
+        println("❌ Fatal error: ${e.message}")
+        e.printStackTrace()
+        System.exit(1)
+    }
+}
