@@ -1,0 +1,47 @@
+# .github/workflows/main-news.yml
+name: Daily News Aggregator
+
+on:
+  schedule:
+    # Daily at 7:00 AM Cyprus time (4:00 AM UTC)
+    - cron: '0 4 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  aggregate-daily-news:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Cache Gradle packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+          
+    - name: Make gradlew executable
+      run: chmod +x ./gradlew
+      
+    - name: Run Daily News Aggregation
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        PRODUCTION: ${{ github.ref == 'refs/heads/main' }}
+        BRANCH_NAME: ${{ github.ref_name }}
+      run: ./gradlew run --no-daemon
