@@ -164,13 +164,13 @@ class TelegramLiveScraper {
                             System.currentTimeMillis()
                         }
                         
-                        // Generate translations for each message (FROM Russian TO other languages)
+                        // Generate translations for each message with fallback (FROM Russian TO other languages, fallback to English)
                         val translations = try {
                             mapOf(
-                                "en" to translateText(messageText, "English"),
-                                "he" to translateText(messageText, "Hebrew"),
+                                "en" to translateText(messageText, "English", "Russian"),
+                                "he" to translateText(messageText, "Hebrew", "Russian"),
                                 "ru" to messageText, // Keep original Russian
-                                "el" to translateText(messageText, "Greek")
+                                "el" to translateText(messageText, "Greek", "Russian")
                             )
                         } catch (e: Exception) {
                             println("⚠️ Error generating translations: ${e.message}")
@@ -237,7 +237,7 @@ class TelegramLiveScraper {
         }
     }
     
-    private fun translateText(text: String, targetLanguage: String): String {
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
         if (openAiApiKey.isNullOrEmpty()) {
             println("⚠️ No OpenAI API key, using fallback translations")
             return when (targetLanguage) {
@@ -248,20 +248,31 @@ class TelegramLiveScraper {
             }
         }
 
-        return try {
-            val systemPrompt = when (targetLanguage) {
-                "English" -> "You are translating Russian news text to English. Provide accurate, natural English translations of Russian news content."
-                "Hebrew" -> "You are translating Russian news text to Hebrew. Provide accurate, natural Hebrew translations of Russian news content."
-                "Greek" -> "You are translating Russian news text to Greek. Provide accurate, natural Greek translations of Russian news content."
-                else -> "Translate this text accurately and naturally."
+        // Try translating from the specified source language first
+        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+        
+        // If translation failed and we haven't tried English yet, try English as fallback
+        if ((translation == text || translation.contains("translation") || translation.isBlank()) && sourceLanguage != "English") {
+            println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
+            val englishTranslation = attemptTranslation(text, targetLanguage, "English")
+            if (englishTranslation != text && !englishTranslation.contains("translation") && englishTranslation.isNotBlank()) {
+                return englishTranslation
             }
+        }
+        
+        return translation
+    }
+
+    private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+        return try {
+            val systemPrompt = "You are translating $sourceLanguage text to $targetLanguage. Provide accurate, natural $targetLanguage translations."
 
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
                     {"role": "system", "content": "$systemPrompt"},
-                    {"role": "user", "content": "Translate this Russian text to $targetLanguage: $text"}
+                    {"role": "user", "content": "Translate this $sourceLanguage text to $targetLanguage: $text"}
                   ],
                   "temperature": 0.1,
                   "max_tokens": 300
@@ -283,26 +294,16 @@ class TelegramLiveScraper {
                         .getJSONObject("message")
                         .getString("content")
                         .trim()
-                    println("✅ Translated Russian text to $targetLanguage: '${text.take(50)}...' -> '${translation.take(50)}...'")
+                    println("✅ Translated $sourceLanguage text to $targetLanguage: '${text.take(50)}...' -> '${translation.take(50)}...'")
                     translation
                 } else {
                     println("❌ Translation API failed with code: ${response.code}")
-                    when (targetLanguage) {
-                        "English" -> "English translation failed"
-                        "Hebrew" -> "תרגום נכשל"
-                        "Greek" -> "Η μετάφραση απέτυχε"
-                        else -> text
-                    }
+                    text
                 }
             }
         } catch (e: Exception) {
-            println("❌ Translation error for Russian text to $targetLanguage: ${e.message}")
-            when (targetLanguage) {
-                "English" -> "Translation error - Russian text"
-                "Hebrew" -> "שגיאת תרגום - טקסט רוסי"
-                "Greek" -> "Σφάλμα μετάφρασης - ρωσικό κείμενο"
-                else -> text
-            }
+            println("❌ Translation error for $sourceLanguage text to $targetLanguage: ${e.message}")
+            text
         }
     }
     
@@ -338,10 +339,10 @@ class TelegramLiveScraper {
             messagesToUpdate.forEach { oldMessage ->
                 try {
                     val updatedTranslations = mapOf(
-                        "en" to translateText(oldMessage.text, "English"),
-                        "he" to translateText(oldMessage.text, "Hebrew"),
+                        "en" to translateText(oldMessage.text, "English", "Russian"),
+                        "he" to translateText(oldMessage.text, "Hebrew", "Russian"),
                         "ru" to oldMessage.text, // Keep original Russian
-                        "el" to translateText(oldMessage.text, "Greek")
+                        "el" to translateText(oldMessage.text, "Greek", "Russian")
                     )
                     
                     // Update the message in the list
@@ -430,8 +431,8 @@ class TelegramLiveScraper {
                 // Generate multi-language content for each message with fallback translation
                 val englishText = message.translations["en"].let { translation ->
                     if (translation.isNullOrEmpty() || translation == "English translation unavailable") {
-                        // Translate on-the-fly for older messages
-                        translateText(message.text, "English")
+                        // Translate on-the-fly for older messages with fallback
+                        translateText(message.text, "English", "Russian")
                     } else {
                         translation
                     }
@@ -439,7 +440,7 @@ class TelegramLiveScraper {
                 
                 val hebrewText = message.translations["he"].let { translation ->
                     if (translation.isNullOrEmpty() || translation == "תרגום לא זמין") {
-                        translateText(message.text, "Hebrew")
+                        translateText(message.text, "Hebrew", "Russian")
                     } else {
                         translation
                     }
@@ -449,7 +450,7 @@ class TelegramLiveScraper {
                 
                 val greekText = message.translations["el"].let { translation ->
                     if (translation.isNullOrEmpty() || translation == "Μετάφραση μη διαθέσιμη") {
-                        translateText(message.text, "Greek")
+                        translateText(message.text, "Greek", "Russian")
                     } else {
                         translation
                     }

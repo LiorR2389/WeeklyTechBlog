@@ -288,8 +288,8 @@ class AINewsSystem {
             .let { if (it.length == 300) "$it..." else it }
     }
 
-    // UPDATED: Translation with caching and improved error handling for all languages
-    private fun translateText(text: String, targetLanguage: String): String {
+    // UPDATED: Translation with fallback - try original language first, then English
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
         if (openAiApiKey.isNullOrEmpty()) {
             return when (targetLanguage) {
                 "Hebrew" -> "כותרת בעברית"
@@ -301,27 +301,43 @@ class AINewsSystem {
 
         // Check cache first
         val cache = loadTranslationCache()
-        val cacheKey = generateCacheKey(text, targetLanguage)
+        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
         
         if (cache.containsKey(cacheKey)) {
             println("✅ Using cached translation for: ${text.take(50)}...")
             return cache[cacheKey]!!
         }
 
-        return try {
-            val systemPrompt = when (targetLanguage) {
-                "Hebrew" -> "You are translating English text to Hebrew. Provide accurate, natural Hebrew translations. Ensure the Hebrew text is properly formatted and readable."
-                "Russian" -> "You are translating English text to Russian. Provide accurate, natural Russian translations."
-                "Greek" -> "You are translating English text to Greek. Provide accurate, natural Greek translations."
-                else -> "Translate this text accurately and naturally to $targetLanguage."
+        // Try translating from the specified source language first
+        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+        
+        // If translation failed and we haven't tried English yet, try English as fallback
+        if ((translation == text || translation.contains("translation") || translation.isBlank()) && sourceLanguage != "English") {
+            println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
+            val englishTranslation = attemptTranslation(text, targetLanguage, "English")
+            if (englishTranslation != text && !englishTranslation.contains("translation") && englishTranslation.isNotBlank()) {
+                cache[cacheKey] = englishTranslation
+                saveTranslationCache(cache)
+                return englishTranslation
             }
+        }
+        
+        // Cache and return the result
+        cache[cacheKey] = translation
+        saveTranslationCache(cache)
+        return translation
+    }
+
+    private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+        return try {
+            val systemPrompt = "You are translating $sourceLanguage text to $targetLanguage. Provide accurate, natural $targetLanguage translations."
 
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
                     {"role": "system", "content": "$systemPrompt"},
-                    {"role": "user", "content": "Translate this English text to $targetLanguage: $text"}
+                    {"role": "user", "content": "Translate this $sourceLanguage text to $targetLanguage: $text"}
                   ],
                   "temperature": 0.1,
                   "max_tokens": 300
@@ -344,30 +360,16 @@ class AINewsSystem {
                         .getString("content")
                         .trim()
                     
-                    // Cache the translation
-                    cache[cacheKey] = translation
-                    saveTranslationCache(cache)
-                    println("💾 Cached translation for: ${text.take(50)}...")
-                    
+                    println("💾 Translated from $sourceLanguage to $targetLanguage: ${text.take(50)}...")
                     translation
                 } else {
                     println("❌ Translation API failed with code: ${response.code}")
-                    when (targetLanguage) {
-                        "Hebrew" -> "תרגום נכשל"
-                        "Russian" -> "Перевод не удался"
-                        "Greek" -> "Η μετάφραση απέτυχε"
-                        else -> text
-                    }
+                    text
                 }
             }
         } catch (e: Exception) {
-            println("Translation error for $targetLanguage: ${e.message}")
-            when (targetLanguage) {
-                "Hebrew" -> "שגיאת תרגום"
-                "Russian" -> "Ошибка перевода"
-                "Greek" -> "Σφάλμα μετάφρασης"
-                else -> text
-            }
+            println("Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
+            text
         }
     }
 
@@ -424,37 +426,19 @@ class AINewsSystem {
                             val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
                             val category = categorizeArticle(title)
 
-                            // Translate titles to all required languages with improved error handling
+                            // Translate titles to all required languages with source language detection
                             val titleTranslations = mutableMapOf<String, String>()
                             titleTranslations["en"] = title
-                            
-                            // Retry translation for Hebrew if it fails
-                            var hebrewTitle = translateText(title, "Hebrew")
-                            if (hebrewTitle.isBlank() || hebrewTitle == title || hebrewTitle == "שגיאת תרגום") {
-                                println("⚠️ Hebrew translation failed for title, retrying...")
-                                Thread.sleep(1000)
-                                hebrewTitle = translateText(title, "Hebrew")
-                            }
-                            titleTranslations["he"] = hebrewTitle
-                            
-                            titleTranslations["ru"] = translateText(title, "Russian")
-                            titleTranslations["el"] = translateText(title, "Greek")
+                            titleTranslations["he"] = translateText(title, "Hebrew", source.sourceLanguage)
+                            titleTranslations["ru"] = translateText(title, "Russian", source.sourceLanguage)
+                            titleTranslations["el"] = translateText(title, "Greek", source.sourceLanguage)
 
-                            // Translate summaries to all required languages with improved error handling
+                            // Translate summaries to all required languages with source language detection
                             val summaryTranslations = mutableMapOf<String, String>()
                             summaryTranslations["en"] = summary
-                            
-                            // Retry translation for Hebrew if it fails
-                            var hebrewSummary = translateText(summary, "Hebrew")
-                            if (hebrewSummary.isBlank() || hebrewSummary == summary || hebrewSummary == "שגיאת תרגום") {
-                                println("⚠️ Hebrew translation failed for summary, retrying...")
-                                Thread.sleep(1000)
-                                hebrewSummary = translateText(summary, "Hebrew")
-                            }
-                            summaryTranslations["he"] = hebrewSummary
-                            
-                            summaryTranslations["ru"] = translateText(summary, "Russian")
-                            summaryTranslations["el"] = translateText(summary, "Greek")
+                            summaryTranslations["he"] = translateText(summary, "Hebrew", source.sourceLanguage)
+                            summaryTranslations["ru"] = translateText(summary, "Russian", source.sourceLanguage)
+                            summaryTranslations["el"] = translateText(summary, "Greek", source.sourceLanguage)
 
                             articles.add(Article(
                                 title = title,
@@ -468,9 +452,9 @@ class AINewsSystem {
                                 summaryTranslations = summaryTranslations,
                                 categoryTranslations = mapOf(
                                     "en" to category,
-                                    "he" to translateText(category, "Hebrew"),
-                                    "ru" to translateText(category, "Russian"),
-                                    "el" to translateText(category, "Greek")
+                                    "he" to translateText(category, "Hebrew", source.sourceLanguage),
+                                    "ru" to translateText(category, "Russian", source.sourceLanguage),
+                                    "el" to translateText(category, "Greek", source.sourceLanguage)
                                 )
                             ))
                             
@@ -611,9 +595,9 @@ class AINewsSystem {
                 articlesHtml.append("""
                     <h2>
                         <span class="lang en active">$category</span>
-                        <span class="lang he" dir="rtl">${translateText(category, "Hebrew")}</span>
-                        <span class="lang ru">${translateText(category, "Russian")}</span>
-                        <span class="lang el">${translateText(category, "Greek")}</span>
+                        <span class="lang he" dir="rtl">${translateText(category, "Hebrew", "English")}</span>
+                        <span class="lang ru">${translateText(category, "Russian", "English")}</span>
+                        <span class="lang el">${translateText(category, "Greek", "English")}</span>
                     </h2>
                 """.trimIndent())
 
@@ -776,8 +760,9 @@ class AINewsSystem {
                     direction: rtl;
                     text-align: right;
                     display: inline-block;
-                    margin-left: 0;
-                    margin-right: auto;
+                    margin-top: 10px;
+                    float: right;
+                    clear: both;
                 }
                 
                 .article { 
