@@ -648,7 +648,7 @@ class TelegramLiveScraper {
         }
         .stats {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: 1fr;
             gap: 15px;
             margin: 20px 0;
             padding: 20px;
@@ -704,7 +704,6 @@ class TelegramLiveScraper {
                 margin: 5px 0; 
                 padding: 12px 20px; 
             }
-            .stats { grid-template-columns: repeat(2, 1fr); }
             .lang-buttons {
                 flex-direction: column;
                 align-items: center;
@@ -748,26 +747,14 @@ class TelegramLiveScraper {
     <div class="stats">
         <div class="stat-item">
             <div class="stat-number">${recentMessages.size}</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">${recentMessages.count { it.isBreaking }}</div>
-            <div class="stat-label">Breaking News</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">${recentMessages.count { it.priority == 1 }}</div>
-            <div class="stat-label">Urgent Updates</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">10 min</div>
-            <div class="stat-label">Update Frequency</div>
+            <div class="stat-label">Recent Messages</div>
         </div>
     </div>
 
     $messagesHtml
 
     <div class="footer">
-        <p>🤖 <strong>Automated Live Monitoring</strong></p>
-        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p>Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
             This page automatically refreshes every 5 minutes<br>

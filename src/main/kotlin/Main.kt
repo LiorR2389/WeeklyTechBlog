@@ -288,7 +288,7 @@ class AINewsSystem {
             .let { if (it.length == 300) "$it..." else it }
     }
 
-    // UPDATED: Translation with caching
+    // UPDATED: Translation with caching and improved error handling for all languages
     private fun translateText(text: String, targetLanguage: String): String {
         if (openAiApiKey.isNullOrEmpty()) {
             return when (targetLanguage) {
@@ -309,15 +309,22 @@ class AINewsSystem {
         }
 
         return try {
+            val systemPrompt = when (targetLanguage) {
+                "Hebrew" -> "You are translating English text to Hebrew. Provide accurate, natural Hebrew translations. Ensure the Hebrew text is properly formatted and readable."
+                "Russian" -> "You are translating English text to Russian. Provide accurate, natural Russian translations."
+                "Greek" -> "You are translating English text to Greek. Provide accurate, natural Greek translations."
+                else -> "Translate this text accurately and naturally to $targetLanguage."
+            }
+
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
-                    {"role": "system", "content": "Translate news headlines and summaries accurately. Keep translations concise and natural."},
-                    {"role": "user", "content": "Translate to $targetLanguage: $text"}
+                    {"role": "system", "content": "$systemPrompt"},
+                    {"role": "user", "content": "Translate this English text to $targetLanguage: $text"}
                   ],
                   "temperature": 0.1,
-                  "max_tokens": 200
+                  "max_tokens": 300
                 }
             """.trimIndent()
 
@@ -343,11 +350,24 @@ class AINewsSystem {
                     println("💾 Cached translation for: ${text.take(50)}...")
                     
                     translation
-                } else text
+                } else {
+                    println("❌ Translation API failed with code: ${response.code}")
+                    when (targetLanguage) {
+                        "Hebrew" -> "תרגום נכשל"
+                        "Russian" -> "Перевод не удался"
+                        "Greek" -> "Η μετάφραση απέτυχε"
+                        else -> text
+                    }
+                }
             }
         } catch (e: Exception) {
-            println("Translation error: ${e.message}")
-            text
+            println("Translation error for $targetLanguage: ${e.message}")
+            when (targetLanguage) {
+                "Hebrew" -> "שגיאת תרגום"
+                "Russian" -> "Ошибка перевода"
+                "Greek" -> "Σφάλμα μετάφρασης"
+                else -> text
+            }
         }
     }
 
@@ -404,21 +424,37 @@ class AINewsSystem {
                             val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
                             val category = categorizeArticle(title)
 
-                            // Translate titles to all required languages
-                            val titleTranslations = mapOf(
-                                "en" to title,
-                                "he" to translateText(title, "Hebrew"),
-                                "ru" to translateText(title, "Russian"),
-                                "el" to translateText(title, "Greek")
-                            )
+                            // Translate titles to all required languages with improved error handling
+                            val titleTranslations = mutableMapOf<String, String>()
+                            titleTranslations["en"] = title
+                            
+                            // Retry translation for Hebrew if it fails
+                            var hebrewTitle = translateText(title, "Hebrew")
+                            if (hebrewTitle.isBlank() || hebrewTitle == title || hebrewTitle == "שגיאת תרגום") {
+                                println("⚠️ Hebrew translation failed for title, retrying...")
+                                Thread.sleep(1000)
+                                hebrewTitle = translateText(title, "Hebrew")
+                            }
+                            titleTranslations["he"] = hebrewTitle
+                            
+                            titleTranslations["ru"] = translateText(title, "Russian")
+                            titleTranslations["el"] = translateText(title, "Greek")
 
-                            // Translate summaries to all required languages
-                            val summaryTranslations = mapOf(
-                                "en" to summary,
-                                "he" to translateText(summary, "Hebrew"),
-                                "ru" to translateText(summary, "Russian"),
-                                "el" to translateText(summary, "Greek")
-                            )
+                            // Translate summaries to all required languages with improved error handling
+                            val summaryTranslations = mutableMapOf<String, String>()
+                            summaryTranslations["en"] = summary
+                            
+                            // Retry translation for Hebrew if it fails
+                            var hebrewSummary = translateText(summary, "Hebrew")
+                            if (hebrewSummary.isBlank() || hebrewSummary == summary || hebrewSummary == "שגיאת תרגום") {
+                                println("⚠️ Hebrew translation failed for summary, retrying...")
+                                Thread.sleep(1000)
+                                hebrewSummary = translateText(summary, "Hebrew")
+                            }
+                            summaryTranslations["he"] = hebrewSummary
+                            
+                            summaryTranslations["ru"] = translateText(summary, "Russian")
+                            summaryTranslations["el"] = translateText(summary, "Greek")
 
                             articles.add(Article(
                                 title = title,
@@ -541,7 +577,7 @@ class AINewsSystem {
         return intersection.toDouble() / union.toDouble()
     }
 
-    // UPDATED: Multi-country page generation
+    // UPDATED: Multi-country page generation with fixed Hebrew read more button
     fun generateCountryWebsite(articles: List<Article>, country: String): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
@@ -592,7 +628,7 @@ class AINewsSystem {
                             <div class="lang he" dir="rtl">
                                 <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
                                 <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">קרא עוד</a>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer" dir="rtl">קרא עוד</a>
                             </div>
                             <div class="lang ru">
                                 <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
@@ -737,16 +773,11 @@ class AINewsSystem {
                 }
                 
                 .lang.he a { 
-                    float: left; 
-                    margin-right: 0; 
-                    margin-left: 10px; 
-                }
-                
-                .lang.he .article { 
-                    border-right: 4px solid #667eea; 
-                    border-left: none; 
-                    padding-right: 20px; 
-                    padding-left: 20px; 
+                    direction: rtl;
+                    text-align: right;
+                    display: inline-block;
+                    margin-left: 0;
+                    margin-right: auto;
                 }
                 
                 .article { 
