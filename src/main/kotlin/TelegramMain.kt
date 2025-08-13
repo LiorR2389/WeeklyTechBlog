@@ -317,17 +317,15 @@ class TelegramLiveScraper {
                 "Translate this text to $targetLanguage: $text"
             }
 
-            val requestBody = """
-                {
-                  "model": "gpt-4o-mini",
-                  "messages": [
-                    {"role": "system", "content": "$systemPrompt"},
-                    {"role": "user", "content": "$userPrompt"}
-                  ],
-                  "temperature": 0.1,
-                  "max_tokens": 300
-                }
-            """.trimIndent()
+            val requestBody = """{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role": "system", "content": "$systemPrompt"},
+    {"role": "user", "content": "$userPrompt"}
+  ],
+  "temperature": 0.1,
+  "max_tokens": 300
+}"""
 
             val request = Request.Builder()
                 .url("https://api.openai.com/v1/chat/completions")
@@ -480,41 +478,7 @@ class TelegramLiveScraper {
                     else -> "📢 NEWS"
                 }
                 
-                // Use translations from the message object with runtime fallback if needed
-                val englishText = message.translations["en"]?.let { translation ->
-                    if (translation.isNotEmpty() && 
-                        translation != "English translation unavailable" && 
-                        translation != "Translation unavailable" &&
-                        !translation.contains("translation unavailable") &&
-                        translation.length > 10) {
-                        translation
-                    } else {
-                        // Runtime fallback for older messages
-                        translateText(message.text, "English", "Russian")
-                    }
-                } ?: translateText(message.text, "English", "Russian")
-                
-                val hebrewText = message.translations["he"]?.let { translation ->
-                    if (translation.isNotEmpty() && 
-                        translation != "תרגום לא זמין" &&
-                        translation.length > 5) {
-                        translation
-                    } else {
-                        translateText(message.text, "Hebrew", "Russian")
-                    }
-                } ?: translateText(message.text, "Hebrew", "Russian")
-                
-                val russianText = message.translations["ru"] ?: message.text // Always show original Russian
-                
-                val greekText = message.translations["el"]?.let { translation ->
-                    if (translation.isNotEmpty() && 
-                        translation != "Μετάφραση μη διαθέσιμη" &&
-                        translation.length > 10) {
-                        translation
-                    } else {
-                        translateText(message.text, "Greek", "Russian")
-                    }
-                } ?: translateText(message.text, "Greek", "Russian")
+                val russianText = message.translations["ru"] ?: message.text
                 
                 """
 <div class="$messageClass">
@@ -534,7 +498,6 @@ class TelegramLiveScraper {
         println("📄 Live website updated with ${recentMessages.size} recent messages")
     }
     
-    // FIXED: Simplified HTML with only "Recent Messages" stat and cleaner footer
     private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
         return """<!DOCTYPE html>
 <html lang="en">
@@ -760,7 +723,7 @@ class TelegramLiveScraper {
     </div>
 </div>
 </body>
-</html>""".trimIndent()
+</html>"""
     }
     
     private fun uploadToGitHub() {
@@ -834,4 +797,4 @@ fun main() {
         e.printStackTrace()
         System.exit(1)
     }
-}com">ainews.eu.
+}
