@@ -288,7 +288,7 @@ class AINewsSystem {
             .let { if (it.length == 300) "$it..." else it }
     }
 
-    // UPDATED: Translation with fallback - try original language first, then English
+// UPDATED: Translation with enhanced fallback - try original language first, then English
     private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
         if (openAiApiKey.isNullOrEmpty()) {
             return when (targetLanguage) {
@@ -311,33 +311,80 @@ class AINewsSystem {
         // Try translating from the specified source language first
         val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
         
+        // FIXED: Enhanced detection of translation failures
+        val translationFailed = translation == text || 
+                               translation.contains("I'm unable to translate") ||
+                               translation.contains("I cannot translate") ||
+                               translation.contains("translation unavailable") || 
+                               translation.contains("תרגום לא זמין") ||
+                               translation.contains("Μετάφραση μη διαθέσιμη") ||
+                               translation.lowercase().contains("error") ||
+                               translation.isBlank() ||
+                               translation.length < 10 ||
+                               translation.lowercase().contains("unable to") ||
+                               translation.lowercase().contains("cannot provide") ||
+                               translation.lowercase().contains("i don't have")
+        
         // If translation failed and we haven't tried English yet, try English as fallback
-        if ((translation == text || translation.contains("translation") || translation.isBlank()) && sourceLanguage != "English") {
-            println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
+        if (translationFailed && sourceLanguage != "English") {
+            println("⚠️ Translation from $sourceLanguage failed (result: '${translation.take(50)}'), trying English fallback...")
             val englishTranslation = attemptTranslation(text, targetLanguage, "English")
-            if (englishTranslation != text && !englishTranslation.contains("translation") && englishTranslation.isNotBlank()) {
+            
+            val englishFailed = englishTranslation == text || 
+                               englishTranslation.contains("I'm unable to translate") ||
+                               englishTranslation.contains("I cannot translate") ||
+                               englishTranslation.contains("translation unavailable") ||
+                               englishTranslation.lowercase().contains("error") ||
+                               englishTranslation.isBlank() ||
+                               englishTranslation.length < 10 ||
+                               englishTranslation.lowercase().contains("unable to") ||
+                               englishTranslation.lowercase().contains("cannot provide")
+            
+            if (!englishFailed) {
+                println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
                 cache[cacheKey] = englishTranslation
                 saveTranslationCache(cache)
                 return englishTranslation
+            } else {
+                println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
             }
         }
         
-        // Cache and return the result
-        cache[cacheKey] = translation
+        // Cache and return the result (even if it failed, to avoid re-trying)
+        val finalResult = if (translationFailed) {
+            when (targetLanguage) {
+                "Hebrew" -> "כותרת בעברית"
+                "Russian" -> "Заголовок на русском"
+                "Greek" -> "Τίτλος στα ελληνικά"
+                else -> text
+            }
+        } else {
+            translation
+        }
+        
+        cache[cacheKey] = finalResult
         saveTranslationCache(cache)
-        return translation
+        return finalResult
     }
 
+    // FIXED: Enhanced translation attempt with clearer prompts
     private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
-            val systemPrompt = "You are translating $sourceLanguage text to $targetLanguage. Provide accurate, natural $targetLanguage translations."
+            val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
+
+            val userPrompt = when (sourceLanguage.lowercase()) {
+                "hebrew" -> "Translate this Hebrew text to $targetLanguage: $text"
+                "russian" -> "Translate this Russian text to $targetLanguage: $text"
+                "greek" -> "Translate this Greek text to $targetLanguage: $text"
+                else -> "Translate this $sourceLanguage text to $targetLanguage: $text"
+            }
 
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
                   "messages": [
                     {"role": "system", "content": "$systemPrompt"},
-                    {"role": "user", "content": "Translate this $sourceLanguage text to $targetLanguage: $text"}
+                    {"role": "user", "content": "$userPrompt"}
                   ],
                   "temperature": 0.1,
                   "max_tokens": 300
@@ -360,7 +407,7 @@ class AINewsSystem {
                         .getString("content")
                         .trim()
                     
-                    println("💾 Translated from $sourceLanguage to $targetLanguage: ${text.take(50)}...")
+                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
                     translation
                 } else {
                     println("❌ Translation API failed with code: ${response.code}")
@@ -368,7 +415,7 @@ class AINewsSystem {
                 }
             }
         } catch (e: Exception) {
-            println("Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
+            println("❌ Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
             text
         }
     }
