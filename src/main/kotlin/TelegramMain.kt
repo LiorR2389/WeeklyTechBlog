@@ -536,228 +536,302 @@ class TelegramLiveScraper {
     
     // FIXED: Simplified HTML with only "Recent Messages" stat and cleaner footer
     private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
-        return """        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <meta http-equiv="refresh" content="300"> <!-- Auto refresh every 5 minutes -->
-            <meta name="description" content="Live breaking news from Cyprus - Real-time updates from @cyprus_control">
-            <style>
-                body { 
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-                    margin: 0; 
-                    padding: 20px; 
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    line-height: 1.6;
-                }
-                .container { 
-                    max-width: 800px; 
-                    margin: 0 auto; 
-                    background: white; 
-                    padding: 30px; 
-                    border-radius: 15px; 
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-                }
-                .header { 
-                    text-align: center; 
-                    margin-bottom: 30px; 
-                    padding-bottom: 20px;
-                    border-bottom: 2px solid #f0f0f0;
-                }
-                .live-indicator { 
-                    background: #ff4444; 
-                    color: white; 
-                    padding: 8px 16px; 
-                    border-radius: 25px; 
-                    display: inline-block; 
-                    margin-bottom: 15px; 
-                    font-weight: bold;
-                    animation: pulse 2s infinite; 
-                }
-                @keyframes pulse { 
-                    0%, 100% { opacity: 1; transform: scale(1); } 
-                    50% { opacity: 0.8; transform: scale(1.05); } 
-                }
-                .logo {
-                    font-size: 2.5rem;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin-bottom: 10px;
-                }
-                .navigation {
-                    text-align: center;
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .navigation a {
-                    display: inline-block;
-                    margin: 0 10px;
-                    padding: 8px 16px;
-                    background: #667eea;
-                    color: white;
-                    text-decoration: none;
-                    border-radius: 20px;
-                    transition: all 0.3s;
-                }
-                .navigation a:hover {
-                    background: #764ba2;
-                    transform: translateY(-2px);
-                }
-                .message { 
-                    margin: 20px 0; 
-                    padding: 25px; 
-                    border-left: 4px solid #4CAF50; 
-                    background: #f9f9f9; 
-                    border-radius: 10px;
-                    transition: all 0.3s ease;
-                }
-                .message:hover {
-                    transform: translateY(-2px);
-                    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-                }
-                .message.breaking { 
-                    border-left-color: #ff4444; 
-                    background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
-                }
-                .message.urgent { 
-                    border-left-color: #ff9800; 
-                    background: linear-gradient(135deg, #fff8f0 0%, #fff3e0 100%);
-                }
-                .timestamp { 
-                    color: #666; 
-                    font-size: 0.9rem; 
-                    margin-bottom: 10px; 
-                    font-weight: 500;
-                }
-                .text { 
-                    font-size: 1.1rem; 
-                    line-height: 1.7; 
-                    color: #333;
-                    margin-bottom: 10px;
-                }
-                .priority { 
-                    display: inline-block; 
-                    padding: 4px 12px; 
-                    border-radius: 15px; 
-                    font-size: 0.8rem; 
-                    font-weight: bold;
-                    margin-bottom: 10px; 
-                }
-                .priority-1 { 
-                    background: #ffcdd2; 
-                    color: #c62828; 
-                }
-                .priority-2 { 
-                    background: #ffe0b2; 
-                    color: #f57c00; 
-                }
-                .priority-3 { 
-                    background: #e1bee7; 
-                    color: #7b1fa2; 
-                }
-                .stats {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                    gap: 15px;
-                    margin: 20px 0;
-                    padding: 20px;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                }
-                .stat-item {
-                    text-align: center;
-                    padding: 15px;
-                    background: white;
-                    border-radius: 8px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                }
-                .stat-number {
-                    font-size: 1.8rem;
-                    font-weight: bold;
-                    color: #667eea;
-                    margin-bottom: 5px;
-                }
-                .stat-label {
-                    font-size: 0.9rem;
-                    color: #666;
-                }
-                .footer {
-                    text-align: center;
-                    margin-top: 40px;
-                    padding: 20px 0;
-                    border-top: 2px solid #f0f0f0;
-                    color: #666;
-                }
-                .footer a {
-                    color: #667eea;
-                    text-decoration: none;
-                    font-weight: 500;
-                }
-                .footer a:hover {
-                    text-decoration: underline;
-                }
-                .no-messages {
-                    text-align: center;
-                    padding: 60px 20px;
-                    color: #666;
-                    background: #f8f9fa;
-                    border-radius: 10px;
-                    margin: 20px 0;
-                }
-                @media (max-width: 768px) {
-                    body { padding: 10px; }
-                    .container { padding: 20px; }
-                    .logo { font-size: 2rem; }
-                    .navigation a { 
-                        display: block; 
-                        margin: 5px 0; 
-                        padding: 12px 20px; 
-                    }
-                    .stats { grid-template-columns: repeat(2, 1fr); }
-                }
-            </style>
-        </head>
-        <body>
-        <div class="container">
-            <div class="header">
-                <div class="live-indicator">🔴 LIVE</div>
-                <div class="logo">🤖 AI News</div>
-                <h1>🇨🇾 Cyprus Breaking News</h1>
-                <p>Real-time updates from @cyprus_control</p>
-                <p><strong>$currentDate</strong></p>
-                <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
-            </div>
+        return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="300">
+    <meta name="description" content="Live breaking news from Cyprus - Real-time updates from @cyprus_control">
+    <style>
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            margin: 0; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        .container { 
+            max-width: 800px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 30px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 30px; 
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .live-indicator { 
+            background: #ff4444; 
+            color: white; 
+            padding: 8px 16px; 
+            border-radius: 25px; 
+            display: inline-block; 
+            margin-bottom: 15px; 
+            font-weight: bold;
+            animation: pulse 2s infinite; 
+        }
+        @keyframes pulse { 
+            0%, 100% { opacity: 1; transform: scale(1); } 
+            50% { opacity: 0.8; transform: scale(1.05); } 
+        }
+        .logo {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        .navigation {
+            text-align: center;
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .navigation a {
+            display: inline-block;
+            margin: 0 10px;
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 20px;
+            transition: all 0.3s;
+        }
+        .navigation a:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+        .message { 
+            margin: 20px 0; 
+            padding: 25px; 
+            border-left: 4px solid #4CAF50; 
+            background: #f9f9f9; 
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        .message:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .message.breaking { 
+            border-left-color: #ff4444; 
+            background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
+        }
+        .message.urgent { 
+            border-left-color: #ff9800; 
+            background: linear-gradient(135deg, #fff8f0 0%, #fff3e0 100%);
+        }
+        .timestamp { 
+            color: #666; 
+            font-size: 0.9rem; 
+            margin-bottom: 10px; 
+            font-weight: 500;
+        }
+        .text { 
+            font-size: 1.1rem; 
+            line-height: 1.7; 
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .priority { 
+            display: inline-block; 
+            padding: 4px 12px; 
+            border-radius: 15px; 
+            font-size: 0.8rem; 
+            font-weight: bold;
+            margin-bottom: 10px; 
+        }
+        .priority-1 { 
+            background: #ffcdd2; 
+            color: #c62828; 
+        }
+        .priority-2 { 
+            background: #ffe0b2; 
+            color: #f57c00; 
+        }
+        .priority-3 { 
+            background: #e1bee7; 
+            color: #7b1fa2; 
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .stat-number {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px 0;
+            border-top: 2px solid #f0f0f0;
+            color: #666;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        .no-messages {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .container { padding: 20px; }
+            .logo { font-size: 2rem; }
+            .navigation a { 
+                display: block; 
+                margin: 5px 0; 
+                padding: 12px 20px; 
+            }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="live-indicator">🔴 LIVE</div>
+        <div class="logo">🤖 AI News</div>
+        <h1>🇨🇾 Cyprus Breaking News</h1>
+        <p>Real-time updates from @cyprus_control</p>
+        <p><strong>$currentDate</strong></p>
+        <p style="font-size: 0.9rem; color: #666;">Last updated: $currentTime</p>
+    </div>
 
-            <div class="navigation">
-                <a href="../index.html">🏠 Home</a>
-                <a href="../cyprus/index.html">📰 Daily Cyprus</a>
-                <a href="../israel/index.html">🇮🇱 Israel</a>
-                <a href="../greece/index.html">🇬🇷 Greece</a>
-                <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
-            </div>
+    <div class="navigation">
+        <a href="../index.html">🏠 Home</a>
+        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
+        <a href="../israel/index.html">🇮🇱 Israel</a>
+        <a href="../greece/index.html">🇬🇷 Greece</a>
+        <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
+    </div>
 
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="stat-number">${recentMessages.size}</div>
-                    <div class="stat-label">Recent Messages</div>
-                </div>
-            </div>
-
-            $messagesHtml
-
-            <div class="footer">
-                <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
-                <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-                <p style="margin-top: 15px; font-size: 0.8rem;">
-                    This page automatically refreshes every 5 minutes<br>
-                    For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
-                </p>
-            </div>
+    <div class="stats">
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.size}</div>
+            <div class="stat-label">Recent Messages</div>
         </div>
-        </body>
-        </html>
+    </div>
+
+    $messagesHtml
+
+    <div class="footer">
+        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+        <p style="margin-top: 15px; font-size: 0.8rem;">
+            This page automatically refreshes every 5 minutes<br>
+            For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
+        </p>
+    </div>
+</div>
+</body>
+</html>""".trimIndent()
+    }
+    
+    private fun uploadToGitHub() {
+        try {
+            if (githubToken.isNullOrEmpty()) {
+                println("⚠️ No GitHub token, skipping upload")
+                return
+            }
+            
+            val liveContent = File("live_news.html").readText()
+            uploadFileToGitHub("ainews-website", "live/index.html", liveContent)
+            
+            println("🚀 Live page uploaded to GitHub Pages: https://ainews.eu.com/live/")
+            
+        } catch (e: Exception) {
+            println("❌ Error uploading to GitHub: ${e.message}")
+        }
+    }
+    
+    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
+        try {
+            // Get existing file SHA (if exists)
+            val getRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .build()
+
+            var sha: String? = null
+            client.newCall(getRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    sha = json.getString("sha")
+                }
+            }
+
+            // Upload file with proper JSON structure
+            val base64Content = Base64.getEncoder().encodeToString(content.toByteArray())
+            val requestBodyJson = JSONObject()
+            requestBodyJson.put("message", "Update live news - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+            requestBodyJson.put("content", base64Content)
+            if (sha != null) {
+                requestBodyJson.put("sha", sha!!)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$repoName/contents/$filePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("Failed to upload $filePath: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            println("Error uploading $filePath: ${e.message}")
+        }
+    }
+}
+
+fun main() {
+    println("🚀 Starting Telegram Live News Scraper...")
+    
+    try {
+        val scraper = TelegramLiveScraper()
+        scraper.start()
+    } catch (e: Exception) {
+        println("❌ Fatal error: ${e.message}")
+        e.printStackTrace()
+        System.exit(1)
+    }
+}com">ainews.eu.
