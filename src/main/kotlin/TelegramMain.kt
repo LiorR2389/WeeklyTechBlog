@@ -522,7 +522,7 @@ class TelegramLiveScraper {
     <div class="lang en active">
         <div class="text">$englishText</div>
     </div>
-    <div class="lang he" dir="rtl">
+    <div class="lang he">
         <div class="text" dir="rtl">$hebrewText</div>
     </div>
     <div class="lang ru">
