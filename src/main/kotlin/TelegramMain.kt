@@ -478,7 +478,40 @@ class TelegramLiveScraper {
                     else -> "📢 NEWS"
                 }
                 
+                val englishText = message.translations?.get("en")?.let { translation ->
+                    if (translation.isNotEmpty() && 
+                        translation != "English translation unavailable" && 
+                        translation != "Translation unavailable" &&
+                        !translation.contains("translation unavailable") &&
+                        translation.length > 10) {
+                        translation
+                    } else {
+                        // Runtime fallback for older messages
+                        translateText(message.text, "English", "Russian")
+                    }
+                } ?: translateText(message.text, "English", "Russian")
+                
+                val hebrewText = message.translations?.get("he")?.let { translation ->
+                    if (translation.isNotEmpty() && 
+                        translation != "תרגום לא זמין" &&
+                        translation.length > 5) {
+                        translation
+                    } else {
+                        translateText(message.text, "Hebrew", "Russian")
+                    }
+                } ?: translateText(message.text, "Hebrew", "Russian")
+                
                 val russianText = message.translations?.get("ru") ?: message.text
+                
+                val greekText = message.translations?.get("el")?.let { translation ->
+                    if (translation.isNotEmpty() && 
+                        translation != "Μετάφραση μη διαθέσιμη" &&
+                        translation.length > 10) {
+                        translation
+                    } else {
+                        translateText(message.text, "Greek", "Russian")
+                    }
+                } ?: translateText(message.text, "Greek", "Russian")
                 
                 """
 <div class="$messageClass">
@@ -486,7 +519,18 @@ class TelegramLiveScraper {
     <div class="priority $priorityClass">
         $priorityLabel
     </div>
-    <div class="text">$russianText</div>
+    <div class="lang en active">
+        <div class="text">$englishText</div>
+    </div>
+    <div class="lang he" dir="rtl">
+        <div class="text" dir="rtl">$hebrewText</div>
+    </div>
+    <div class="lang ru">
+        <div class="text">$russianText</div>
+    </div>
+    <div class="lang el">
+        <div class="text">$greekText</div>
+    </div>
 </div>
                 """.trimIndent()
             }
@@ -704,6 +748,13 @@ class TelegramLiveScraper {
         <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
     </div>
 
+    <div class="lang-buttons">
+        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+    </div>
+
     <div class="stats">
         <div class="stat-item">
             <div class="stat-number">${recentMessages.size}</div>
@@ -722,6 +773,45 @@ class TelegramLiveScraper {
         </p>
     </div>
 </div>
+
+<script>
+    let currentLang = 'en';
+
+    function setLang(lang) {
+        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('btn-' + lang).classList.add('active');
+        currentLang = lang;
+        
+        try {
+            localStorage.setItem('liveNewsLang', lang);
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        let savedLang = 'en';
+        try {
+            savedLang = localStorage.getItem('liveNewsLang') || 'en';
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+        setLang(savedLang);
+        
+        document.addEventListener('keydown', function(e) {
+            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                const langs = ['en', 'he', 'ru', 'el'];
+                const langIndex = parseInt(e.key) - 1;
+                if (langs[langIndex]) {
+                    setLang(langs[langIndex]);
+                }
+            }
+        });
+    });
+</script>
 </body>
 </html>"""
     }
