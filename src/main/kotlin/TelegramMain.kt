@@ -251,12 +251,35 @@ class TelegramLiveScraper {
         // Try translating from the specified source language first
         val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
         
+        // Check if translation actually failed (returned original text or error message)
+        val translationFailed = translation == text || 
+                               translation.contains("translation unavailable") || 
+                               translation.contains("תרגום לא זמין") ||
+                               translation.contains("Μετάφραση μη διαθέσιμη") ||
+                               translation.isBlank()
+        
         // If translation failed and we haven't tried English yet, try English as fallback
-        if ((translation == text || translation.contains("translation") || translation.isBlank()) && sourceLanguage != "English") {
+        if (translationFailed && sourceLanguage != "English") {
             println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
             val englishTranslation = attemptTranslation(text, targetLanguage, "English")
-            if (englishTranslation != text && !englishTranslation.contains("translation") && englishTranslation.isNotBlank()) {
+            
+            // Check if English fallback worked
+            val englishFailed = englishTranslation == text || 
+                               englishTranslation.contains("translation unavailable") || 
+                               englishTranslation.isBlank()
+            
+            if (!englishFailed) {
                 return englishTranslation
+            }
+        }
+        
+        // If all else fails, return a proper fallback message
+        if (translationFailed) {
+            return when (targetLanguage) {
+                "English" -> "Translation unavailable"
+                "Hebrew" -> "תרגום לא זמין"
+                "Greek" -> "Μετάφραση μη διαθέσιμη"
+                else -> text
             }
         }
         
