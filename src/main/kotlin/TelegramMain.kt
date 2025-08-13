@@ -369,7 +369,7 @@ class TelegramLiveScraper {
             
             // Update missing translations for older messages (limit to prevent API overuse)
             val messagesNeedingTranslation = recentMessages.filter { message ->
-                val hasValidTranslations = message.translations.let { translations ->
+                val hasValidTranslations = message.translations?.let { translations ->
                     translations["en"]?.let { en ->
                         en.isNotEmpty() && 
                         en != "English translation unavailable" &&
@@ -377,7 +377,7 @@ class TelegramLiveScraper {
                         !en.contains("translation unavailable") &&
                         en.length > 10
                     } == true
-                }
+                } ?: false
                 
                 !hasValidTranslations
             }.take(5) // Limit to 5 per run to avoid API rate limits
