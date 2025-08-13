@@ -478,7 +478,7 @@ class TelegramLiveScraper {
                     else -> "📢 NEWS"
                 }
                 
-                val russianText = message.translations["ru"] ?: message.text
+                val russianText = message.translations?.get("ru") ?: message.text
                 
                 """
 <div class="$messageClass">
