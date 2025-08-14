@@ -834,7 +834,7 @@ class TelegramLiveScraper {
 
     <div class="footer">
         <p>🤖 <strong>Automated Live Monitoring</strong></p>
-        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p>• Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
             This page automatically refreshes every 5 minutes<br>
