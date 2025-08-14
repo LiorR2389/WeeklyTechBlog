@@ -810,7 +810,7 @@ class TelegramLiveScraper {
 
     <div class="navigation">
         <a href="../index.html">🏠 Home</a>
-        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
+        <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
         <a href="../israel/index.html">🇮🇱 Israel</a>
         <a href="../greece/index.html">🇬🇷 Greece</a>
         <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
