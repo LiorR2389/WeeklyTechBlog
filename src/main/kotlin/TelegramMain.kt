@@ -549,7 +549,7 @@ class TelegramLiveScraper {
     <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="300">
+    <meta http-equiv="refresh" content="300"> <!-- Auto refresh every 5 minutes -->
     <meta name="description" content="Live breaking news from Cyprus - Real-time updates from @cyprus_control">
     <style>
         body { 
@@ -615,6 +615,63 @@ class TelegramLiveScraper {
             background: #764ba2;
             transform: translateY(-2px);
         }
+        
+        /* FIXED: Added missing lang-buttons CSS */
+        .lang-buttons { 
+            text-align: center; 
+            margin: 30px 0; 
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .lang-buttons button { 
+            padding: 10px 16px; 
+            border: none; 
+            border-radius: 20px; 
+            background: #667eea; 
+            color: white; 
+            cursor: pointer; 
+            font-size: 0.9rem;
+            min-width: 80px;
+            transition: all 0.3s ease;
+        }
+        
+        .lang-buttons button.active { 
+            background: #764ba2; 
+            transform: scale(1.05);
+        }
+        
+        .lang-buttons button:hover { 
+            background: #764ba2; 
+        }
+        
+        /* FIXED: Proper language visibility control */
+        .lang { display: none; }
+        .lang.active { display: block; }
+        
+        .lang.he { 
+            direction: rtl; 
+            text-align: right; 
+            font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
+        }
+        
+        .lang.he h2, .lang.he h3 { 
+            text-align: right; 
+            direction: rtl; 
+        }
+        
+        .lang.he p { 
+            text-align: right; 
+            direction: rtl; 
+        }
+        
+        .lang.he .text { 
+            direction: rtl;
+            text-align: right;
+        }
+        
         .message { 
             margin: 20px 0; 
             padding: 25px; 
@@ -725,7 +782,18 @@ class TelegramLiveScraper {
                 margin: 5px 0; 
                 padding: 12px 20px; 
             }
-            .stats { grid-template-columns: repeat(2, 1fr); }
+            .lang-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+            .lang-buttons button {
+                width: 90%;
+                max-width: 200px;
+                margin: 5px 0;
+                padding: 12px;
+                font-size: 1rem;
+            }
+            .stats { grid-template-columns: repeat(1, 1fr); }
         }
     </style>
 </head>
@@ -765,6 +833,7 @@ class TelegramLiveScraper {
     $messagesHtml
 
     <div class="footer">
+        <p>🤖 <strong>Automated Live Monitoring</strong></p>
         <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
@@ -778,8 +847,11 @@ class TelegramLiveScraper {
     let currentLang = 'en';
 
     function setLang(lang) {
+        // Hide all language elements
         document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+        // Show selected language elements
         document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+        // Update button states
         document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
         document.getElementById('btn-' + lang).classList.add('active');
         currentLang = lang;
