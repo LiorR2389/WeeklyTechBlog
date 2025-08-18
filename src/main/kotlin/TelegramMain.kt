@@ -164,31 +164,21 @@ class TelegramLiveScraper {
                             System.currentTimeMillis()
                         }
                         
-                        // REDUCED: Only translate for small batches to avoid rate limits
-                        val translations = if (index < 5) { // Only translate first 5 messages
-                            try {
-                                mapOf(
-                                    "en" to translateText(messageText, "English", "Russian"),
-                                    "he" to translateText(messageText, "Hebrew", "Russian"),
-                                    "ru" to messageText, // Keep original Russian
-                                    "el" to translateText(messageText, "Greek", "Russian")
-                                )
-                            } catch (e: Exception) {
-                                println("⚠️ Error generating translations: ${e.message}")
-                                mapOf(
-                                    "en" to "English translation unavailable",
-                                    "he" to "תרגום לא זמין",
-                                    "ru" to messageText, // Keep original Russian
-                                    "el" to "Μετάφραση μη διαθέσιμη"
-                                )
-                            }
-                        } else {
-                            // Skip translations for bulk messages
+                        // Generate translations for each message with proper fallback
+                        val translations = try {
                             mapOf(
-                                "en" to "Translation pending...",
-                                "he" to "תרגום ממתין...",
+                                "en" to translateText(messageText, "English", "Russian"),
+                                "he" to translateText(messageText, "Hebrew", "Russian"),
                                 "ru" to messageText, // Keep original Russian
-                                "el" to "Μετάφραση σε εκκρεμότητα..."
+                                "el" to translateText(messageText, "Greek", "Russian")
+                            )
+                        } catch (e: Exception) {
+                            println("⚠️ Error generating translations: ${e.message}")
+                            mapOf(
+                                "en" to "English translation unavailable",
+                                "he" to "תרגום לא זמין",
+                                "ru" to messageText, // Keep original Russian
+                                "el" to "Μετάφραση μη διαθέσιμη"
                             )
                         }
                         
@@ -247,7 +237,7 @@ class TelegramLiveScraper {
         }
     }
     
-    // FIXED: Enhanced translation function with rate limiting and exponential backoff
+    // FIXED: Enhanced translation function with proper fallback detection
     private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
         if (openAiApiKey.isNullOrEmpty()) {
             println("⚠️ No OpenAI API key, using fallback translations")
@@ -259,10 +249,10 @@ class TelegramLiveScraper {
             }
         }
 
-        // Try translating with rate limiting
-        val translation = attemptTranslationWithRetry(text, targetLanguage, sourceLanguage)
+        // Try translating from the specified source language first
+        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
         
-        // Better detection of translation failures
+        // FIXED: Better detection of translation failures
         val translationFailed = translation == text || 
                                translation.contains("I'm unable to translate") ||
                                translation.contains("I cannot translate") ||
@@ -272,15 +262,17 @@ class TelegramLiveScraper {
                                translation.lowercase().contains("error") ||
                                translation.isBlank() ||
                                translation.length < 10 ||
+                               // Check if translation looks like an error message
                                translation.lowercase().contains("unable to") ||
                                translation.lowercase().contains("cannot provide") ||
                                translation.lowercase().contains("i don't have")
         
         // If translation failed and we haven't tried English yet, try English as fallback
         if (translationFailed && sourceLanguage != "English") {
-            println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
-            val englishTranslation = attemptTranslationWithRetry(text, targetLanguage, "English")
+            println("⚠️ Translation from $sourceLanguage failed (result: '${translation.take(50)}'), trying English fallback...")
+            val englishTranslation = attemptTranslation(text, targetLanguage, "English")
             
+            // Check if English fallback worked
             val englishFailed = englishTranslation == text || 
                                englishTranslation.contains("I'm unable to translate") ||
                                englishTranslation.contains("I cannot translate") ||
@@ -292,8 +284,10 @@ class TelegramLiveScraper {
                                englishTranslation.lowercase().contains("cannot provide")
             
             if (!englishFailed) {
-                println("✅ English fallback successful")
+                println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
                 return englishTranslation
+            } else {
+                println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
             }
         }
         
@@ -308,40 +302,11 @@ class TelegramLiveScraper {
             }
         }
         
+        println("✅ Translation successful: '${translation.take(50)}...'")
         return translation
     }
 
-    // NEW: Translation with retry logic and exponential backoff
-    private fun attemptTranslationWithRetry(text: String, targetLanguage: String, sourceLanguage: String, maxRetries: Int = 3): String {
-        for (attempt in 1..maxRetries) {
-            try {
-                val result = attemptTranslation(text, targetLanguage, sourceLanguage)
-                
-                // If we get the original text back, it might be a rate limit issue
-                if (result != text) {
-                    return result
-                }
-                
-                // If we got rate limited, wait before retrying
-                if (attempt < maxRetries) {
-                    val waitTime = (attempt * 2000L) // 2s, 4s, 6s
-                    println("⏳ Rate limited, waiting ${waitTime}ms before retry $attempt...")
-                    Thread.sleep(waitTime)
-                }
-                
-            } catch (e: Exception) {
-                println("❌ Translation attempt $attempt failed: ${e.message}")
-                if (attempt < maxRetries) {
-                    val waitTime = (attempt * 1000L) // 1s, 2s, 3s
-                    Thread.sleep(waitTime)
-                }
-            }
-        }
-        
-        return text // Return original if all attempts failed
-    }
-
-    // UPDATED: Better error handling for rate limits (SINGLE VERSION)
+    // FIXED: Better translation attempt with clearer prompts
     private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
             val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
@@ -370,30 +335,23 @@ class TelegramLiveScraper {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                when (response.code) {
-                    200 -> {
-                        val json = JSONObject(response.body?.string())
-                        val translation = json.getJSONArray("choices")
-                            .getJSONObject(0)
-                            .getJSONObject("message")
-                            .getString("content")
-                            .trim()
-                        
-                        println("✅ Translation successful: '${translation.take(50)}...'")
-                        translation
-                    }
-                    429 -> {
-                        println("⚠️ Rate limit hit (429), will retry...")
-                        text // Return original to trigger retry
-                    }
-                    else -> {
-                        println("❌ Translation API failed with code: ${response.code}")
-                        text
-                    }
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    val translation = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                        .trim()
+                    
+                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
+                    translation
+                } else {
+                    println("❌ Translation API failed with code: ${response.code}")
+                    text
                 }
             }
         } catch (e: Exception) {
-            println("❌ Translation error: ${e.message}")
+            println("❌ Translation error for $sourceLanguage->$targetLanguage: ${e.message}")
             text
         }
     }
@@ -409,7 +367,7 @@ class TelegramLiveScraper {
             // Keep last 3-4 days of messages
             val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
             
-            // REDUCED: Limit translations to prevent rate limiting
+            // Update missing translations for older messages (limit to prevent API overuse)
             val messagesNeedingTranslation = recentMessages.filter { message ->
                 val hasValidTranslations = message.translations?.let { translations ->
                     translations["en"]?.let { en ->
@@ -417,13 +375,12 @@ class TelegramLiveScraper {
                         en != "English translation unavailable" &&
                         en != "Translation unavailable" &&
                         !en.contains("translation unavailable") &&
-                        !en.contains("Translation pending") &&
                         en.length > 10
                     } == true
                 } ?: false
                 
                 !hasValidTranslations
-            }.take(2) // REDUCED: Only 2 messages per run instead of 5
+            }.take(5) // Limit to 5 per run to avoid API rate limits
             
             println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
             
@@ -448,7 +405,7 @@ class TelegramLiveScraper {
                     }
                     
                     // Small delay to avoid API rate limits
-                    Thread.sleep(1000)
+                    Thread.sleep(500)
                 } catch (e: Exception) {
                     println("⚠️ Failed to update translation for message: ${e.message}")
                 }
@@ -526,38 +483,35 @@ class TelegramLiveScraper {
                         translation != "English translation unavailable" && 
                         translation != "Translation unavailable" &&
                         !translation.contains("translation unavailable") &&
-                        !translation.contains("Translation pending") &&
                         translation.length > 10) {
                         translation
                     } else {
-                        // Runtime fallback for older messages (with reduced frequency)
-                        message.text // Show original Russian for now
+                        // Runtime fallback for older messages
+                        translateText(message.text, "English", "Russian")
                     }
-                } ?: message.text
+                } ?: translateText(message.text, "English", "Russian")
                 
                 val hebrewText = message.translations?.get("he")?.let { translation ->
                     if (translation.isNotEmpty() && 
                         translation != "תרגום לא זמין" &&
-                        !translation.contains("תרגום ממתין") &&
                         translation.length > 5) {
                         translation
                     } else {
-                        message.text // Show original Russian for now
+                        translateText(message.text, "Hebrew", "Russian")
                     }
-                } ?: message.text
+                } ?: translateText(message.text, "Hebrew", "Russian")
                 
                 val russianText = message.translations?.get("ru") ?: message.text
                 
                 val greekText = message.translations?.get("el")?.let { translation ->
                     if (translation.isNotEmpty() && 
                         translation != "Μετάφραση μη διαθέσιμη" &&
-                        !translation.contains("Μετάφραση σε εκκρεμότητα") &&
                         translation.length > 10) {
                         translation
                     } else {
-                        message.text // Show original Russian for now
+                        translateText(message.text, "Greek", "Russian")
                     }
-                } ?: message.text
+                } ?: translateText(message.text, "Greek", "Russian")
                 
                 """
 <div class="$messageClass">
@@ -856,7 +810,7 @@ class TelegramLiveScraper {
 
     <div class="navigation">
         <a href="../index.html">🏠 Home</a>
-        <a href="../cyprus/index.html">📰 Daily Cyprus</a>
+        <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
         <a href="../israel/index.html">🇮🇱 Israel</a>
         <a href="../greece/index.html">🇬🇷 Greece</a>
         <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
@@ -880,7 +834,7 @@ class TelegramLiveScraper {
 
     <div class="footer">
         <p>🤖 <strong>Automated Live Monitoring</strong></p>
-        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p>• Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
             This page automatically refreshes every 5 minutes<br>
