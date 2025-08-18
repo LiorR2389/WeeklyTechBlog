@@ -237,7 +237,7 @@ class TelegramLiveScraper {
         }
     }
     
-    // FIXED: Enhanced translation function with proper fallback detection
+// FIXED: Enhanced translation function with rate limiting and exponential backoff
     private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
         if (openAiApiKey.isNullOrEmpty()) {
             println("⚠️ No OpenAI API key, using fallback translations")
@@ -249,10 +249,10 @@ class TelegramLiveScraper {
             }
         }
 
-        // Try translating from the specified source language first
-        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+        // Try translating with rate limiting
+        val translation = attemptTranslationWithRetry(text, targetLanguage, sourceLanguage)
         
-        // FIXED: Better detection of translation failures
+        // Better detection of translation failures
         val translationFailed = translation == text || 
                                translation.contains("I'm unable to translate") ||
                                translation.contains("I cannot translate") ||
@@ -262,17 +262,15 @@ class TelegramLiveScraper {
                                translation.lowercase().contains("error") ||
                                translation.isBlank() ||
                                translation.length < 10 ||
-                               // Check if translation looks like an error message
                                translation.lowercase().contains("unable to") ||
                                translation.lowercase().contains("cannot provide") ||
                                translation.lowercase().contains("i don't have")
         
         // If translation failed and we haven't tried English yet, try English as fallback
         if (translationFailed && sourceLanguage != "English") {
-            println("⚠️ Translation from $sourceLanguage failed (result: '${translation.take(50)}'), trying English fallback...")
-            val englishTranslation = attemptTranslation(text, targetLanguage, "English")
+            println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
+            val englishTranslation = attemptTranslationWithRetry(text, targetLanguage, "English")
             
-            // Check if English fallback worked
             val englishFailed = englishTranslation == text || 
                                englishTranslation.contains("I'm unable to translate") ||
                                englishTranslation.contains("I cannot translate") ||
@@ -284,10 +282,8 @@ class TelegramLiveScraper {
                                englishTranslation.lowercase().contains("cannot provide")
             
             if (!englishFailed) {
-                println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
+                println("✅ English fallback successful")
                 return englishTranslation
-            } else {
-                println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
             }
         }
         
@@ -302,8 +298,94 @@ class TelegramLiveScraper {
             }
         }
         
-        println("✅ Translation successful: '${translation.take(50)}...'")
         return translation
+    }
+
+    // NEW: Translation with retry logic and exponential backoff
+    private fun attemptTranslationWithRetry(text: String, targetLanguage: String, sourceLanguage: String, maxRetries: Int = 3): String {
+        for (attempt in 1..maxRetries) {
+            try {
+                val result = attemptTranslation(text, targetLanguage, sourceLanguage)
+                
+                // If we get the original text back, it might be a rate limit issue
+                if (result != text) {
+                    return result
+                }
+                
+                // If we got rate limited, wait before retrying
+                if (attempt < maxRetries) {
+                    val waitTime = (attempt * 2000L) // 2s, 4s, 6s
+                    println("⏳ Rate limited, waiting ${waitTime}ms before retry $attempt...")
+                    Thread.sleep(waitTime)
+                }
+                
+            } catch (e: Exception) {
+                println("❌ Translation attempt $attempt failed: ${e.message}")
+                if (attempt < maxRetries) {
+                    val waitTime = (attempt * 1000L) // 1s, 2s, 3s
+                    Thread.sleep(waitTime)
+                }
+            }
+        }
+        
+        return text // Return original if all attempts failed
+    }
+
+    // UPDATED: Better error handling for rate limits
+    private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+        return try {
+            val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
+
+            val userPrompt = if (sourceLanguage == "Russian") {
+                "Translate this Russian text to $targetLanguage: $text"
+            } else {
+                "Translate this text to $targetLanguage: $text"
+            }
+
+            val requestBody = """{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role": "system", "content": "$systemPrompt"},
+    {"role": "user", "content": "$userPrompt"}
+  ],
+  "temperature": 0.1,
+  "max_tokens": 300
+}"""
+
+            val request = Request.Builder()
+                .url("https://api.openai.com/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $openAiApiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                when (response.code) {
+                    200 -> {
+                        val json = JSONObject(response.body?.string())
+                        val translation = json.getJSONArray("choices")
+                            .getJSONObject(0)
+                            .getJSONObject("message")
+                            .getString("content")
+                            .trim()
+                        
+                        println("✅ Translation successful: '${translation.take(50)}...'")
+                        translation
+                    }
+                    429 -> {
+                        println("⚠️ Rate limit hit (429), will retry...")
+                        text // Return original to trigger retry
+                    }
+                    else -> {
+                        println("❌ Translation API failed with code: ${response.code}")
+                        text
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Translation error: ${e.message}")
+            text
+        }
     }
 
     // FIXED: Better translation attempt with clearer prompts
