@@ -131,100 +131,157 @@ class TelegramLiveScraper {
         }
     }
     
-    private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
-        val messages = mutableListOf<TelegramNewsMessage>()
+private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
+    val messages = mutableListOf<TelegramNewsMessage>()
+    
+    try {
+        println("🔍 HTML length: ${html.length} characters")
         
-        try {
-            // Simple regex to find message blocks
-            val messagePattern = Regex(
-                """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
-                RegexOption.DOT_MATCHES_ALL
-            )
-            
-            val timePattern = Regex(
-                """<time datetime="(.*?)".*?>(.*?)</time>""",
-                RegexOption.DOT_MATCHES_ALL
-            )
-            
-            val messageMatches = messagePattern.findAll(html)
-            val timeMatches = timePattern.findAll(html).toList()
-            
-            messageMatches.forEachIndexed { index, messageMatch ->
-                try {
-                    val messageText = messageMatch.groupValues[1]
+        // Better regex patterns for Telegram web format
+        val messageBlockPattern = Regex(
+            """<div class="tgme_widget_message.*?data-post="[^"]*(\d+)".*?>(.*?)<div class="tgme_widget_message_footer">.*?<time datetime="([^"]*)".*?</time>""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        
+        val textPattern = Regex(
+            """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        
+        val messageBlocks = messageBlockPattern.findAll(html)
+        println("🔍 Found ${messageBlocks.count()} message blocks with proper structure")
+        
+        messageBlocks.forEachIndexed { index, blockMatch ->
+            try {
+                // Extract message ID from data-post attribute
+                val telegramMessageId = blockMatch.groupValues[1].toLongOrNull() ?: 0L
+                val blockContent = blockMatch.groupValues[2]
+                val datetimeStr = blockMatch.groupValues[3]
+                
+                // Extract text content
+                val textMatch = textPattern.find(blockContent)
+                val messageText = if (textMatch != null) {
+                    textMatch.groupValues[1]
                         .replace(Regex("<.*?>"), "") // Remove HTML tags
+                        .replace("&amp;", "&")
+                        .replace("&lt;", "<")
+                        .replace("&gt;", ">")
+                        .replace("&quot;", "\"")
                         .trim()
-                    
-                    if (messageText.isNotEmpty() && messageText.length > 10) {
-                        // Try to get corresponding timestamp
-                        val timeMatch = timeMatches.getOrNull(index)
-                        val timestamp = if (timeMatch != null) {
-                            parseTimestamp(timeMatch.groupValues[1])
-                        } else {
-                            System.currentTimeMillis()
-                        }
-                        
-                        // REDUCED: Only translate for small batches to avoid rate limits
-                        val translations = if (index < 5) { // Only translate first 5 messages
-                            try {
-                                mapOf(
-                                    "en" to translateText(messageText, "English", "Russian"),
-                                    "he" to translateText(messageText, "Hebrew", "Russian"),
-                                    "ru" to messageText, // Keep original Russian
-                                    "el" to translateText(messageText, "Greek", "Russian")
-                                )
-                            } catch (e: Exception) {
-                                println("⚠️ Error generating translations: ${e.message}")
-                                mapOf(
-                                    "en" to "English translation unavailable",
-                                    "he" to "תרגום לא זמין",
-                                    "ru" to messageText, // Keep original Russian
-                                    "el" to "Μετάφραση μη διαθέσιμη"
-                                )
-                            }
-                        } else {
-                            // Skip translations for bulk messages
-                            mapOf(
-                                "en" to "Translation pending...",
-                                "he" to "תרגום ממתין...",
-                                "ru" to messageText, // Keep original Russian
-                                "el" to "Μετάφραση σε εκκρεμότητα..."
-                            )
-                        }
-                        
-                        val message = TelegramNewsMessage(
-                            messageId = (messageText.hashCode().toLong() + timestamp), // Simple ID generation
-                            text = messageText,
-                            timestamp = timestamp,
-                            date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp)),
-                            isBreaking = isBreakingNews(messageText),
-                            priority = calculatePriority(messageText),
-                            translations = translations
-                        )
-                        
-                        messages.add(message)
-                    }
-                } catch (e: Exception) {
-                    println("⚠️ Error parsing message: ${e.message}")
+                } else {
+                    ""
                 }
+                
+                if (messageText.isNotEmpty() && messageText.length > 10) {
+                    // Parse timestamp properly
+                    val timestamp = parseTimestamp(datetimeStr)
+                    val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
+                    
+                    // FIXED: Use Telegram's actual message ID + hash for uniqueness
+                    val uniqueMessageId = if (telegramMessageId > 0) {
+                        telegramMessageId
+                    } else {
+                        // Fallback: create stable ID from content + date
+                        val contentHash = messageText.hashCode().toLong()
+                        val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
+                        dayTimestamp * 1000000 + (contentHash and 0xFFFFF) // Combine day + content hash
+                    }
+                    
+                    println("📝 Message ${index + 1}: ID=$uniqueMessageId, Date=$messageDate, Text='${messageText.take(50)}...'")
+                    
+                    // Check if message is older than 7 days (ignore very old messages)
+                    val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
+                    if (timestamp < sevenDaysAgo) {
+                        println("⏰ Skipping old message from: $messageDate")
+                        return@forEachIndexed
+                    }
+                    
+                    // Create message with limited translations (only for recent messages)
+                    val translations = if (index < 3 && timestamp > System.currentTimeMillis() - (24 * 60 * 60 * 1000)) {
+                        // Only translate last 3 messages from last 24 hours
+                        mapOf(
+                            "en" to translateText(messageText, "English", "Russian"),
+                            "he" to translateText(messageText, "Hebrew", "Russian"),
+                            "ru" to messageText,
+                            "el" to translateText(messageText, "Greek", "Russian")
+                        )
+                    } else {
+                        // Minimal translations for older/bulk messages
+                        mapOf(
+                            "en" to "Translation pending...",
+                            "he" to "תרגום ממתין...",
+                            "ru" to messageText,
+                            "el" to "Μετάφραση σε εκκρεμότητα..."
+                        )
+                    }
+                    
+                    val message = TelegramNewsMessage(
+                        messageId = uniqueMessageId,
+                        text = messageText,
+                        timestamp = timestamp,
+                        date = messageDate,
+                        isBreaking = isBreakingNews(messageText),
+                        priority = calculatePriority(messageText),
+                        translations = translations
+                    )
+                    
+                    messages.add(message)
+                }
+            } catch (e: Exception) {
+                println("⚠️ Error parsing message ${index + 1}: ${e.message}")
             }
-            
-        } catch (e: Exception) {
-            println("❌ Error parsing HTML: ${e.message}")
         }
         
-        return messages.take(20) // Limit to last 20 messages
+        println("📊 Successfully parsed ${messages.size} messages")
+        
+    } catch (e: Exception) {
+        println("❌ Error parsing HTML: ${e.message}")
     }
     
-    private fun parseTimestamp(datetime: String): Long {
-        return try {
-            // Parse ISO datetime format: 2024-01-01T12:00:00+00:00
-            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX")
-            format.parse(datetime)?.time ?: System.currentTimeMillis()
-        } catch (e: Exception) {
-            System.currentTimeMillis()
+    // Return only last 15 messages, sorted by timestamp descending
+    return messages.sortedByDescending { it.timestamp }.take(15)
+}
+ private fun parseTimestamp(datetime: String): Long {
+    return try {
+        println("🕐 Parsing timestamp: '$datetime'")
+        
+        // Handle different datetime formats from Telegram
+        val formats = listOf(
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX"),     // 2025-08-21T07:50:47+00:00
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),     // 2025-08-21T07:50:47Z
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),        // 2025-08-21T07:50:47
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss")           // 2025-08-21 07:50:47
+        )
+        
+        for (format in formats) {
+            try {
+                val parsed = format.parse(datetime)?.time
+                if (parsed != null) {
+                    val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
+                    println("✅ Parsed '$datetime' as: $parsedDate")
+                    return parsed
+                }
+            } catch (e: Exception) {
+                // Try next format
+            }
         }
+        
+        println("⚠️ Could not parse timestamp '$datetime', using current time")
+        System.currentTimeMillis()
+    } catch (e: Exception) {
+        println("❌ Error parsing timestamp '$datetime': ${e.message}")
+        System.currentTimeMillis()
     }
+}
+
+private fun filterRecentMessages(messages: List<TelegramNewsMessage>): List<TelegramNewsMessage> {
+    val threeDaysAgo = System.currentTimeMillis() - (3 * 24 * 60 * 60 * 1000)
+    val recentMessages = messages.filter { it.timestamp > threeDaysAgo }
+    
+    println("📅 Filtered to ${recentMessages.size} messages from last 3 days (was ${messages.size})")
+    
+    return recentMessages.sortedByDescending { it.timestamp }
+}
     
     private fun isBreakingNews(text: String): Boolean {
         val breakingKeywords = listOf(
