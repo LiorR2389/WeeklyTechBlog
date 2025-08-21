@@ -90,6 +90,10 @@ class AINewsSystem {
     private val smtpHost = System.getenv("SMTP_HOST") ?: "smtp.gmail.com"
     private val smtpPort = System.getenv("SMTP_PORT") ?: "587"
 
+    // NEW: GitHub-based subscriber storage
+    private val subscribersRepoName = "ainews-website"
+    private val subscribersFilePath = "data/subscribers.json"
+
     // NEW: Load sources from configuration file
     private fun loadSources(): List<Source> {
         return if (sourcesConfigFile.exists()) {
@@ -216,24 +220,150 @@ class AINewsSystem {
         }
     }
 
+    // FIXED: Load subscribers from GitHub instead of local file
     fun loadSubscribers(): List<Subscriber> {
-        return if (subscribersFile.exists()) {
-            try {
+        return try {
+            println("📧 Loading subscribers from GitHub...")
+            
+            // Try to load from GitHub first
+            val githubSubscribers = loadSubscribersFromGitHub()
+            if (githubSubscribers.isNotEmpty()) {
+                println("✅ Loaded ${githubSubscribers.size} subscribers from GitHub")
+                return githubSubscribers
+            }
+            
+            // Fallback to local file if GitHub fails
+            println("⚠️ No subscribers found in GitHub, checking local file...")
+            if (subscribersFile.exists()) {
                 val json = subscribersFile.readText()
                 val type = object : TypeToken<List<Subscriber>>() {}.type
-                gson.fromJson<List<Subscriber>>(json, type) ?: emptyList()
-            } catch (e: Exception) {
-                println("Error loading subscribers: ${e.message}")
+                val localSubscribers = gson.fromJson<List<Subscriber>>(json, type) ?: emptyList()
+                
+                if (localSubscribers.isNotEmpty()) {
+                    println("📤 Migrating ${localSubscribers.size} local subscribers to GitHub...")
+                    saveSubscribersToGitHub(localSubscribers)
+                }
+                
+                localSubscribers
+            } else {
+                println("📧 No subscribers found anywhere, starting fresh")
                 emptyList()
             }
-        } else emptyList()
+        } catch (e: Exception) {
+            println("❌ Error loading subscribers: ${e.message}")
+            emptyList()
+        }
     }
 
+    // NEW: Load subscribers from GitHub
+    private fun loadSubscribersFromGitHub(): List<Subscriber> {
+        if (githubToken.isNullOrEmpty()) {
+            println("⚠️ No GitHub token, cannot load subscribers from GitHub")
+            return emptyList()
+        }
+        
+        return try {
+            val request = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$subscribersRepoName/contents/$subscribersFilePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    val base64Content = json.getString("content")
+                    val decodedContent = String(Base64.getDecoder().decode(base64Content.replace("\n", "")))
+                    
+                    val type = object : TypeToken<List<Subscriber>>() {}.type
+                    gson.fromJson<List<Subscriber>>(decodedContent, type) ?: emptyList()
+                } else if (response.code == 404) {
+                    println("📧 Subscribers file not found in GitHub (this is normal for first run)")
+                    emptyList()
+                } else {
+                    println("❌ Failed to load subscribers from GitHub: ${response.code}")
+                    emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Error loading subscribers from GitHub: ${e.message}")
+            emptyList()
+        }
+    }
+
+    // FIXED: Save subscribers to GitHub instead of local file
     private fun saveSubscribers(subscribers: List<Subscriber>) {
         try {
+            // Always save to GitHub
+            saveSubscribersToGitHub(subscribers)
+            
+            // Also save locally as backup
             subscribersFile.writeText(gson.toJson(subscribers))
+            println("💾 Saved ${subscribers.size} subscribers to both GitHub and local backup")
+            
         } catch (e: Exception) {
-            println("Error saving subscribers: ${e.message}")
+            println("❌ Error saving subscribers: ${e.message}")
+        }
+    }
+
+    // NEW: Save subscribers to GitHub
+    private fun saveSubscribersToGitHub(subscribers: List<Subscriber>) {
+        if (githubToken.isNullOrEmpty()) {
+            println("⚠️ No GitHub token, cannot save subscribers to GitHub")
+            return
+        }
+        
+        try {
+            // Get existing file SHA (if exists)
+            val getRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$subscribersRepoName/contents/$subscribersFilePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            var sha: String? = null
+            client.newCall(getRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    sha = json.getString("sha")
+                    println("📧 Found existing subscribers file in GitHub")
+                } else if (response.code == 404) {
+                    println("📧 Creating new subscribers file in GitHub")
+                } else {
+                    println("⚠️ Unexpected response when checking for existing subscribers file: ${response.code}")
+                }
+            }
+
+            // Upload/update subscribers file
+            val subscribersJson = gson.toJson(subscribers)
+            val base64Content = Base64.getEncoder().encodeToString(subscribersJson.toByteArray())
+            
+            val requestBodyJson = JSONObject()
+            requestBodyJson.put("message", "Update subscribers - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+            requestBodyJson.put("content", base64Content)
+            if (sha != null) {
+                requestBodyJson.put("sha", sha!!)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$subscribersRepoName/contents/$subscribersFilePath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    println("✅ Successfully saved ${subscribers.size} subscribers to GitHub")
+                } else {
+                    println("❌ Failed to save subscribers to GitHub: ${response.code}")
+                    // Print response body for debugging
+                    val errorBody = response.body?.string()
+                    println("❌ Error details: $errorBody")
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Error saving subscribers to GitHub: ${e.message}")
         }
     }
 

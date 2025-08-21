@@ -46,7 +46,10 @@ class TelegramLiveScraper {
     // Target channel (cyprus_control)
     private val channelUsername = "cyprus_control"
     
+    // FIXED: Use GitHub-based storage instead of local files
     private val processedMessagesFile = File("processed_telegram_messages.json")
+    private val githubRepoName = "ainews-website"
+    private val telegramMessagesPath = "data/telegram_messages.json"
     
     fun start() {
         println("🚀 Starting Telegram Monitor for @$channelUsername")
@@ -411,10 +414,12 @@ class TelegramLiveScraper {
                 }
             }
             
-            // Save updated messages with new translations
+            // FIXED: Save updated messages to GitHub AND local backup
+            saveProcessedMessagesToGitHub(recentMessages)
             saveProcessedMessages(recentMessages)
+            
             if (messagesNeedingTranslation.isNotEmpty()) {
-                println("💾 Saved ${messagesNeedingTranslation.size} updated message translations")
+                println("💾 Saved ${messagesNeedingTranslation.size} updated message translations to GitHub and local backup")
             }
             
             // Show last 30 messages on website
@@ -430,24 +435,143 @@ class TelegramLiveScraper {
         }
     }
     
+    // FIXED: Load messages from GitHub first, then fallback to local
     private fun loadProcessedMessages(): List<TelegramNewsMessage> {
-        return if (processedMessagesFile.exists()) {
-            try {
+        return try {
+            println("📨 Loading processed messages from GitHub...")
+            
+            // Try to load from GitHub first
+            val githubMessages = loadMessagesFromGitHub()
+            if (githubMessages.isNotEmpty()) {
+                println("✅ Loaded ${githubMessages.size} messages from GitHub")
+                return githubMessages
+            }
+            
+            // Fallback to local file
+            println("⚠️ No messages found in GitHub, checking local file...")
+            if (processedMessagesFile.exists()) {
                 val json = processedMessagesFile.readText()
                 val type = object : TypeToken<List<TelegramNewsMessage>>() {}.type
-                gson.fromJson<List<TelegramNewsMessage>>(json, type) ?: emptyList()
-            } catch (e: Exception) {
-                println("Error loading processed messages: ${e.message}")
+                val localMessages = gson.fromJson<List<TelegramNewsMessage>>(json, type) ?: emptyList()
+                
+                if (localMessages.isNotEmpty()) {
+                    println("📤 Migrating ${localMessages.size} local messages to GitHub...")
+                    saveProcessedMessagesToGitHub(localMessages)
+                }
+                
+                localMessages
+            } else {
+                println("📨 No messages found anywhere, starting fresh")
                 emptyList()
             }
-        } else emptyList()
+        } catch (e: Exception) {
+            println("❌ Error loading processed messages: ${e.message}")
+            emptyList()
+        }
+    }
+    
+    // NEW: Load messages from GitHub
+    private fun loadMessagesFromGitHub(): List<TelegramNewsMessage> {
+        if (githubToken.isNullOrEmpty()) {
+            println("⚠️ No GitHub token, cannot load messages from GitHub")
+            return emptyList()
+        }
+        
+        return try {
+            val request = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$githubRepoName/contents/$telegramMessagesPath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    val base64Content = json.getString("content")
+                    val decodedContent = String(Base64.getDecoder().decode(base64Content.replace("\n", "")))
+                    
+                    val type = object : TypeToken<List<TelegramNewsMessage>>() {}.type
+                    gson.fromJson<List<TelegramNewsMessage>>(decodedContent, type) ?: emptyList()
+                } else if (response.code == 404) {
+                    println("📨 Messages file not found in GitHub (this is normal for first run)")
+                    emptyList()
+                } else {
+                    println("❌ Failed to load messages from GitHub: ${response.code}")
+                    emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Error loading messages from GitHub: ${e.message}")
+            emptyList()
+        }
+    }
+    
+    // NEW: Save messages to GitHub
+    private fun saveProcessedMessagesToGitHub(messages: List<TelegramNewsMessage>) {
+        if (githubToken.isNullOrEmpty()) {
+            println("⚠️ No GitHub token, cannot save messages to GitHub")
+            return
+        }
+        
+        try {
+            // Get existing file SHA (if exists)
+            val getRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$githubRepoName/contents/$telegramMessagesPath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Accept", "application/vnd.github.v3+json")
+                .build()
+
+            var sha: String? = null
+            client.newCall(getRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    sha = json.getString("sha")
+                    println("📨 Found existing messages file in GitHub")
+                } else if (response.code == 404) {
+                    println("📨 Creating new messages file in GitHub")
+                } else {
+                    println("⚠️ Unexpected response when checking for existing messages file: ${response.code}")
+                }
+            }
+
+            // Upload/update messages file
+            val messagesJson = gson.toJson(messages)
+            val base64Content = Base64.getEncoder().encodeToString(messagesJson.toByteArray())
+            
+            val requestBodyJson = JSONObject()
+            requestBodyJson.put("message", "Update telegram messages - ${SimpleDateFormat("yyyy-MM-dd HH:mm").format(Date())}")
+            requestBodyJson.put("content", base64Content)
+            if (sha != null) {
+                requestBodyJson.put("sha", sha!!)
+            }
+
+            val putRequest = Request.Builder()
+                .url("https://api.github.com/repos/LiorR2389/$githubRepoName/contents/$telegramMessagesPath")
+                .addHeader("Authorization", "token $githubToken")
+                .addHeader("Content-Type", "application/json")
+                .put(requestBodyJson.toString().toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(putRequest).execute().use { response ->
+                if (response.isSuccessful) {
+                    println("✅ Successfully saved ${messages.size} messages to GitHub")
+                } else {
+                    println("❌ Failed to save messages to GitHub: ${response.code}")
+                    // Print response body for debugging
+                    val errorBody = response.body?.string()
+                    println("❌ Error details: $errorBody")
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Error saving messages to GitHub: ${e.message}")
+        }
     }
     
     private fun saveProcessedMessages(messages: List<TelegramNewsMessage>) {
         try {
             processedMessagesFile.writeText(gson.toJson(messages))
         } catch (e: Exception) {
-            println("Error saving processed messages: ${e.message}")
+            println("Error saving processed messages locally: ${e.message}")
         }
     }
     
@@ -616,7 +740,6 @@ class TelegramLiveScraper {
             transform: translateY(-2px);
         }
         
-        /* FIXED: Added missing lang-buttons CSS */
         .lang-buttons { 
             text-align: center; 
             margin: 30px 0; 
@@ -647,7 +770,6 @@ class TelegramLiveScraper {
             background: #764ba2; 
         }
         
-        /* FIXED: Proper language visibility control */
         .lang { display: none; }
         .lang.active { display: block; }
         
@@ -793,7 +915,7 @@ class TelegramLiveScraper {
                 padding: 12px;
                 font-size: 1rem;
             }
-            .stats { grid-template-columns: repeat(1, 1fr); }
+            .stats { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -828,13 +950,25 @@ class TelegramLiveScraper {
             <div class="stat-number">${recentMessages.size}</div>
             <div class="stat-label">Recent Messages</div>
         </div>
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.count { it.isBreaking }}</div>
+            <div class="stat-label">Breaking News</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">${recentMessages.count { it.priority == 1 }}</div>
+            <div class="stat-label">Urgent Updates</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">10 min</div>
+            <div class="stat-label">Update Frequency</div>
+        </div>
     </div>
 
     $messagesHtml
 
     <div class="footer">
         <p>🤖 <strong>Automated Live Monitoring</strong></p>
-        <p>• Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
+        <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
             This page automatically refreshes every 5 minutes<br>
