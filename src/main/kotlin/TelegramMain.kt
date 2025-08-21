@@ -391,30 +391,22 @@ private fun translateText(text: String, targetLanguage: String, sourceLanguage: 
         }
     }
 
-    // Try translating from the specified source language first
+    // Skip translation if same language
+    if ((sourceLanguage == "Russian" && targetLanguage == "Russian") ||
+        (sourceLanguage == "English" && targetLanguage == "English")) {
+        return text
+    }
+
+    // Add rate limiting delay
+    Thread.sleep(1500) // 1.5 second delay between requests
+    
     val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
     
-    // FIXED: Better detection of translation failures
+    // Better detection of translation failures
     val translationFailed = isTranslationFailure(translation, text, targetLanguage)
     
-    // If translation failed and we haven't tried English yet, try English as fallback
-    if (translationFailed && sourceLanguage != "English") {
-        println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
-        val englishTranslation = attemptTranslation(text, targetLanguage, "English")
-        
-        val englishFailed = isTranslationFailure(englishTranslation, text, targetLanguage)
-        
-        if (!englishFailed) {
-            println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
-            return englishTranslation
-        } else {
-            println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
-        }
-    }
-    
-    // If all else fails, return a proper fallback message
     if (translationFailed) {
-        println("❌ All translation attempts failed for target: $targetLanguage")
+        println("❌ Translation failed for $sourceLanguage->$targetLanguage")
         return when (targetLanguage) {
             "English" -> "Translation unavailable"
             "Hebrew" -> "תרגום לא זמין"
@@ -427,7 +419,6 @@ private fun translateText(text: String, targetLanguage: String, sourceLanguage: 
     return translation
 }
 
-// NEW: More accurate translation failure detection
 private fun isTranslationFailure(translation: String, originalText: String, targetLanguage: String): Boolean {
     // Don't consider it a failure if translation equals original for same-language translation
     if (targetLanguage == "Russian" && translation == originalText) {
@@ -443,7 +434,8 @@ private fun isTranslationFailure(translation: String, originalText: String, targ
         "Unable to translate",
         "Cannot translate",
         "Translation error",
-        "Error translating"
+        "Error translating",
+        "API request failed"
     )
     
     val translationLower = translation.lowercase()
@@ -464,137 +456,179 @@ private fun isTranslationFailure(translation: String, originalText: String, targ
     // 2. Is a known fallback message
     // 3. Is too short (less than 10 characters) and not intentionally short
     // 4. Is empty or blank
+    // 5. Is identical to original when it shouldn't be
     val tooShort = translation.length < 10 && originalText.length > 20
+    val identicalWhenShouldntBe = translation == originalText && targetLanguage != "Russian"
     
-    return hasFailureIndicator || isKnownFallback || tooShort || translation.isBlank()
+    return hasFailureIndicator || isKnownFallback || tooShort || translation.isBlank() || identicalWhenShouldntBe
 }
 
-// UPDATED: Better translation attempt with improved prompts
 private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
     return try {
-        // More specific system prompt based on source language
-        val systemPrompt = when (sourceLanguage) {
-            "Russian" -> "You are a professional Russian-to-$targetLanguage translator. Translate the following Russian text to $targetLanguage. Provide ONLY the translation, no explanations."
-            "English" -> "You are a professional English-to-$targetLanguage translator. Translate the following English text to $targetLanguage. Provide ONLY the translation, no explanations."
-            else -> "You are a professional translator. Translate the following $sourceLanguage text to $targetLanguage. Provide ONLY the translation, no explanations."
+        // Clean and validate input text
+        val cleanText = text.trim()
+        if (cleanText.isEmpty() || cleanText.length > 4000) {
+            println("⚠️ Text too long or empty, skipping translation")
+            return text
         }
 
-        val userPrompt = "Translate this text: $text"
+        // More specific system prompt
+        val systemPrompt = when (targetLanguage) {
+            "English" -> "You are a professional Russian-to-English translator. Translate the Russian text to natural, fluent English. Preserve emojis and formatting. Respond only with the translation."
+            "Hebrew" -> "You are a professional Russian-to-Hebrew translator. Translate the Russian text to natural, fluent Hebrew. Preserve emojis and formatting. Respond only with the Hebrew translation."
+            "Greek" -> "You are a professional Russian-to-Greek translator. Translate the Russian text to natural, fluent Greek. Preserve emojis and formatting. Respond only with the Greek translation."
+            else -> "You are a professional translator. Translate from $sourceLanguage to $targetLanguage. Preserve emojis and formatting. Respond only with the translation."
+        }
 
-        val requestBody = """{
-  "model": "gpt-4o-mini",
-  "messages": [
-    {"role": "system", "content": "$systemPrompt"},
-    {"role": "user", "content": "$userPrompt"}
-  ],
-  "temperature": 0.1,
-  "max_tokens": 400
-}"""
+        val userPrompt = "Translate this text: $cleanText"
+
+        // Fixed JSON structure
+        val requestBody = JSONObject().apply {
+            put("model", "gpt-4o-mini")
+            put("messages", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", systemPrompt)
+                })
+                put(JSONObject().apply {
+                    put("role", "user") 
+                    put("content", userPrompt)
+                })
+            })
+            put("temperature", 0.1)
+            put("max_tokens", 500)
+        }
 
         val request = Request.Builder()
             .url("https://api.openai.com/v1/chat/completions")
             .addHeader("Authorization", "Bearer $openAiApiKey")
             .addHeader("Content-Type", "application/json")
-            .post(requestBody.toRequestBody("application/json".toMediaType()))
+            .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
         client.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
-                val json = JSONObject(response.body?.string())
-                val translation = json.getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-                
-                println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
-                translation
+            val responseBody = response.body?.string()
+            
+            if (response.isSuccessful && responseBody != null) {
+                try {
+                    val json = JSONObject(responseBody)
+                    val translation = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                        .trim()
+                    
+                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
+                    return translation
+                } catch (e: Exception) {
+                    println("❌ Error parsing translation response: ${e.message}")
+                    return text
+                }
             } else {
                 println("❌ Translation API failed with code: ${response.code}")
-                text
+                if (responseBody != null) {
+                    println("❌ Error response: ${responseBody.take(200)}")
+                }
+                
+                // Handle rate limiting with exponential backoff
+                if (response.code == 429) {
+                    println("⏰ Rate limited, adding longer delay...")
+                    Thread.sleep(5000) // 5 second delay for rate limiting
+                }
+                
+                return text
             }
         }
     } catch (e: Exception) {
         println("❌ Translation error for $sourceLanguage->$targetLanguage: ${e.message}")
-        text
+        return text
     }
 }
-    
-    private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
-        try {
-            println("🔥 Processing ${newMessages.size} new messages...")
+
+// UPDATED: Reduce translation load to prevent rate limiting
+private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
+    try {
+        println("🔥 Processing ${newMessages.size} new messages...")
+        
+        // Add to processed messages
+        val processedMessages = loadProcessedMessages().toMutableList()
+        processedMessages.addAll(newMessages)
+        
+        // Keep last 3-4 days of messages
+        val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
+        
+        // HEAVILY REDUCED: Only translate 1-2 most recent messages to avoid rate limiting
+        val messagesNeedingTranslation = recentMessages.filter { message ->
+            val hasValidTranslations = message.translations?.let { translations ->
+                translations["en"]?.let { en ->
+                    en.isNotEmpty() && 
+                    en != "English translation unavailable" &&
+                    en != "Translation unavailable" &&
+                    !en.contains("translation unavailable") &&
+                    !en.contains("Translation pending") &&
+                    en.length > 10
+                } == true
+            } ?: false
             
-            // Add to processed messages
-            val processedMessages = loadProcessedMessages().toMutableList()
-            processedMessages.addAll(newMessages)
-            
-            // Keep last 3-4 days of messages
-            val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
-            
-            // REDUCED: Limit translations to prevent rate limiting
-            val messagesNeedingTranslation = recentMessages.filter { message ->
-                val hasValidTranslations = message.translations?.let { translations ->
-                    translations["en"]?.let { en ->
-                        en.isNotEmpty() && 
-                        en != "English translation unavailable" &&
-                        en != "Translation unavailable" &&
-                        !en.contains("translation unavailable") &&
-                        !en.contains("Translation pending") &&
-                        en.length > 10
-                    } == true
-                } ?: false
+            !hasValidTranslations
+        }.take(1) // REDUCED: Only 1 message per run to avoid rate limits
+        
+        println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
+        
+        // Update translations for messages that need them
+        messagesNeedingTranslation.forEach { oldMessage ->
+            try {
+                println("🔄 Updating translations for message: '${oldMessage.text.take(50)}...'")
                 
-                !hasValidTranslations
-            }.take(10) // REDUCED: Only 2 messages per run instead of 5
-            
-            println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
-            
-            // Update translations for messages that need them
-            messagesNeedingTranslation.forEach { oldMessage ->
-                try {
-                    println("🔄 Updating translations for message: '${oldMessage.text.take(50)}...'")
-                    
-                    val updatedTranslations = mapOf(
-                        "en" to translateText(oldMessage.text, "English", "Russian"),
-                        "he" to translateText(oldMessage.text, "Hebrew", "Russian"),
-                        "ru" to oldMessage.text, // Keep original Russian
-                        "el" to translateText(oldMessage.text, "Greek", "Russian")
-                    )
-                    
-                    // Update the message in the list
-                    val messageIndex = recentMessages.indexOfFirst { it.messageId == oldMessage.messageId }
-                    if (messageIndex != -1) {
-                        val updatedMessage = oldMessage.copy(translations = updatedTranslations)
-                        recentMessages[messageIndex] = updatedMessage
-                        println("✅ Updated translations for message ID: ${oldMessage.messageId}")
-                    }
-                    
-                    // Small delay to avoid API rate limits
-                    Thread.sleep(1000)
-                } catch (e: Exception) {
-                    println("⚠️ Failed to update translation for message: ${e.message}")
+                // Translate one language at a time with delays
+                val englishTranslation = translateText(oldMessage.text, "English", "Russian")
+                Thread.sleep(2000) // 2 second delay
+                
+                val hebrewTranslation = translateText(oldMessage.text, "Hebrew", "Russian") 
+                Thread.sleep(2000) // 2 second delay
+                
+                val greekTranslation = translateText(oldMessage.text, "Greek", "Russian")
+                
+                val updatedTranslations = mapOf(
+                    "en" to englishTranslation,
+                    "he" to hebrewTranslation,
+                    "ru" to oldMessage.text, // Keep original Russian
+                    "el" to greekTranslation
+                )
+                
+                // Update the message in the list
+                val messageIndex = recentMessages.indexOfFirst { it.messageId == oldMessage.messageId }
+                if (messageIndex != -1) {
+                    val updatedMessage = oldMessage.copy(translations = updatedTranslations)
+                    recentMessages[messageIndex] = updatedMessage
+                    println("✅ Updated translations for message ID: ${oldMessage.messageId}")
                 }
+                
+                // Longer delay between messages
+                Thread.sleep(3000) // 3 second delay between messages
+            } catch (e: Exception) {
+                println("⚠️ Failed to update translation for message: ${e.message}")
             }
-            
-            // Save updated messages with new translations
-            saveProcessedMessages(recentMessages)
-            if (messagesNeedingTranslation.isNotEmpty()) {
-                println("💾 Saved ${messagesNeedingTranslation.size} updated message translations")
-            }
-            
-            // Show last 30 messages on website
-            updateLiveWebsite(recentMessages.take(30))
-            
-            // Upload to GitHub Pages
-            uploadToGitHub()
-            
-            println("✅ Messages processed and website updated")
-            
-        } catch (e: Exception) {
-            println("❌ Error processing messages: ${e.message}")
         }
+        
+        // Save updated messages with new translations
+        saveProcessedMessages(recentMessages)
+        if (messagesNeedingTranslation.isNotEmpty()) {
+            println("💾 Saved ${messagesNeedingTranslation.size} updated message translations")
+        }
+        
+        // Show last 30 messages on website
+        updateLiveWebsite(recentMessages.take(30))
+        
+        // Upload to GitHub Pages
+        uploadToGitHub()
+        
+        println("✅ Messages processed and website updated")
+        
+    } catch (e: Exception) {
+        println("❌ Error processing messages: ${e.message}")
     }
-    
+}
     private fun loadProcessedMessages(): List<TelegramNewsMessage> {
         return if (processedMessagesFile.exists()) {
             try {
