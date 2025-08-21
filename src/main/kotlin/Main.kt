@@ -113,14 +113,15 @@ class AINewsSystem {
             getDefaultCyprusSources()
         }
     }
+
     fun processFormspreeEmails() {
-    println("📧 Email processing temporarily disabled")
-    // Placeholder function
+        println("📧 Email processing temporarily disabled")
+        // Placeholder function
     }
 
     fun checkAndImportWebSubscriptions() {
-    println("📧 Web subscription import temporarily disabled")
-    // Placeholder function
+        println("📧 Web subscription import temporarily disabled")
+        // Placeholder function
     }
 
     // NEW: Create default sources configuration file
@@ -392,207 +393,139 @@ class AINewsSystem {
         }
     }
 
-private fun extractFirstParagraph(articleUrl: String, source: Source): String {
-    return try {
-        val doc = fetchPage(articleUrl)
-        if (doc != null) {
-            // Try each paragraph selector from the source configuration
-            for (selector in source.paragraphSelectors) {
-                val paragraphElements = doc.select(selector)
+    private fun extractFirstParagraph(articleUrl: String, source: Source): String {
+        return try {
+            val doc = fetchPage(articleUrl)
+            if (doc != null) {
+                // Try each paragraph selector from the source configuration
+                for (selector in source.paragraphSelectors) {
+                    val paragraphElements = doc.select(selector)
+                    
+                    // Try multiple paragraphs in case first one is empty/short
+                    for (element in paragraphElements.take(3)) {
+                        val text = element.text().trim()
+                        if (text.isNotEmpty() && text.length > 50) {
+                            return cleanParagraphText(text)
+                        }
+                    }
+                }
                 
-                // Try multiple paragraphs in case first one is empty/short
-                for (element in paragraphElements.take(3)) {
+                // Fallback: try any paragraph with substantial content
+                val fallbackParagraphs = doc.select("p")
+                for (element in fallbackParagraphs.take(10)) {
                     val text = element.text().trim()
-                    if (text.isNotEmpty() && text.length > 50) {
+                    if (text.isNotEmpty() && text.length > 80 && !text.contains("cookie", ignoreCase = true)) {
                         return cleanParagraphText(text)
                     }
                 }
             }
-            
-            // Fallback: try any paragraph with substantial content
-            val fallbackParagraphs = doc.select("p")
-            for (element in fallbackParagraphs.take(10)) {
-                val text = element.text().trim()
-                if (text.isNotEmpty() && text.length > 80 && !text.contains("cookie", ignoreCase = true)) {
-                    return cleanParagraphText(text)
-                }
+            ""
+        } catch (e: Exception) {
+            println("Error extracting paragraph from $articleUrl: ${e.message}")
+            ""
+        }
+    }
+
+    private fun cleanParagraphText(text: String): String {
+        return text
+            .replace(Regex("\\s+"), " ") 
+            .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA|ATHENS|THESSALONIKI|TEL AVIV|JERUSALEM|HAIFA|GAZA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
+            .replace(Regex("^(Reuters|AP|Bloomberg|AFP|By\\s+\\w+)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
+            .replace(Regex("\\(.*?\\)"), "") 
+            .replace(Regex("\\[.*?\\]"), "") 
+            .replace(Regex("^[\\s\\-•]+"), "") // Remove leading dashes/bullets
+            .trim()
+            .take(400) // Increased from 300 to 400 for better summaries
+            .let { if (it.length == 400) "$it..." else it }
+    }
+
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
+        if (openAiApiKey.isNullOrEmpty()) {
+            return when (targetLanguage) {
+                "Hebrew" -> "כותרת בעברית"
+                "Russian" -> "Заголовок на русском"
+                "Greek" -> "Τίτλος στα ελληνικά"
+                else -> text
             }
         }
-        ""
-    } catch (e: Exception) {
-        println("Error extracting paragraph from $articleUrl: ${e.message}")
-        ""
-    }
-}
 
-private fun cleanParagraphText(text: String): String {
-    return text
-        .replace(Regex("\\s+"), " ") 
-        .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA|ATHENS|THESSALONIKI|TEL AVIV|JERUSALEM|HAIFA|GAZA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
-        .replace(Regex("^(Reuters|AP|Bloomberg|AFP|By\\s+\\w+)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
-        .replace(Regex("\\(.*?\\)"), "") 
-        .replace(Regex("\\[.*?\\]"), "") 
-        .replace(Regex("^[\\s\\-•]+"), "") // Remove leading dashes/bullets
-        .trim()
-        .take(400) // Increased from 300 to 400 for better summaries
-        .let { if (it.length == 400) "$it..." else it }
-}
-// ADD this to your Main.kt file - REPLACE your translateText function:
+        // Check cache first
+        val cache = loadTranslationCache()
+        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
+        
+        if (cache.containsKey(cacheKey)) {
+            println("✅ Using cached translation for: ${text.take(50)}...")
+            return cache[cacheKey]!!
+        }
 
-private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
-    if (openAiApiKey.isNullOrEmpty()) {
-        return when (targetLanguage) {
-            "Hebrew" -> "כותרת בעברית"
-            "Russian" -> "Заголовок на русском"
-            "Greek" -> "Τίτλος στα ελληνικά"
+        // RATE LIMITING: Add delays between API calls
+        val lastApiCallFile = File("last_api_call.txt")
+        if (lastApiCallFile.exists()) {
+            try {
+                val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
+                val timeSinceLastCall = System.currentTimeMillis() - lastCall
+                val minimumDelay = 2000L // 2 seconds between calls
+                
+                if (timeSinceLastCall < minimumDelay) {
+                    val waitTime = minimumDelay - timeSinceLastCall
+                    println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
+                    Thread.sleep(waitTime)
+                }
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
+        }
+
+        // Try translating with retry logic
+        var retryCount = 0
+        val maxRetries = 3
+        
+        while (retryCount < maxRetries) {
+            val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+            
+            // Check if we got rate limited
+            if (translation.contains("rate limit") || translation == text) {
+                retryCount++
+                if (retryCount < maxRetries) {
+                    val backoffDelay = (retryCount * 5000L) // 5s, 10s, 15s
+                    println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
+                    Thread.sleep(backoffDelay)
+                    continue
+                } else {
+                    println("❌ Max retries reached for $targetLanguage translation")
+                    break
+                }
+            }
+            
+            // Save timestamp of successful call
+            try {
+                lastApiCallFile.writeText(System.currentTimeMillis().toString())
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
+            
+            // Cache successful translation
+            cache[cacheKey] = translation
+            saveTranslationCache(cache)
+            
+            return translation
+        }
+        
+        // Fallback if all retries failed
+        val fallbackResult = when (targetLanguage) {
+            "Hebrew" -> "תרגום נכשל - חריגה ממגבלת קצב"
+            "Russian" -> "Перевод не удался - превышен лимит скорости"
+            "Greek" -> "Η μετάφραση απέτυχε - υπέρβαση ορίου ρυθμού"
             else -> text
         }
-    }
-
-    // Check cache first
-    val cache = loadTranslationCache()
-    val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
-    
-    if (cache.containsKey(cacheKey)) {
-        println("✅ Using cached translation for: ${text.take(50)}...")
-        return cache[cacheKey]!!
-    }
-
-    // RATE LIMITING: Add delays between API calls
-    val lastApiCallFile = File("last_api_call.txt")
-    if (lastApiCallFile.exists()) {
-        try {
-            val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
-            val timeSinceLastCall = System.currentTimeMillis() - lastCall
-            val minimumDelay = 2000L // 2 seconds between calls
-            
-            if (timeSinceLastCall < minimumDelay) {
-                val waitTime = minimumDelay - timeSinceLastCall
-                println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
-                Thread.sleep(waitTime)
-            }
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
-    }
-
-    // Try translating with retry logic
-    var retryCount = 0
-    val maxRetries = 3
-    
-    while (retryCount < maxRetries) {
-        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
         
-        // Check if we got rate limited
-        if (translation.contains("rate limit") || translation == text) {
-            retryCount++
-            if (retryCount < maxRetries) {
-                val backoffDelay = (retryCount * 5000L) // 5s, 10s, 15s
-                println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
-                Thread.sleep(backoffDelay)
-                continue
-            } else {
-                println("❌ Max retries reached for $targetLanguage translation")
-                break
-            }
-        }
-        
-        // Save timestamp of successful call
-        try {
-            lastApiCallFile.writeText(System.currentTimeMillis().toString())
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
-        
-        // Cache successful translation
-        cache[cacheKey] = translation
+        // Cache the fallback to avoid repeated failures
+        cache[cacheKey] = fallbackResult
         saveTranslationCache(cache)
         
-        return translation
+        return fallbackResult
     }
-    
-    // Fallback if all retries failed
-    val fallbackResult = when (targetLanguage) {
-        "Hebrew" -> "תרגום נכשל - חריגה ממגבלת קצב"
-        "Russian" -> "Перевод не удался - превышен лимит скорости"
-        "Greek" -> "Η μετάφραση απέτυχε - υπέρβαση ορίου ρυθμού"
-        else -> text
-    }
-    
-    // Cache the fallback to avoid repeated failures
-    cache[cacheKey] = fallbackResult
-    saveTranslationCache(cache)
-    
-    return fallbackResult
-}
 
-// REPLACE your attemptTranslation function with this improved version:
-
-private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
-    return try {
-        val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
-
-        val userPrompt = when (sourceLanguage.lowercase()) {
-            "hebrew" -> "Translate this Hebrew text to $targetLanguage: $text"
-            "russian" -> "Translate this Russian text to $targetLanguage: $text"
-            "greek" -> "Translate this Greek text to $targetLanguage: $text"
-            else -> "Translate this $sourceLanguage text to $targetLanguage: $text"
-        }
-
-        val requestBody = """
-            {
-              "model": "gpt-4o-mini",
-              "messages": [
-                {"role": "system", "content": "$systemPrompt"},
-                {"role": "user", "content": "$userPrompt"}
-              ],
-              "temperature": 0.0,
-              "max_tokens": 150
-            }
-        """.trimIndent()
-
-        val request = Request.Builder()
-            .url("https://api.openai.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer $openAiApiKey")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            when (response.code) {
-                200 -> {
-                    val json = JSONObject(response.body?.string())
-                    val translation = json.getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                        .trim()
-                    
-                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
-                    translation
-                }
-                429 -> {
-                    println("❌ Translation API failed with code: 429 (Rate Limited)")
-                    "RATE_LIMITED" // Special marker for rate limiting
-                }
-                else -> {
-                    println("❌ Translation API failed with code: ${response.code}")
-                    text
-                }
-            }
-        }
-    } catch (e: Exception) {
-        println("❌ Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
-        text
-    }
-}
-
-// ADD this optimization to your aggregateNews function:
-
-fun aggregateNews(): List<Article> {
-    println("📰 Starting multi-country news aggregation...")
-    val seen = loadSeenArticles()
-    val allArticles = mutableListOf<Arti
     // FIXED: Enhanced translation attempt with clearer prompts
     private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
@@ -753,22 +686,22 @@ fun aggregateNews(): List<Article> {
         return articles.distinctBy { it.url }
     }
 
-private fun generateFallbackSummary(title: String): String {
-    // Use full title instead of filtering words
-    return when {
-        title.length <= 150 -> title // Use title as-is if reasonable length
-        else -> {
-            // For long titles, truncate at word boundary
-            val truncated = title.take(150)
-            val lastSpace = truncated.lastIndexOf(' ')
-            if (lastSpace > 100) {
-                truncated.substring(0, lastSpace) + "..."
-            } else {
-                truncated + "..."
+    private fun generateFallbackSummary(title: String): String {
+        // Use full title instead of filtering words
+        return when {
+            title.length <= 150 -> title // Use title as-is if reasonable length
+            else -> {
+                // For long titles, truncate at word boundary
+                val truncated = title.take(150)
+                val lastSpace = truncated.lastIndexOf(' ')
+                if (lastSpace > 100) {
+                    truncated.substring(0, lastSpace) + "..."
+                } else {
+                    truncated + "..."
+                }
             }
         }
     }
-}
 
     // UPDATED: Aggregate news from all configured sources
     fun aggregateNews(): List<Article> {
@@ -1724,98 +1657,6 @@ private fun generateFallbackSummary(title: String): String {
         }
     }
 
-    fun processFormspreeEmails() {
-        println("📧 Checking for new Formspree subscription emails...")
-
-        if (emailPassword.isNullOrEmpty()) {
-            println("⚠️ Email processing disabled - no email password configured")
-            return
-        }
-
-        try {
-            val props = Properties().apply {
-                put("mail.store.protocol", "imaps")
-                put("mail.imaps.host", "imap.gmail.com")
-                put("mail.imaps.port", "993")
-                put("mail.imaps.ssl.enable", "true")
-            }
-
-            val session = Session.getInstance(props)
-            val store = session.getStore("imaps")
-            store.connect(fromEmail, emailPassword)
-
-            val inbox = store.getFolder("INBOX")
-            inbox.open(Folder.READ_WRITE)
-
-            val searchTerm = AndTerm(
-                FromTerm(InternetAddress("noreply@formspree.io")),
-                FlagTerm(Flags(Flags.Flag.SEEN), false)
-            )
-
-            val messages = inbox.search(searchTerm)
-            println("📬 Found ${messages.size} unread Formspree emails")
-
-            messages.forEach { message ->
-                try {
-                    val content = extractEmailContent(message)
-                    val subject = message.subject
-                    println("📋 Processing email - Subject: $subject")
-
-                    if (subject.contains("AI News", ignoreCase = true) && subject.contains("Subscription", ignoreCase = true)) {
-                        println("✅ Valid subscription email found")
-
-                        val emailMatch = Regex("email:\\s*\\n\\s*([^\\s\\n\\r]+@[^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val nameMatch = Regex("name:\\s*\\n\\s*([^\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val langMatch = Regex("languages:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-                        val countryMatch = Regex("countries:\\s*\\n\\s*([^\\s\\n\\r]+)", RegexOption.IGNORE_CASE).find(content)
-
-                        if (emailMatch != null) {
-                            val email = emailMatch.groupValues[1].trim()
-                            val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() && it != " " }
-                            val languages = langMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("en")
-                            val countries = countryMatch?.groupValues?.get(1)?.split(";")?.filter { it.isNotEmpty() } ?: listOf("CYPRUS")
-
-                            println("📧 Extracted data - Email: $email, Name: $name, Languages: $languages, Countries: $countries")
-
-                            val currentSubscribers = loadSubscribers().toMutableList()
-                            val existingSubscriber = currentSubscribers.find { it.email == email }
-                            
-                            if (existingSubscriber == null) {
-                                val newSubscriber = Subscriber(
-                                    email = email,
-                                    name = name,
-                                    languages = languages,
-                                    countries = countries,
-                                    subscribed = true,
-                                    subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-                                )
-                                currentSubscribers.add(newSubscriber)
-                                saveSubscribers(currentSubscribers)
-                                println("💾 Saved new subscriber: $email for countries: ${countries.joinToString(", ")}")
-                                
-                                addSubscriberToCSV(email, name, languages, countries)
-                            } else {
-                                println("⚠️ Subscriber $email already exists, skipping")
-                            }
-
-                            message.setFlag(Flags.Flag.SEEN, true)
-                            println("✅ Successfully processed email for: $email")
-                        } else {
-                            println("❌ Could not extract email address from content")
-                        }
-                    }
-                } catch (e: Exception) {
-                    println("❌ Error processing email: ${e.message}")
-                }
-            }
-
-            inbox.close(false)
-            store.close()
-        } catch (e: Exception) {
-            println("❌ Error accessing emails: ${e.message}")
-        }
-    }
-
     private fun addSubscriberToCSV(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
         val csvFile = File("new_subscribers.csv")
         val csvLine = "$email,${name ?: ""},${languages.joinToString(";")},${countries.joinToString(";")}"
@@ -1834,79 +1675,6 @@ private fun generateFallbackSummary(title: String): String {
         } catch (e: Exception) {
             println("❌ Error adding subscriber to CSV: ${e.message}")
         }
-    }
-
-    fun checkAndImportWebSubscriptions() {
-        val csvFile = File("new_subscribers.csv")
-        if (csvFile.exists()) {
-            try {
-                val csvContent = csvFile.readText()
-                val lines = csvContent.split("\n").filter { it.trim().isNotEmpty() }
-
-                val currentSubscribers = loadSubscribers().toMutableList()
-                var newCount = 0
-
-                lines.forEach { line ->
-                    val parts = line.split(",").map { it.trim() }
-                    if (parts.size >= 2) {
-                        val email = parts[0]
-                        val name = if (parts[1].isNotEmpty()) parts[1] else null
-                        val languages = if (parts.size > 2) parts[2].split(";") else listOf("en")
-                        val countries = if (parts.size > 3) parts[3].split(";") else listOf("CYPRUS")
-
-                        val existing = currentSubscribers.find { it.email == email }
-                        if (existing == null) {
-                            currentSubscribers.add(Subscriber(
-                                email = email,
-                                name = name,
-                                languages = languages,
-                                countries = countries,
-                                subscribed = true,
-                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-                            ))
-                            newCount++
-                            println("📧 Added subscriber from CSV: $email for ${countries.joinToString(", ")}")
-                        }
-                    }
-                }
-
-                if (newCount > 0) {
-                    saveSubscribers(currentSubscribers)
-                    csvFile.renameTo(File("processed_subscribers_${SimpleDateFormat("yyyyMMdd_HHmmss").format(Date())}.csv"))
-                    println("📧 Added $newCount new subscribers from CSV")
-                }
-
-            } catch (e: Exception) {
-                println("Error processing CSV: ${e.message}")
-            }
-        }
-    }
-
-    fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
-        val subscribers = loadSubscribers().filter { it.subscribed }
-
-        if (subscribers.isEmpty()) {
-            println("📧 No subscribers to notify")
-            return
-        }
-
-        if (emailPassword.isNullOrEmpty()) {
-            println("📧 Email notifications disabled - no password configured")
-            return
-        }
-
-        println("📧 Sending notifications to ${subscribers.size} subscribers...")
-        
-        subscribers.forEach { subscriber ->
-            try {
-                sendEmailNotification(subscriber, articles, websiteUrl)
-                println("✅ Email sent to ${subscriber.email}")
-                Thread.sleep(1000)
-            } catch (e: Exception) {
-                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
-            }
-        }
-        println("✅ Finished sending notifications")
     }
 
     private fun sendEmailNotification(subscriber: Subscriber, articles: List<Article>, websiteUrl: String) {
@@ -1951,6 +1719,33 @@ private fun generateFallbackSummary(title: String): String {
         } catch (e: Exception) {
             println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
         }
+    }
+
+    fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
+        val subscribers = loadSubscribers().filter { it.subscribed }
+
+        if (subscribers.isEmpty()) {
+            println("📧 No subscribers to notify")
+            return
+        }
+
+        if (emailPassword.isNullOrEmpty()) {
+            println("📧 Email notifications disabled - no password configured")
+            return
+        }
+
+        println("📧 Sending notifications to ${subscribers.size} subscribers...")
+        
+        subscribers.forEach { subscriber ->
+            try {
+                sendEmailNotification(subscriber, articles, websiteUrl)
+                println("✅ Email sent to ${subscriber.email}")
+                Thread.sleep(1000)
+            } catch (e: Exception) {
+                println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+            }
+        }
+        println("✅ Finished sending notifications")
     }
 
     fun addSubscriber(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
