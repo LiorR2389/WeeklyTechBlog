@@ -1202,7 +1202,7 @@ class AINewsSystem {
             <body>
             <div class="container">
             <div class="header">
-            <div class="logo">🤖 AI News</div>
+            <div class="logo">AI News</div>
             <p>$countryFlag $countryDisplayName Daily Digest • $dayOfWeek, $currentDate</p>
             </div>
 
@@ -1441,7 +1441,7 @@ class AINewsSystem {
             <body>
             <div class="container">
             <div class="header">
-            <div class="logo">🤖 AI News</div>
+            <div class="logo">AI News</div>
             <div class="tagline">Your Multi-Country Daily News Digest</div>
             <p>Automated news aggregation from Cyprus, Israel, and Greece • $dayOfWeek, $currentDate</p>
             <div style="margin-top: 30px;">
@@ -1827,10 +1827,10 @@ class AINewsSystem {
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail, "AI News"))
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-                subject = "🤖 Your Daily News Digest - ${subscriberCountryArticles.size} new stories"
+                subject = "Your Daily News Digest - ${subscriberCountryArticles.size} new stories"
 
                 val htmlContent = """
-                <h1>🤖 AI News</h1>
+                <h1>AI News</h1>
                 <p>Hello ${subscriber.name ?: "there"}!</p>
                 <p>Fresh news updates are available with ${subscriberCountryArticles.size} new articles from ${subscriber.countries.joinToString(", ")}.</p>
                 <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 Read News</a>
@@ -1877,7 +1877,7 @@ class AINewsSystem {
 }
 
 fun main() {
-    println("🤖 Starting AI News Multi-Country Update...")
+    println("Starting AI News Multi-Country Update...")
     
     val system = AINewsSystem()
     
