@@ -36,9 +36,12 @@ data class TelegramNewsMessage(
 class TelegramLiveScraper {
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .retryOnConnectionFailure(true)
         .build()
     
     private val githubToken = System.getenv("GITHUB_TOKEN")
@@ -90,72 +93,117 @@ class TelegramLiveScraper {
         }
     }
     
-    private fun checkForNewMessages(): List<TelegramNewsMessage> {
-        try {
-            println("🔍 Checking @$channelUsername for new messages...")
-            
-            // Use web scraping approach for public channels
-            return scrapePublicChannel()
-            
-        } catch (e: Exception) {
-            println("❌ Error checking messages: ${e.message}")
-            return emptyList()
+private fun checkForNewMessages(): List<TelegramNewsMessage> {
+    try {
+        println("🔍 Checking @$channelUsername for new messages...")
+        
+        val newMessages = scrapePublicChannel()
+        
+        // If scraping failed, use fallback
+        if (newMessages.isEmpty()) {
+            val processedMessages = loadProcessedMessages()
+            if (processedMessages.isNotEmpty()) {
+                println("🔄 No new messages found, using cached data for live page")
+                val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(30)
+                updateLiveWebsite(recentMessages)
+                uploadToGitHub()
+            }
         }
+        
+        return newMessages
+        
+    } catch (e: Exception) {
+        println("❌ Error checking messages: ${e.message}")
+        return handleRateLimiting()
     }
+}
     
     private fun scrapePublicChannel(): List<TelegramNewsMessage> {
-        try {
-            println("🔍 Fetching channel page...")
-            val channelUrl = "https://t.me/s/$channelUsername"
-            
-            val request = Request.Builder()
-                .url(channelUrl)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-                .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-                .addHeader("Accept-Language", "en-US,en;q=0.5")
-                .addHeader("Accept-Encoding", "gzip, deflate")
-                .addHeader("DNT", "1")
-                .addHeader("Connection", "keep-alive")
-                .addHeader("Upgrade-Insecure-Requests", "1")
-                .build()
-            
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    println("❌ HTTP error: ${response.code} - ${response.message}")
-                    return emptyList()
-                }
-                
-                val html = response.body?.string() ?: ""
-                println("✅ HTML fetched: ${html.length} chars")
-                
-                // Save HTML for debugging (optional)
-                try {
-                    File("debug_telegram.html").writeText(html.take(50000)) // Save first 50KB only
-                    println("🔍 Saved HTML sample to debug_telegram.html")
-                } catch (e: Exception) {
-                    // Ignore file save errors
-                }
-                
-                // Parse messages from HTML
-                val messages = parseChannelMessages(html)
-                
-                // Filter only new messages
-                val processedMessages = loadProcessedMessages()
-                val processedIds = processedMessages.map { it.messageId }.toSet()
-                
-                val newMessages = messages.filter { it.messageId !in processedIds }
-                
-                println("📊 Found ${messages.size} total messages, ${newMessages.size} new")
-                
-                return newMessages
+    try {
+        println("🔍 Fetching channel page...")
+        
+        // Add random delay to avoid rate limiting
+        val randomDelay = (2000..5000).random()
+        println("⏰ Waiting ${randomDelay}ms to avoid rate limiting...")
+        Thread.sleep(randomDelay.toLong())
+        
+        val channelUrl = "https://t.me/s/$channelUsername"
+        
+        val request = Request.Builder()
+            .url(channelUrl)
+            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
+            .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+            .addHeader("Accept-Language", "en-US,en;q=0.9")
+            .addHeader("Accept-Encoding", "gzip, deflate, br")
+            .addHeader("Cache-Control", "no-cache")
+            .addHeader("Pragma", "no-cache")
+            .addHeader("Sec-Ch-Ua", "\"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"")
+            .addHeader("Sec-Ch-Ua-Mobile", "?0")
+            .addHeader("Sec-Ch-Ua-Platform", "\"Windows\"")
+            .addHeader("Sec-Fetch-Dest", "document")
+            .addHeader("Sec-Fetch-Mode", "navigate")
+            .addHeader("Sec-Fetch-Site", "none")
+            .addHeader("Sec-Fetch-User", "?1")
+            .addHeader("Upgrade-Insecure-Requests", "1")
+            .addHeader("Referer", "https://t.me/")
+            .build()
+        
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                println("❌ HTTP error: ${response.code} - ${response.message}")
+                return emptyList()
             }
             
-        } catch (e: Exception) {
-            println("❌ Error scraping channel: ${e.message}")
-            e.printStackTrace() // Print full stack trace for debugging
-            return emptyList()
+            val html = response.body?.string() ?: ""
+            println("✅ HTML fetched: ${html.length} chars")
+            
+            // Check for rate limiting or blocking
+            if (html.length < 10000) {
+                println("⚠️ Suspiciously small HTML response - might be rate limited")
+                println("🔍 Response headers: ${response.headers}")
+            }
+            
+            // Check for Telegram's rate limiting page
+            if (html.contains("Too Many Requests") || html.contains("429") || html.contains("rate limit")) {
+                println("⚠️ Rate limited by Telegram - backing off")
+                return emptyList()
+            }
+            
+            // Save HTML for debugging
+            try {
+                val debugContent = if (html.length > 50000) html.take(50000) else html
+                File("debug_telegram.html").writeText(debugContent)
+                println("🔍 Saved HTML sample to debug_telegram.html (${debugContent.length} chars)")
+            } catch (e: Exception) {
+                println("⚠️ Could not save debug HTML: ${e.message}")
+            }
+            
+            // Check for corrupted data
+            if (html.contains("�") || html.all { it.code < 32 || it.code > 126 }) {
+                println("❌ Received corrupted or binary data")
+                return emptyList()
+            }
+            
+            // Parse messages from HTML
+            val messages = parseChannelMessages(html)
+            
+            // Filter only new messages
+            val processedMessages = loadProcessedMessages()
+            val processedIds = processedMessages.map { it.messageId }.toSet()
+            
+            val newMessages = messages.filter { it.messageId !in processedIds }
+            
+            println("📊 Found ${messages.size} total messages, ${newMessages.size} new")
+            
+            return newMessages
         }
+        
+    } catch (e: Exception) {
+        println("❌ Error scraping channel: ${e.message}")
+        e.printStackTrace()
+        return emptyList()
     }
+}
     
     private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
         println("🔍 Starting HTML parsing...")
