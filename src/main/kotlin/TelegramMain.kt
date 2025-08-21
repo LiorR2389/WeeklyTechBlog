@@ -101,24 +101,16 @@ private fun checkForNewMessages(): List<TelegramNewsMessage> {
     }
 }
     
-private fun scrapePublicChannel(): List<TelegramNewsMessage> {
-    try {
-        println("🔍 Fetching channel page...")
-        val channelUrl = "https://t.me/s/$channelUsername"
-        
-        val request = Request.Builder()
-            .url(channelUrl)
-            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+eader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
             .addHeader("Accept-Language", "en-US,en;q=0.5")
             .addHeader("Accept-Encoding", "gzip, deflate")
             .addHeader("DNT", "1")
             .addHeader("Connection", "keep-alive")
             .addHeader("Upgrade-Insecure-Requests", "1")
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
             .build()
         
+        // Use the existing client with timeouts already configured
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 println("❌ HTTP error: ${response.code} - ${response.message}")
@@ -238,7 +230,14 @@ private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
                 }
                 
                 // Create unique message ID
-                val messageId = generateMessageId(messageText, timestamp, i)
+                private fun generateMessageId(text: String, timestamp: Long, index: Int): Long {
+    // Create a more stable message ID
+    val textHash = text.hashCode().toLong() and 0x7FFFFFFF // Positive hash
+    val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
+    
+    // Combine day + content hash + index for uniqueness
+    return (dayTimestamp * 1000000) + (textHash % 100000) + index
+}
                 
                 println("📝 Message ${i + 1}: ID=$messageId, Date=$messageDate, Text='${messageText.take(50)}...'")
                 
