@@ -412,7 +412,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
                 } ?: false
                 
                 !hasValidTranslations
-            }.take(2) // REDUCED: Only 2 messages per run instead of 5
+            }.take(10) // REDUCED: Only 2 messages per run instead of 5
             
             println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
             
