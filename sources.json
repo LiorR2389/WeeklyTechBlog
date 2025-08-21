@@ -239,15 +239,19 @@
       "sourceName": "Ynet English",
       "baseUrl": "https://www.ynetnews.com/",
       "linkSelectors": [
+        ".slotTitle a",
         ".smallheader a",
         ".art_header_link",
-        "h2 a",
-        ".slotTitle a"
+        "h2 a"
       ],
       "paragraphSelectors": [
-        ".art_header_footer_author p:first-of-type",
-        ".TextView p:first-of-type",
-        ".article-text p:first-of-type"
+        ".TextView p:not(:empty)",
+        ".art_body p:first-of-type",
+        ".article-text p:first-of-type",
+        ".story-text p:first-of-type",
+        "article .content p:first-of-type",
+        ".main-content p:first-of-type",
+        ".art_header_footer_author p:first-of-type"
       ],
       "sourceLanguage": "en",
       "timezone": "Asia/Jerusalem",
@@ -257,17 +261,21 @@
       "country": "ISRAEL",
       "sourceId": "i24news",
       "sourceName": "i24NEWS",
-      "baseUrl": "https://www.i24news.tv/en",
+      "baseUrl": "https://www.i24news.tv/en/news",
       "linkSelectors": [
+        ".article-item h3 a",
+        ".news-item a",
         ".article-title a",
         ".headline a",
         "h2 a",
         ".title a"
       ],
       "paragraphSelectors": [
-        ".article-content p:first-of-type",
-        ".content p:first-of-type",
-        "article p:first-of-type"
+        ".article-content p:not(:empty):first-of-type",
+        ".news-content p:first-of-type",
+        ".story-text p:first-of-type",
+        "article p:not(:empty):first-of-type",
+        ".content p:first-of-type"
       ],
       "sourceLanguage": "en",
       "timezone": "Asia/Jerusalem",
@@ -277,17 +285,20 @@
       "country": "ISRAEL",
       "sourceId": "israel-national-news",
       "sourceName": "Israel National News (Arutz Sheva)",
-      "baseUrl": "https://www.israelnationalnews.com/",
+      "baseUrl": "https://www.israelnationalnews.com/news",
       "linkSelectors": [
         ".title a",
         ".headline a",
         "h2 a",
-        ".article-title a"
+        ".article-title a",
+        ".news-title a"
       ],
       "paragraphSelectors": [
-        ".article-content p:first-of-type",
+        ".articleText p:first-of-type",
+        ".article-content p:not(:empty):first-of-type",
         ".content p:first-of-type",
-        "article p:first-of-type"
+        "article p:not(:empty):first-of-type",
+        ".story-body p:first-of-type"
       ],
       "sourceLanguage": "en",
       "timezone": "Asia/Jerusalem",
@@ -297,16 +308,19 @@
       "country": "ISRAEL",
       "sourceId": "calcalist-tech",
       "sourceName": "Calcalist Tech",
-      "baseUrl": "https://www.calcalistech.com/",
+      "baseUrl": "https://www.calcalistech.com/ctechnews",
       "linkSelectors": [
         ".article-title a",
         "h2 a",
-        ".headline a"
+        ".headline a",
+        ".story-title a"
       ],
       "paragraphSelectors": [
-        ".article-body p:first-of-type",
+        ".article-body p:not(:empty):first-of-type",
+        ".story-content p:first-of-type",
         ".content p:first-of-type",
-        "article p:first-of-type"
+        "article p:not(:empty):first-of-type",
+        ".main-content p:first-of-type"
       ],
       "sourceLanguage": "en",
       "timezone": "Asia/Jerusalem",
@@ -337,14 +351,18 @@
       "sourceName": "Globes English",
       "baseUrl": "https://en.globes.co.il/",
       "linkSelectors": [
-        ".article-title a",
         "h2 a",
+        ".article-title a",
         ".headline a"
       ],
       "paragraphSelectors": [
-        ".article-content p:first-of-type",
-        ".content p:first-of-type",
-        "article p:first-of-type"
+        ".article-content .text p:first-of-type",
+        ".article-body p:not(:empty):first-of-type",
+        ".content-text p:first-of-type",
+        ".story-content p:first-of-type",
+        "article p:not(:empty):first-of-type",
+        ".main-article p:first-of-type",
+        ".content p:first-of-type"
       ],
       "sourceLanguage": "en",
       "timezone": "Asia/Jerusalem",
