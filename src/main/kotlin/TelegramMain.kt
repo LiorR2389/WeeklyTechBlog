@@ -137,14 +137,19 @@ private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
     try {
         println("🔍 HTML length: ${html.length} characters")
         
-        // Better regex patterns for Telegram web format
+        // Updated regex patterns for current Telegram web format
         val messageBlockPattern = Regex(
-            """<div class="tgme_widget_message.*?data-post="[^"]*(\d+)".*?>(.*?)<div class="tgme_widget_message_footer">.*?<time datetime="([^"]*)".*?</time>""",
+            """<div class="tgme_widget_message\s+text_not_supported_wrap.*?data-post="[^"]*?/(\d+)".*?>(.*?)</div>\s*</div>\s*</div>""",
             RegexOption.DOT_MATCHES_ALL
         )
         
         val textPattern = Regex(
-            """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
+            """<div class="tgme_widget_message_text[^"]*"[^>]*>(.*?)</div>""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        
+        val timePattern = Regex(
+            """<time[^>]*datetime="([^"]*)"[^>]*>""",
             RegexOption.DOT_MATCHES_ALL
         )
         
@@ -156,35 +161,40 @@ private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
                 // Extract message ID from data-post attribute
                 val telegramMessageId = blockMatch.groupValues[1].toLongOrNull() ?: 0L
                 val blockContent = blockMatch.groupValues[2]
-                val datetimeStr = blockMatch.groupValues[3]
                 
                 // Extract text content
                 val textMatch = textPattern.find(blockContent)
                 val messageText = if (textMatch != null) {
                     textMatch.groupValues[1]
+                        .replace(Regex("<br\\s*/?>"), "\n") // Convert <br> to newlines
                         .replace(Regex("<.*?>"), "") // Remove HTML tags
                         .replace("&amp;", "&")
                         .replace("&lt;", "<")
                         .replace("&gt;", ">")
                         .replace("&quot;", "\"")
+                        .replace("&#39;", "'")
                         .trim()
                 } else {
                     ""
                 }
+                
+                // Extract timestamp
+                val timeMatch = timePattern.find(blockContent)
+                val datetimeStr = timeMatch?.groupValues?.get(1) ?: ""
                 
                 if (messageText.isNotEmpty() && messageText.length > 10) {
                     // Parse timestamp properly
                     val timestamp = parseTimestamp(datetimeStr)
                     val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
                     
-                    // FIXED: Use Telegram's actual message ID + hash for uniqueness
+                    // Use Telegram's actual message ID + hash for uniqueness
                     val uniqueMessageId = if (telegramMessageId > 0) {
                         telegramMessageId
                     } else {
                         // Fallback: create stable ID from content + date
                         val contentHash = messageText.hashCode().toLong()
-                        val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
-                        dayTimestamp * 1000000 + (contentHash and 0xFFFFF) // Combine day + content hash
+                        val dayTimestamp = timestamp / (24 * 60 * 60 * 1000)
+                        dayTimestamp * 1000000 + (contentHash and 0xFFFFF)
                     }
                     
                     println("📝 Message ${index + 1}: ID=$uniqueMessageId, Date=$messageDate, Text='${messageText.take(50)}...'")
@@ -232,14 +242,80 @@ private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
             }
         }
         
+        // If no messages found with the new pattern, try fallback patterns
+        if (messages.isEmpty()) {
+            println("⚠️ No messages found with primary pattern, trying fallback...")
+            return parseChannelMessagesFallback(html)
+        }
+        
         println("📊 Successfully parsed ${messages.size} messages")
         
     } catch (e: Exception) {
         println("❌ Error parsing HTML: ${e.message}")
     }
     
-    // Return only last 15 messages, sorted by timestamp descending
-    return messages.sortedByDescending { it.timestamp }.take(15)
+    // Return only last 20 messages, sorted by timestamp descending
+    return messages.sortedByDescending { it.timestamp }.take(20)
+}
+
+private fun parseChannelMessagesFallback(html: String): List<TelegramNewsMessage> {
+    val messages = mutableListOf<TelegramNewsMessage>()
+    
+    try {
+        // Simplified fallback pattern - look for any message-like structure
+        val simpleMessagePattern = Regex(
+            """data-post="[^"]*?/(\d+)"[^>]*>(.*?)<time[^>]*datetime="([^"]*)"[^>]*>""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        
+        val fallbackMatches = simpleMessagePattern.findAll(html)
+        println("🔍 Fallback: Found ${fallbackMatches.count()} potential messages")
+        
+        fallbackMatches.take(10).forEachIndexed { index, match ->
+            try {
+                val messageId = match.groupValues[1].toLongOrNull() ?: 0L
+                val content = match.groupValues[2]
+                val datetime = match.groupValues[3]
+                
+                // Extract text from content (remove HTML)
+                val cleanText = content
+                    .replace(Regex("<.*?>"), "")
+                    .replace("&amp;", "&")
+                    .trim()
+                
+                if (cleanText.length > 20) {
+                    val timestamp = parseTimestamp(datetime)
+                    val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
+                    
+                    println("📝 Fallback message ${index + 1}: '${cleanText.take(50)}...'")
+                    
+                    val message = TelegramNewsMessage(
+                        messageId = messageId,
+                        text = cleanText,
+                        timestamp = timestamp,
+                        date = messageDate,
+                        isBreaking = false,
+                        priority = 3,
+                        translations = mapOf(
+                            "en" to "Translation pending...",
+                            "he" to "תרגום ממתין...",
+                            "ru" to cleanText,
+                            "el" to "Μετάφραση σε εκκρεμότητα..."
+                        )
+                    )
+                    
+                    messages.add(message)
+                }
+            } catch (e: Exception) {
+                println("⚠️ Error in fallback parsing: ${e.message}")
+            }
+        }
+        
+    } catch (e: Exception) {
+        println("❌ Error in fallback parsing: ${e.message}")
+    }
+    
+    return messages.sortedByDescending { it.timestamp }
 }
  private fun parseTimestamp(datetime: String): Long {
     return try {
