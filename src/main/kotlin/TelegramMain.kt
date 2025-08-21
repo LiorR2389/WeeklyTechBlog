@@ -36,12 +36,8 @@ data class TelegramNewsMessage(
 class TelegramLiveScraper {
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
-        .connectTimeout(45, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
-        .retryOnConnectionFailure(true)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
     
     private val githubToken = System.getenv("GITHUB_TOKEN")
@@ -60,37 +56,20 @@ class TelegramLiveScraper {
     }
     
     private fun startMonitoringLoop() {
-        println("🔄 Starting single check with 5-minute timeout...")
-        
-        val startTime = System.currentTimeMillis()
-        val timeoutMs = 5 * 60 * 1000 // 5 minutes
+        println("🔄 Starting single check (cron job mode)...")
         
         try {
             val currentTime = SimpleDateFormat("HH:mm:ss").format(Date())
             println("\n⏰ Check at $currentTime")
             
-            // Check for new messages with timeout protection
+            // Check for new messages
             val newMessages = checkForNewMessages()
-            
-            val elapsed = System.currentTimeMillis() - startTime
-            if (elapsed > timeoutMs) {
-                println("⏰ Timeout after ${elapsed/1000}s - forcing exit")
-                return
-            }
             
             if (newMessages.isNotEmpty()) {
                 println("📨 Found ${newMessages.size} new messages!")
                 processNewMessages(newMessages)
             } else {
                 println("📭 No new messages")
-                // Update website with cached data even if no new messages
-                val processedMessages = loadProcessedMessages()
-                if (processedMessages.isNotEmpty()) {
-                    val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(30)
-                    updateLiveWebsite(recentMessages)
-                    uploadToGitHub()
-                    println("📄 Updated live page with ${recentMessages.size} cached messages")
-                }
             }
             
             println("✅ Single check completed - exiting")
@@ -105,243 +84,129 @@ class TelegramLiveScraper {
         try {
             println("🔍 Checking @$channelUsername for new messages...")
             
-            val newMessages = scrapePublicChannel()
-            
-            // If scraping failed, use fallback
-            if (newMessages.isEmpty()) {
-                val processedMessages = loadProcessedMessages()
-                if (processedMessages.isNotEmpty()) {
-                    println("🔄 No new messages found, using cached data for live page")
-                    val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(30)
-                    updateLiveWebsite(recentMessages)
-                    uploadToGitHub()
-                }
-            }
-            
-            return newMessages
+            // Use web scraping approach for public channels
+            return scrapePublicChannel()
             
         } catch (e: Exception) {
             println("❌ Error checking messages: ${e.message}")
-            return handleRateLimiting()
-        }
-    }
-    
-    private fun handleRateLimiting(): List<TelegramNewsMessage> {
-        println("⚠️ Telegram rate limiting detected - using cached data")
-        
-        // Return existing processed messages instead of empty list
-        val processedMessages = loadProcessedMessages()
-        val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(30)
-        
-        if (recentMessages.isNotEmpty()) {
-            println("📄 Using ${recentMessages.size} cached messages for live page")
-            updateLiveWebsite(recentMessages)
-            uploadToGitHub()
-        }
-        
-        return emptyList() // No new messages, but we updated the site with cached data
-    }
-    
-    private fun scrapePublicChannel(): List<TelegramNewsMessage> {
-        try {
-            // Check if we've been blocked recently
-            val blockCheckFile = File("telegram_block_check.txt")
-            if (blockCheckFile.exists()) {
-                val lastBlock = blockCheckFile.readText().toLongOrNull() ?: 0
-                val timeSinceBlock = System.currentTimeMillis() - lastBlock
-                
-                if (timeSinceBlock < 60 * 60 * 1000) { // Less than 1 hour
-                    println("⚠️ Recently blocked by Telegram, using cached data")
-                    return emptyList()
-                }
-            }
-            
-            println("🔍 Fetching channel page...")
-            
-            // Add random delay to avoid rate limiting
-            val randomDelay = (3000..7000).random()
-            println("⏰ Waiting ${randomDelay}ms to avoid rate limiting...")
-            Thread.sleep(randomDelay.toLong())
-            
-            val channelUrl = "https://t.me/s/$channelUsername"
-            
-            val request = Request.Builder()
-                .url(channelUrl)
-                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
-                .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
-                .addHeader("Accept-Language", "en-US,en;q=0.9")
-                .addHeader("Accept-Encoding", "gzip, deflate, br")
-                .addHeader("Cache-Control", "no-cache")
-                .addHeader("Pragma", "no-cache")
-                .addHeader("Sec-Ch-Ua", "\"Google Chrome\";v=\"119\", \"Chromium\";v=\"119\", \"Not?A_Brand\";v=\"24\"")
-                .addHeader("Sec-Ch-Ua-Mobile", "?0")
-                .addHeader("Sec-Ch-Ua-Platform", "\"Windows\"")
-                .addHeader("Sec-Fetch-Dest", "document")
-                .addHeader("Sec-Fetch-Mode", "navigate")
-                .addHeader("Sec-Fetch-Site", "none")
-                .addHeader("Sec-Fetch-User", "?1")
-                .addHeader("Upgrade-Insecure-Requests", "1")
-                .addHeader("Referer", "https://t.me/")
-                .build()
-            
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    println("❌ HTTP error: ${response.code} - ${response.message}")
-                    return emptyList()
-                }
-                
-                val html = response.body?.string() ?: ""
-                println("✅ HTML fetched: ${html.length} chars")
-                
-                // Check for rate limiting or blocking
-                if (html.length < 50000) {
-                    println("⚠️ Suspiciously small HTML response - might be rate limited")
-                    println("🔍 Response headers: ${response.headers}")
-                }
-                
-                // Check for Telegram's rate limiting page
-                if (html.contains("Too Many Requests") || html.contains("429") || html.contains("rate limit")) {
-                    println("⚠️ Rate limited by Telegram - backing off")
-                    blockCheckFile.writeText(System.currentTimeMillis().toString())
-                    return emptyList()
-                }
-                
-                // Check for corrupted data
-                if (html.length < 50000 && html.contains("�")) {
-                    println("⚠️ Detected blocking/corruption, marking for cooldown")
-                    blockCheckFile.writeText(System.currentTimeMillis().toString())
-                    return emptyList()
-                }
-                
-                // Save HTML for debugging
-                try {
-                    val debugContent = if (html.length > 50000) html.take(50000) else html
-                    File("debug_telegram.html").writeText(debugContent)
-                    println("🔍 Saved HTML sample to debug_telegram.html (${debugContent.length} chars)")
-                } catch (e: Exception) {
-                    println("⚠️ Could not save debug HTML: ${e.message}")
-                }
-                
-                // Parse messages from HTML
-                val messages = parseChannelMessages(html)
-                
-                // Filter only new messages
-                val processedMessages = loadProcessedMessages()
-                val processedIds = processedMessages.map { it.messageId }.toSet()
-                
-                val newMessages = messages.filter { it.messageId !in processedIds }
-                
-                println("📊 Found ${messages.size} total messages, ${newMessages.size} new")
-                
-                return newMessages
-            }
-            
-        } catch (e: Exception) {
-            println("❌ Error scraping channel: ${e.message}")
-            e.printStackTrace()
             return emptyList()
         }
     }
     
-    private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
-        println("🔍 Starting HTML parsing...")
-        val messages = mutableListOf<TelegramNewsMessage>()
-        
+    private fun scrapePublicChannel(): List<TelegramNewsMessage> {
         try {
-            println("🔍 HTML length: ${html.length} characters")
+            // Scrape the public Telegram channel web page
+            val channelUrl = "https://t.me/s/$channelUsername"
             
-            // Check if we got the right page
-            if (!html.contains("tgme_widget_message")) {
-                println("❌ No Telegram messages found in HTML - might be blocked or wrong format")
-                println("🔍 HTML preview: ${html.take(500)}...")
+            val request = Request.Builder()
+                .url(channelUrl)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                println("❌ Failed to fetch channel page: ${response.code}")
                 return emptyList()
             }
             
-            // Simplified regex patterns to avoid backtracking issues
-            val textPattern = Regex(
-                """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
-                RegexOption.DOT_MATCHES_ALL
-            )
+            val html = response.body?.string() ?: ""
             
-            val timePattern = Regex(
-                """<time datetime="([^"]*)"[^>]*>([^<]*)</time>""",
-                RegexOption.DOT_MATCHES_ALL
-            )
+            // Parse messages from HTML (simplified approach)
+            val messages = parseChannelMessages(html)
             
-            println("🔍 Searching for message patterns...")
+            // Filter only new messages
+            val processedMessages = loadProcessedMessages()
+            val processedIds = processedMessages.map { it.messageId }.toSet()
             
-            // Find all time elements first
-            val timeMatches = timePattern.findAll(html).toList()
-            println("🔍 Found ${timeMatches.size} time elements")
+            val newMessages = messages.filter { it.messageId !in processedIds }
             
-            // Find all message text elements  
-            val textMatches = textPattern.findAll(html).toList()
-            println("🔍 Found ${textMatches.size} text elements")
+            println("📊 Found ${messages.size} total messages, ${newMessages.size} new")
             
-            // Process up to 15 most recent messages
-            val messagesToProcess = minOf(textMatches.size, timeMatches.size, 15)
-            println("🔍 Processing $messagesToProcess messages...")
+            return newMessages
             
-            for (i in 0 until messagesToProcess) {
-                try {
-                    val textMatch = textMatches.getOrNull(i)
-                    val timeMatch = timeMatches.getOrNull(i)
-                    
-                    if (textMatch == null || timeMatch == null) {
-                        println("⚠️ Skipping message $i - missing text or time")
-                        continue
-                    }
-                    
-                    val messageText = textMatch.groupValues[1]
-                        .replace(Regex("<[^>]*>"), "") // Remove HTML tags
+        } catch (e: Exception) {
+            println("❌ Error scraping channel: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
+    val messages = mutableListOf<TelegramNewsMessage>()
+    
+    try {
+        println("🔍 HTML length: ${html.length} characters")
+        
+        // Better regex patterns for Telegram web format
+        val messageBlockPattern = Regex(
+            """<div class="tgme_widget_message.*?data-post="[^"]*(\d+)".*?>(.*?)<div class="tgme_widget_message_footer">.*?<time datetime="([^"]*)".*?</time>""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        
+        val textPattern = Regex(
+            """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
+            RegexOption.DOT_MATCHES_ALL
+        )
+        
+        val messageBlocks = messageBlockPattern.findAll(html)
+        println("🔍 Found ${messageBlocks.count()} message blocks with proper structure")
+        
+        messageBlocks.forEachIndexed { index, blockMatch ->
+            try {
+                // Extract message ID from data-post attribute
+                val telegramMessageId = blockMatch.groupValues[1].toLongOrNull() ?: 0L
+                val blockContent = blockMatch.groupValues[2]
+                val datetimeStr = blockMatch.groupValues[3]
+                
+                // Extract text content
+                val textMatch = textPattern.find(blockContent)
+                val messageText = if (textMatch != null) {
+                    textMatch.groupValues[1]
+                        .replace(Regex("<.*?>"), "") // Remove HTML tags
                         .replace("&amp;", "&")
                         .replace("&lt;", "<")
                         .replace("&gt;", ">")
                         .replace("&quot;", "\"")
-                        .replace("&#39;", "'")
-                        .replace(Regex("\\s+"), " ") // Normalize whitespace
                         .trim()
-                    
-                    if (messageText.isEmpty() || messageText.length < 20) {
-                        println("⚠️ Skipping message $i - too short: '${messageText.take(30)}...'")
-                        continue
-                    }
-                    
-                    // Parse timestamp
-                    val timestamp = parseTimestamp(timeMatch.groupValues[1])
+                } else {
+                    ""
+                }
+                
+                if (messageText.isNotEmpty() && messageText.length > 10) {
+                    // Parse timestamp properly
+                    val timestamp = parseTimestamp(datetimeStr)
                     val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
                     
-                    // Skip messages older than 10 days
-                    val tenDaysAgo = System.currentTimeMillis() - (10 * 24 * 60 * 60 * 1000)
-                    if (timestamp < tenDaysAgo) {
-                        println("⏰ Skipping old message from: $messageDate")
-                        continue
+                    // FIXED: Use Telegram's actual message ID + hash for uniqueness
+                    val uniqueMessageId = if (telegramMessageId > 0) {
+                        telegramMessageId
+                    } else {
+                        // Fallback: create stable ID from content + date
+                        val contentHash = messageText.hashCode().toLong()
+                        val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
+                        dayTimestamp * 1000000 + (contentHash and 0xFFFFF) // Combine day + content hash
                     }
                     
-                    // Create unique message ID
-                    val messageId = generateMessageId(messageText, timestamp, i)
+                    println("📝 Message ${index + 1}: ID=$uniqueMessageId, Date=$messageDate, Text='${messageText.take(50)}...'")
                     
-                    println("📝 Message ${i + 1}: ID=$messageId, Date=$messageDate, Text='${messageText.take(50)}...'")
+                    // Check if message is older than 7 days (ignore very old messages)
+                    val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
+                    if (timestamp < sevenDaysAgo) {
+                        println("⏰ Skipping old message from: $messageDate")
+                        return@forEachIndexed
+                    }
                     
-                    // Limited translations for recent messages only
-                    val translations = if (i < 2 && timestamp > System.currentTimeMillis() - (48 * 60 * 60 * 1000)) {
-                        try {
-                            mapOf(
-                                "en" to translateText(messageText, "English", "Russian"),
-                                "he" to translateText(messageText, "Hebrew", "Russian"),
-                                "ru" to messageText,
-                                "el" to translateText(messageText, "Greek", "Russian")
-                            )
-                        } catch (e: Exception) {
-                            println("⚠️ Translation failed for message $i: ${e.message}")
-                            mapOf(
-                                "en" to "Translation failed",
-                                "he" to "תרגום נכשל",
-                                "ru" to messageText,
-                                "el" to "Η μετάφραση απέτυχε"
-                            )
-                        }
+                    // Create message with limited translations (only for recent messages)
+                    val translations = if (index < 3 && timestamp > System.currentTimeMillis() - (24 * 60 * 60 * 1000)) {
+                        // Only translate last 3 messages from last 24 hours
+                        mapOf(
+                            "en" to translateText(messageText, "English", "Russian"),
+                            "he" to translateText(messageText, "Hebrew", "Russian"),
+                            "ru" to messageText,
+                            "el" to translateText(messageText, "Greek", "Russian")
+                        )
                     } else {
+                        // Minimal translations for older/bulk messages
                         mapOf(
                             "en" to "Translation pending...",
                             "he" to "תרגום ממתין...",
@@ -351,7 +216,7 @@ class TelegramLiveScraper {
                     }
                     
                     val message = TelegramNewsMessage(
-                        messageId = messageId,
+                        messageId = uniqueMessageId,
                         text = messageText,
                         timestamp = timestamp,
                         date = messageDate,
@@ -361,73 +226,62 @@ class TelegramLiveScraper {
                     )
                     
                     messages.add(message)
-                    
-                    // Add delay to avoid overwhelming the translation API
-                    if (i < 2) {
-                        Thread.sleep(2000)
-                    }
-                    
-                } catch (e: Exception) {
-                    println("⚠️ Error parsing message $i: ${e.message}")
-                    // Continue with next message
                 }
+            } catch (e: Exception) {
+                println("⚠️ Error parsing message ${index + 1}: ${e.message}")
             }
-            
-            println("📊 Successfully parsed ${messages.size} messages")
-            
-        } catch (e: Exception) {
-            println("❌ Error in parseChannelMessages: ${e.message}")
-            e.printStackTrace()
         }
         
-        // Return messages sorted by timestamp (newest first)
-        return messages.sortedByDescending { it.timestamp }
-    }
-    
-    private fun generateMessageId(text: String, timestamp: Long, index: Int): Long {
-        // Create a more stable message ID
-        val textHash = text.hashCode().toLong() and 0x7FFFFFFF // Positive hash
-        val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
+        println("📊 Successfully parsed ${messages.size} messages")
         
-        // Combine day + content hash + index for uniqueness
-        return (dayTimestamp * 1000000) + (textHash % 100000) + index
+    } catch (e: Exception) {
+        println("❌ Error parsing HTML: ${e.message}")
     }
     
-    private fun parseTimestamp(datetime: String): Long {
-        return try {
-            println("🕐 Parsing timestamp: '$datetime'")
-            
-            // Handle different datetime formats from Telegram
-            val formats = listOf(
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX"),     // 2025-08-21T07:50:47+00:00
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),     // 2025-08-21T07:50:47Z
-                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),        // 2025-08-21T07:50:47
-                SimpleDateFormat("yyyy-MM-dd HH:mm:ss"),          // 2025-08-21 07:50:47
-                SimpleDateFormat("MMM dd, yyyy 'at' HH:mm"),      // Aug 21, 2025 at 07:50
-                SimpleDateFormat("dd.MM.yyyy HH:mm")              // 21.08.2025 07:50
-            )
-            
-            for (format in formats) {
-                try {
-                    val parsed = format.parse(datetime)?.time
-                    if (parsed != null) {
-                        val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
-                        println("✅ Parsed '$datetime' as: $parsedDate")
-                        return parsed
-                    }
-                } catch (e: Exception) {
-                    // Try next format
+    // Return only last 15 messages, sorted by timestamp descending
+    return messages.sortedByDescending { it.timestamp }.take(15)
+}
+ private fun parseTimestamp(datetime: String): Long {
+    return try {
+        println("🕐 Parsing timestamp: '$datetime'")
+        
+        // Handle different datetime formats from Telegram
+        val formats = listOf(
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX"),     // 2025-08-21T07:50:47+00:00
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),     // 2025-08-21T07:50:47Z
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),        // 2025-08-21T07:50:47
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss")           // 2025-08-21 07:50:47
+        )
+        
+        for (format in formats) {
+            try {
+                val parsed = format.parse(datetime)?.time
+                if (parsed != null) {
+                    val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
+                    println("✅ Parsed '$datetime' as: $parsedDate")
+                    return parsed
                 }
+            } catch (e: Exception) {
+                // Try next format
             }
-            
-            println("⚠️ Could not parse timestamp '$datetime', using current time")
-            System.currentTimeMillis()
-            
-        } catch (e: Exception) {
-            println("❌ Error parsing timestamp '$datetime': ${e.message}")
-            System.currentTimeMillis()
         }
+        
+        println("⚠️ Could not parse timestamp '$datetime', using current time")
+        System.currentTimeMillis()
+    } catch (e: Exception) {
+        println("❌ Error parsing timestamp '$datetime': ${e.message}")
+        System.currentTimeMillis()
     }
+}
+
+private fun filterRecentMessages(messages: List<TelegramNewsMessage>): List<TelegramNewsMessage> {
+    val threeDaysAgo = System.currentTimeMillis() - (3 * 24 * 60 * 60 * 1000)
+    val recentMessages = messages.filter { it.timestamp > threeDaysAgo }
+    
+    println("📅 Filtered to ${recentMessages.size} messages from last 3 days (was ${messages.size})")
+    
+    return recentMessages.sortedByDescending { it.timestamp }
+}
     
     private fun isBreakingNews(text: String): Boolean {
         val breakingKeywords = listOf(
@@ -450,131 +304,145 @@ class TelegramLiveScraper {
         }
     }
     
-    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
-        if (openAiApiKey.isNullOrEmpty()) {
-            println("⚠️ No OpenAI API key, using fallback translations")
-            return when (targetLanguage) {
-                "English" -> "English translation unavailable (no API key)"
-                "Hebrew" -> "תרגום לא זמין"
-                "Greek" -> "Μετάφραση μη διαθέσιμη"
-                else -> text
-            }
-        }
-
-        // RATE LIMITING: Add delays between API calls
-        val lastApiCallFile = File("last_api_call.txt")
-        if (lastApiCallFile.exists()) {
-            try {
-                val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
-                val timeSinceLastCall = System.currentTimeMillis() - lastCall
-                val minimumDelay = 3000L // 3 seconds between calls
-                
-                if (timeSinceLastCall < minimumDelay) {
-                    val waitTime = minimumDelay - timeSinceLastCall
-                    println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
-                    Thread.sleep(waitTime)
-                }
-            } catch (e: Exception) {
-                // Ignore file errors
-            }
-        }
-
-        // Try translating with retry logic
-        var retryCount = 0
-        val maxRetries = 2
-        
-        while (retryCount < maxRetries) {
-            val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-            
-            // Check if we got rate limited
-            if (translation.contains("RATE_LIMITED") || translation == text) {
-                retryCount++
-                if (retryCount < maxRetries) {
-                    val backoffDelay = (retryCount * 10000L) // 10s, 20s
-                    println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
-                    Thread.sleep(backoffDelay)
-                    continue
-                } else {
-                    println("❌ Max retries reached for $targetLanguage translation")
-                    break
-                }
-            }
-            
-            // Save timestamp of successful call
-            try {
-                lastApiCallFile.writeText(System.currentTimeMillis().toString())
-            } catch (e: Exception) {
-                // Ignore file errors
-            }
-            
-            return translation
-        }
-        
-        // Fallback if all retries failed
+private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
+    if (openAiApiKey.isNullOrEmpty()) {
+        println("⚠️ No OpenAI API key, using fallback translations")
         return when (targetLanguage) {
-            "English" -> "Translation failed - rate limited"
-            "Hebrew" -> "תרגום נכשל - חריגה ממגבלת קצב"
-            "Greek" -> "Η μετάφραση απέτυχε - υπέρβαση ορίου ρυθμού"
+            "English" -> "English translation unavailable (no API key)"
+            "Hebrew" -> "תרגום לא זמין"
+            "Greek" -> "Μετάφραση μη διαθέσιμη"
             else -> text
         }
     }
 
-    private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
-        return try {
-            // More specific system prompt based on source language
-            val systemPrompt = when (sourceLanguage) {
-                "Russian" -> "You are a professional Russian-to-$targetLanguage translator. Translate the following Russian text to $targetLanguage. Provide ONLY the translation, no explanations."
-                "English" -> "You are a professional English-to-$targetLanguage translator. Translate the following English text to $targetLanguage. Provide ONLY the translation, no explanations."
-                else -> "You are a professional translator. Translate the following $sourceLanguage text to $targetLanguage. Provide ONLY the translation, no explanations."
-            }
-
-            val userPrompt = "Translate this text: $text"
-
-            val requestBody = """{
-      "model": "gpt-4o-mini",
-      "messages": [
-        {"role": "system", "content": "$systemPrompt"},
-        {"role": "user", "content": "$userPrompt"}
-      ],
-      "temperature": 0.0,
-      "max_tokens": 200
-    }"""
-
-            val request = Request.Builder()
-                .url("https://api.openai.com/v1/chat/completions")
-                .addHeader("Authorization", "Bearer $openAiApiKey")
-                .addHeader("Content-Type", "application/json")
-                .post(requestBody.toRequestBody("application/json".toMediaType()))
-                .build()
-
-            client.newCall(request).execute().use { response ->
-                when (response.code) {
-                    200 -> {
-                        val json = JSONObject(response.body?.string())
-                        val translation = json.getJSONArray("choices")
-                            .getJSONObject(0)
-                            .getJSONObject("message")
-                            .getString("content")
-                            .trim()
-                        
-                        println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
-                        translation
-                    }
-                    429 -> {
-                        println("❌ Translation API failed with code: 429 (Rate Limited)")
-                        "RATE_LIMITED" // Special marker for rate limiting
-                    }
-                    else -> {
-                        println("❌ Translation API failed with code: ${response.code}")
-                        text
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            println("❌ Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
-            text
+    // Try translating from the specified source language first
+    val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+    
+    // FIXED: Better detection of translation failures
+    val translationFailed = isTranslationFailure(translation, text, targetLanguage)
+    
+    // If translation failed and we haven't tried English yet, try English as fallback
+    if (translationFailed && sourceLanguage != "English") {
+        println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
+        val englishTranslation = attemptTranslation(text, targetLanguage, "English")
+        
+        val englishFailed = isTranslationFailure(englishTranslation, text, targetLanguage)
+        
+        if (!englishFailed) {
+            println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
+            return englishTranslation
+        } else {
+            println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
         }
     }
+    
+    // If all else fails, return a proper fallback message
+    if (translationFailed) {
+        println("❌ All translation attempts failed for target: $targetLanguage")
+        return when (targetLanguage) {
+            "English" -> "Translation unavailable"
+            "Hebrew" -> "תרגום לא זמין"
+            "Greek" -> "Μετάφραση μη διαθέσιμη"
+            else -> text
+        }
+    }
+    
+    println("✅ Translation successful: '${translation.take(50)}...'")
+    return translation
+}
+
+// NEW: More accurate translation failure detection
+private fun isTranslationFailure(translation: String, originalText: String, targetLanguage: String): Boolean {
+    // Don't consider it a failure if translation equals original for same-language translation
+    if (targetLanguage == "Russian" && translation == originalText) {
+        return false
+    }
+    
+    // Check for obvious failure indicators
+    val failureIndicators = listOf(
+        "I'm unable to translate",
+        "I cannot translate", 
+        "I don't have",
+        "I cannot provide",
+        "Unable to translate",
+        "Cannot translate",
+        "Translation error",
+        "Error translating"
+    )
+    
+    val translationLower = translation.lowercase()
+    val hasFailureIndicator = failureIndicators.any { translationLower.contains(it) }
+    
+    // Check for known fallback messages
+    val knownFallbacks = when (targetLanguage) {
+        "Hebrew" -> listOf("תרגום לא זמין", "כותרת בעברית")
+        "Greek" -> listOf("μετάφραση μη διαθέσιμη", "τίτλος στα ελληνικά")
+        "English" -> listOf("translation unavailable", "english translation unavailable")
+        else -> emptyList()
+    }
+    
+    val isKnownFallback = knownFallbacks.any { translation.lowercase().contains(it.lowercase()) }
+    
+    // Consider it failed if:
+    // 1. Has failure indicators
+    // 2. Is a known fallback message
+    // 3. Is too short (less than 10 characters) and not intentionally short
+    // 4. Is empty or blank
+    val tooShort = translation.length < 10 && originalText.length > 20
+    
+    return hasFailureIndicator || isKnownFallback || tooShort || translation.isBlank()
+}
+
+// UPDATED: Better translation attempt with improved prompts
+private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+    return try {
+        // More specific system prompt based on source language
+        val systemPrompt = when (sourceLanguage) {
+            "Russian" -> "You are a professional Russian-to-$targetLanguage translator. Translate the following Russian text to $targetLanguage. Provide ONLY the translation, no explanations."
+            "English" -> "You are a professional English-to-$targetLanguage translator. Translate the following English text to $targetLanguage. Provide ONLY the translation, no explanations."
+            else -> "You are a professional translator. Translate the following $sourceLanguage text to $targetLanguage. Provide ONLY the translation, no explanations."
+        }
+
+        val userPrompt = "Translate this text: $text"
+
+        val requestBody = """{
+  "model": "gpt-4o-mini",
+  "messages": [
+    {"role": "system", "content": "$systemPrompt"},
+    {"role": "user", "content": "$userPrompt"}
+  ],
+  "temperature": 0.1,
+  "max_tokens": 400
+}"""
+
+        val request = Request.Builder()
+            .url("https://api.openai.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer $openAiApiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(requestBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string())
+                val translation = json.getJSONArray("choices")
+                    .getJSONObject(0)
+                    .getJSONObject("message")
+                    .getString("content")
+                    .trim()
+                
+                println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
+                translation
+            } else {
+                println("❌ Translation API failed with code: ${response.code}")
+                text
+            }
+        }
+    } catch (e: Exception) {
+        println("❌ Translation error for $sourceLanguage->$targetLanguage: ${e.message}")
+        text
+    }
+}
     
     private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         try {
@@ -584,18 +452,16 @@ class TelegramLiveScraper {
             val processedMessages = loadProcessedMessages().toMutableList()
             processedMessages.addAll(newMessages)
             
-            // Keep last 500 messages (about 1 month of data)
+            // Keep last 3-4 days of messages
             val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
             
-            // Find messages needing translation updates (limit to 1 to control costs)
+            // REDUCED: Limit translations to prevent rate limiting
             val messagesNeedingTranslation = recentMessages.filter { message ->
                 val hasValidTranslations = message.translations?.let { translations ->
                     translations["en"]?.let { en ->
                         en.isNotEmpty() && 
                         en != "English translation unavailable" &&
                         en != "Translation unavailable" &&
-                        en != "Translation failed" &&
-                        en != "Translation pending..." &&
                         !en.contains("translation unavailable") &&
                         !en.contains("Translation pending") &&
                         en.length > 10
@@ -603,7 +469,7 @@ class TelegramLiveScraper {
                 } ?: false
                 
                 !hasValidTranslations
-            }.take(1) // LIMIT: Only 1 message per run to control costs
+            }.take(10) // REDUCED: Only 2 messages per run instead of 5
             
             println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
             
@@ -627,14 +493,14 @@ class TelegramLiveScraper {
                         println("✅ Updated translations for message ID: ${oldMessage.messageId}")
                     }
                     
-                    // Delay to avoid API rate limits
-                    Thread.sleep(3000)
+                    // Small delay to avoid API rate limits
+                    Thread.sleep(1000)
                 } catch (e: Exception) {
                     println("⚠️ Failed to update translation for message: ${e.message}")
                 }
             }
             
-            // Save updated messages
+            // Save updated messages with new translations
             saveProcessedMessages(recentMessages)
             if (messagesNeedingTranslation.isNotEmpty()) {
                 println("💾 Saved ${messagesNeedingTranslation.size} updated message translations")
@@ -650,7 +516,6 @@ class TelegramLiveScraper {
             
         } catch (e: Exception) {
             println("❌ Error processing messages: ${e.message}")
-            e.printStackTrace()
         }
     }
     
@@ -711,7 +576,8 @@ class TelegramLiveScraper {
                         translation.length > 10) {
                         translation
                     } else {
-                        message.text // Show original Russian as fallback
+                        // Runtime fallback for older messages (with reduced frequency)
+                        message.text // Show original Russian for now
                     }
                 } ?: message.text
                 
@@ -722,7 +588,7 @@ class TelegramLiveScraper {
                         translation.length > 5) {
                         translation
                     } else {
-                        message.text // Show original Russian as fallback
+                        message.text // Show original Russian for now
                     }
                 } ?: message.text
                 
@@ -735,7 +601,7 @@ class TelegramLiveScraper {
                         translation.length > 10) {
                         translation
                     } else {
-                        message.text // Show original Russian as fallback
+                        message.text // Show original Russian for now
                     }
                 } ?: message.text
                 
@@ -769,9 +635,6 @@ class TelegramLiveScraper {
     }
     
     private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
-        val breakingCount = recentMessages.count { it.isBreaking }
-        val urgentCount = recentMessages.count { it.priority == 1 }
-        
         return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -845,6 +708,7 @@ class TelegramLiveScraper {
             transform: translateY(-2px);
         }
         
+        /* FIXED: Added missing lang-buttons CSS */
         .lang-buttons { 
             text-align: center; 
             margin: 30px 0; 
@@ -875,6 +739,7 @@ class TelegramLiveScraper {
             background: #764ba2; 
         }
         
+        /* FIXED: Proper language visibility control */
         .lang { display: none; }
         .lang.active { display: block; }
         
@@ -1020,7 +885,7 @@ class TelegramLiveScraper {
                 padding: 12px;
                 font-size: 1rem;
             }
-            .stats { grid-template-columns: repeat(2, 1fr); }
+            .stats { grid-template-columns: repeat(1, 1fr); }
         }
     </style>
 </head>
@@ -1028,7 +893,7 @@ class TelegramLiveScraper {
 <div class="container">
     <div class="header">
         <div class="live-indicator">🔴 LIVE</div>
-        <div class="logo">🤖 AI News</div>
+        <div class="logo">AI News</div>
         <h1>🇨🇾 Cyprus Breaking News</h1>
         <p>Real-time updates from @cyprus_control</p>
         <p><strong>$currentDate</strong></p>
@@ -1055,24 +920,12 @@ class TelegramLiveScraper {
             <div class="stat-number">${recentMessages.size}</div>
             <div class="stat-label">Recent Messages</div>
         </div>
-        <div class="stat-item">
-            <div class="stat-number">$breakingCount</div>
-            <div class="stat-label">Breaking News</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">$urgentCount</div>
-            <div class="stat-label">Urgent Updates</div>
-        </div>
-        <div class="stat-item">
-            <div class="stat-number">10 min</div>
-            <div class="stat-label">Update Frequency</div>
-        </div>
     </div>
 
     $messagesHtml
 
     <div class="footer">
-        <p>🤖 <strong>Automated Live Monitoring</strong></p>
+        <p><strong>Automated Live Monitoring</strong></p>
         <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
