@@ -113,6 +113,15 @@ class AINewsSystem {
             getDefaultCyprusSources()
         }
     }
+    fun processFormspreeEmails() {
+    println("📧 Email processing temporarily disabled")
+    // Placeholder function
+    }
+
+    fun checkAndImportWebSubscriptions() {
+    println("📧 Web subscription import temporarily disabled")
+    // Placeholder function
+    }
 
     // NEW: Create default sources configuration file
     private fun createDefaultSourcesConfig() {
@@ -1980,17 +1989,14 @@ fun main() {
     
     val system = AINewsSystem()
     
-    println("🔄 Processing new subscriptions...")
-    system.processFormspreeEmails()
-    system.checkAndImportWebSubscriptions()
+    // COMMENT OUT these problematic lines:
+    // system.processFormspreeEmails()
+    // system.checkAndImportWebSubscriptions()
 
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"), listOf("CYPRUS", "ISRAEL"))
 
     val existingSubscribers = system.loadSubscribers()
     println("📧 Current subscribers: ${existingSubscribers.size}")
-    existingSubscribers.forEach { subscriber ->
-        println("   - ${subscriber.email} (${subscriber.countries.joinToString(", ")}) (${subscriber.languages.joinToString(", ")})")
-    }
 
     try {
         println("🌍 Starting multi-country news aggregation...")
@@ -2002,12 +2008,6 @@ fun main() {
             val websiteUrl = system.uploadToGitHubPages(articles)
             if (websiteUrl.isNotEmpty()) {
                 println("🚀 Multi-country website uploaded: $websiteUrl")
-                println("🔗 Country pages:")
-                println("   🇨🇾 Cyprus: ${websiteUrl}cyprus/")
-                println("   🇮🇱 Israel: ${websiteUrl}israel/")  
-                println("   🇬🇷 Greece: ${websiteUrl}greece/")
-                
-                system.sendDailyNotification(articles, websiteUrl)
                 println("✅ AI News multi-country update complete!")
             }
         } else {
@@ -2018,20 +2018,5 @@ fun main() {
         e.printStackTrace()
     }
     
-    val isCronjob = System.getenv("CRONJOB_MODE")?.toBoolean() ?: true
-    if (isCronjob) {
-        println("✅ Multi-country cronjob completed successfully")
-        return
-    }
-    
-    println("🔄 Keeping application running...")
-    while (true) {
-        Thread.sleep(300000)
-        try {
-            system.processFormspreeEmails()
-            system.checkAndImportWebSubscriptions()
-        } catch (e: Exception) {
-            println("⚠️ Error during periodic check: ${e.message}")
-        }
-    }
+    println("✅ Multi-country cronjob completed successfully")
 }

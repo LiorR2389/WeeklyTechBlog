@@ -43,6 +43,20 @@ class TelegramLiveScraper {
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
         .build()
+        
+        private fun handleRateLimiting(): List<TelegramNewsMessage> {
+    println("⚠️ Telegram rate limiting detected - using cached data")
+    val processedMessages = loadProcessedMessages()
+    val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(30)
+    
+    if (recentMessages.isNotEmpty()) {
+        println("📄 Using ${recentMessages.size} cached messages for live page")
+        updateLiveWebsite(recentMessages)
+        uploadToGitHub()
+    }
+    
+    return emptyList()
+}
     
     private val githubToken = System.getenv("GITHUB_TOKEN")
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
