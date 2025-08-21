@@ -836,7 +836,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
 <div class="container">
     <div class="header">
         <div class="live-indicator">🔴 LIVE</div>
-        <div class="logo">🤖 AI News</div>
+        <div class="logo">AI News</div>
         <h1>🇨🇾 Cyprus Breaking News</h1>
         <p>Real-time updates from @cyprus_control</p>
         <p><strong>$currentDate</strong></p>
@@ -868,7 +868,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
     $messagesHtml
 
     <div class="footer">
-        <p>🤖 <strong>Automated Live Monitoring</strong></p>
+        <p><strong>Automated Live Monitoring</strong></p>
         <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">

@@ -383,41 +383,51 @@ class AINewsSystem {
         }
     }
 
-    // UPDATED: Extract first paragraph using source configuration
-    private fun extractFirstParagraph(articleUrl: String, source: Source): String {
-        return try {
-            val doc = fetchPage(articleUrl)
-            if (doc != null) {
-                // Try each paragraph selector from the source configuration
-                for (selector in source.paragraphSelectors) {
-                    val paragraphElement = doc.select(selector).first()
-                    if (paragraphElement != null) {
-                        val text = paragraphElement.text().trim()
-                        if (text.isNotEmpty() && text.length > 50) {
-                            return cleanParagraphText(text)
-                        }
+private fun extractFirstParagraph(articleUrl: String, source: Source): String {
+    return try {
+        val doc = fetchPage(articleUrl)
+        if (doc != null) {
+            // Try each paragraph selector from the source configuration
+            for (selector in source.paragraphSelectors) {
+                val paragraphElements = doc.select(selector)
+                
+                // Try multiple paragraphs in case first one is empty/short
+                for (element in paragraphElements.take(3)) {
+                    val text = element.text().trim()
+                    if (text.isNotEmpty() && text.length > 50) {
+                        return cleanParagraphText(text)
                     }
                 }
             }
-            ""
-        } catch (e: Exception) {
-            println("Error extracting paragraph from $articleUrl: ${e.message}")
-            ""
+            
+            // Fallback: try any paragraph with substantial content
+            val fallbackParagraphs = doc.select("p")
+            for (element in fallbackParagraphs.take(10)) {
+                val text = element.text().trim()
+                if (text.isNotEmpty() && text.length > 80 && !text.contains("cookie", ignoreCase = true)) {
+                    return cleanParagraphText(text)
+                }
+            }
         }
+        ""
+    } catch (e: Exception) {
+        println("Error extracting paragraph from $articleUrl: ${e.message}")
+        ""
     }
+}
 
-    private fun cleanParagraphText(text: String): String {
-        return text
-            .replace(Regex("\\s+"), " ") 
-            .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA|ATHENS|THESSALONIKI|TEL AVIV|JERUSALEM|HAIFA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
-            .replace(Regex("^(Reuters|AP|Bloomberg|AFP)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
-            .replace(Regex("\\(.*?\\)"), "") 
-            .replace(Regex("\\[.*?\\]"), "") 
-            .trim()
-            .take(300) // Increased limit as per requirements
-            .let { if (it.length == 300) "$it..." else it }
-    }
-
+private fun cleanParagraphText(text: String): String {
+    return text
+        .replace(Regex("\\s+"), " ") 
+        .replace(Regex("^(NICOSIA|LIMASSOL|LARNACA|PAPHOS|FAMAGUSTA|ATHENS|THESSALONIKI|TEL AVIV|JERUSALEM|HAIFA|GAZA)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
+        .replace(Regex("^(Reuters|AP|Bloomberg|AFP|By\\s+\\w+)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
+        .replace(Regex("\\(.*?\\)"), "") 
+        .replace(Regex("\\[.*?\\]"), "") 
+        .replace(Regex("^[\\s\\-•]+"), "") // Remove leading dashes/bullets
+        .trim()
+        .take(400) // Increased from 300 to 400 for better summaries
+        .let { if (it.length == 400) "$it..." else it }
+}
 // UPDATED: Translation with enhanced fallback - try original language first, then English
     private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
         if (openAiApiKey.isNullOrEmpty()) {
@@ -657,10 +667,22 @@ class AINewsSystem {
         return articles.distinctBy { it.url }
     }
 
-    private fun generateFallbackSummary(title: String): String {
-        val words = title.split(" ").filter { it.length > 3 }.take(5)
-        return words.joinToString(" ").ifEmpty { title.take(60) }
+private fun generateFallbackSummary(title: String): String {
+    // Use full title instead of filtering words
+    return when {
+        title.length <= 150 -> title // Use title as-is if reasonable length
+        else -> {
+            // For long titles, truncate at word boundary
+            val truncated = title.take(150)
+            val lastSpace = truncated.lastIndexOf(' ')
+            if (lastSpace > 100) {
+                truncated.substring(0, lastSpace) + "..."
+            } else {
+                truncated + "..."
+            }
+        }
     }
+}
 
     // UPDATED: Aggregate news from all configured sources
     fun aggregateNews(): List<Article> {
