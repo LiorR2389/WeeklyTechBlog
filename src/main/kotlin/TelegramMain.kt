@@ -37,7 +37,8 @@ class TelegramLiveScraper {
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(45, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
     private val githubToken = System.getenv("GITHUB_TOKEN")
@@ -55,296 +56,297 @@ class TelegramLiveScraper {
         startMonitoringLoop()
     }
     
-private fun startMonitoringLoop() {
-    println("🔄 Starting single check with 5-minute timeout...")
-    
-    val startTime = System.currentTimeMillis()
-    val timeoutMs = 5 * 60 * 1000 // 5 minutes
-    
-    try {
-        val currentTime = SimpleDateFormat("HH:mm:ss").format(Date())
-        println("\n⏰ Check at $currentTime")
+    private fun startMonitoringLoop() {
+        println("🔄 Starting single check with 5-minute timeout...")
         
-        // Check for new messages with timeout protection
-        val newMessages = checkForNewMessages()
+        val startTime = System.currentTimeMillis()
+        val timeoutMs = 5 * 60 * 1000 // 5 minutes
         
-        val elapsed = System.currentTimeMillis() - startTime
-        if (elapsed > timeoutMs) {
-            println("⏰ Timeout after ${elapsed/1000}s - forcing exit")
-            return
+        try {
+            val currentTime = SimpleDateFormat("HH:mm:ss").format(Date())
+            println("\n⏰ Check at $currentTime")
+            
+            // Check for new messages with timeout protection
+            val newMessages = checkForNewMessages()
+            
+            val elapsed = System.currentTimeMillis() - startTime
+            if (elapsed > timeoutMs) {
+                println("⏰ Timeout after ${elapsed/1000}s - forcing exit")
+                return
+            }
+            
+            if (newMessages.isNotEmpty()) {
+                println("📨 Found ${newMessages.size} new messages!")
+                processNewMessages(newMessages)
+            } else {
+                println("📭 No new messages")
+            }
+            
+            println("✅ Single check completed - exiting")
+            
+        } catch (e: Exception) {
+            println("❌ Error during check: ${e.message}")
+            throw e // Let the cron job know there was an error
         }
-        
-        if (newMessages.isNotEmpty()) {
-            println("📨 Found ${newMessages.size} new messages!")
-            processNewMessages(newMessages)
-        } else {
-            println("📭 No new messages")
-        }
-        
-        println("✅ Single check completed - exiting")
-        
-    } catch (e: Exception) {
-        println("❌ Error during check: ${e.message}")
-        throw e // Let the cron job know there was an error
     }
-}
-private fun checkForNewMessages(): List<TelegramNewsMessage> {
-    try {
-        println("🔍 Checking @$channelUsername for new messages...")
-        
-        // Use web scraping approach for public channels
-        return scrapePublicChannel()
-        
-    } catch (e: Exception) {
-        println("❌ Error checking messages: ${e.message}")
-        return emptyList()
-    }
-}
     
-eader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-            .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-            .addHeader("Accept-Language", "en-US,en;q=0.5")
-            .addHeader("Accept-Encoding", "gzip, deflate")
-            .addHeader("DNT", "1")
-            .addHeader("Connection", "keep-alive")
-            .addHeader("Upgrade-Insecure-Requests", "1")
-            .build()
+    private fun checkForNewMessages(): List<TelegramNewsMessage> {
+        try {
+            println("🔍 Checking @$channelUsername for new messages...")
+            
+            // Use web scraping approach for public channels
+            return scrapePublicChannel()
+            
+        } catch (e: Exception) {
+            println("❌ Error checking messages: ${e.message}")
+            return emptyList()
+        }
+    }
+    
+    private fun scrapePublicChannel(): List<TelegramNewsMessage> {
+        try {
+            println("🔍 Fetching channel page...")
+            val channelUrl = "https://t.me/s/$channelUsername"
+            
+            val request = Request.Builder()
+                .url(channelUrl)
+                .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+                .addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                .addHeader("Accept-Language", "en-US,en;q=0.5")
+                .addHeader("Accept-Encoding", "gzip, deflate")
+                .addHeader("DNT", "1")
+                .addHeader("Connection", "keep-alive")
+                .addHeader("Upgrade-Insecure-Requests", "1")
+                .build()
+            
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    println("❌ HTTP error: ${response.code} - ${response.message}")
+                    return emptyList()
+                }
+                
+                val html = response.body?.string() ?: ""
+                println("✅ HTML fetched: ${html.length} chars")
+                
+                // Save HTML for debugging (optional)
+                try {
+                    File("debug_telegram.html").writeText(html.take(50000)) // Save first 50KB only
+                    println("🔍 Saved HTML sample to debug_telegram.html")
+                } catch (e: Exception) {
+                    // Ignore file save errors
+                }
+                
+                // Parse messages from HTML
+                val messages = parseChannelMessages(html)
+                
+                // Filter only new messages
+                val processedMessages = loadProcessedMessages()
+                val processedIds = processedMessages.map { it.messageId }.toSet()
+                
+                val newMessages = messages.filter { it.messageId !in processedIds }
+                
+                println("📊 Found ${messages.size} total messages, ${newMessages.size} new")
+                
+                return newMessages
+            }
+            
+        } catch (e: Exception) {
+            println("❌ Error scraping channel: ${e.message}")
+            e.printStackTrace() // Print full stack trace for debugging
+            return emptyList()
+        }
+    }
+    
+    private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
+        println("🔍 Starting HTML parsing...")
+        val messages = mutableListOf<TelegramNewsMessage>()
         
-        // Use the existing client with timeouts already configured
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                println("❌ HTTP error: ${response.code} - ${response.message}")
+        try {
+            println("🔍 HTML length: ${html.length} characters")
+            
+            // Check if we got the right page
+            if (!html.contains("tgme_widget_message")) {
+                println("❌ No Telegram messages found in HTML - might be blocked or wrong format")
+                println("🔍 HTML preview: ${html.take(500)}...")
                 return emptyList()
             }
             
-            val html = response.body?.string() ?: ""
-            println("✅ HTML fetched: ${html.length} chars")
+            // Simplified regex patterns to avoid backtracking issues
+            val messagePattern = Regex(
+                """<div class="tgme_widget_message.*?>(.*?)</div>\s*<div class="tgme_widget_message_footer">""",
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
+            )
             
-            // Save HTML for debugging (optional)
-            try {
-                File("debug_telegram.html").writeText(html.take(50000)) // Save first 50KB only
-                println("🔍 Saved HTML sample to debug_telegram.html")
-            } catch (e: Exception) {
-                // Ignore file save errors
-            }
+            val textPattern = Regex(
+                """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
+                RegexOption.DOT_MATCHES_ALL
+            )
             
-            // Parse messages from HTML
-            val messages = parseChannelMessages(html)
+            val timePattern = Regex(
+                """<time datetime="([^"]*)"[^>]*>([^<]*)</time>""",
+                RegexOption.DOT_MATCHES_ALL
+            )
             
-            // Filter only new messages
-            val processedMessages = loadProcessedMessages()
-            val processedIds = processedMessages.map { it.messageId }.toSet()
+            println("🔍 Searching for message patterns...")
             
-            val newMessages = messages.filter { it.messageId !in processedIds }
+            // Find all time elements first
+            val timeMatches = timePattern.findAll(html).toList()
+            println("🔍 Found ${timeMatches.size} time elements")
             
-            println("📊 Found ${messages.size} total messages, ${newMessages.size} new")
+            // Find all message text elements  
+            val textMatches = textPattern.findAll(html).toList()
+            println("🔍 Found ${textMatches.size} text elements")
             
-            return newMessages
-        }
-        
-    } catch (e: Exception) {
-        println("❌ Error scraping channel: ${e.message}")
-        e.printStackTrace() // Print full stack trace for debugging
-        return emptyList()
-    }
-}
-    
-private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
-    println("🔍 Starting HTML parsing...")
-    val messages = mutableListOf<TelegramNewsMessage>()
-    
-    try {
-        println("🔍 HTML length: ${html.length} characters")
-        
-        // Check if we got the right page
-        if (!html.contains("tgme_widget_message")) {
-            println("❌ No Telegram messages found in HTML - might be blocked or wrong format")
-            println("🔍 HTML preview: ${html.take(500)}...")
-            return emptyList()
-        }
-        
-        // Simplified regex patterns to avoid backtracking issues
-        val messagePattern = Regex(
-            """<div class="tgme_widget_message.*?>(.*?)</div>\s*<div class="tgme_widget_message_footer">""",
-            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
-        )
-        
-        val textPattern = Regex(
-            """<div class="tgme_widget_message_text.*?>(.*?)</div>""",
-            RegexOption.DOT_MATCHES_ALL
-        )
-        
-        val timePattern = Regex(
-            """<time datetime="([^"]*)"[^>]*>([^<]*)</time>""",
-            RegexOption.DOT_MATCHES_ALL
-        )
-        
-        println("🔍 Searching for message patterns...")
-        
-        // Find all time elements first
-        val timeMatches = timePattern.findAll(html).toList()
-        println("🔍 Found ${timeMatches.size} time elements")
-        
-        // Find all message text elements  
-        val textMatches = textPattern.findAll(html).toList()
-        println("🔍 Found ${textMatches.size} text elements")
-        
-        // Process up to 20 most recent messages
-        val messagesToProcess = minOf(textMatches.size, timeMatches.size, 20)
-        println("🔍 Processing $messagesToProcess messages...")
-        
-        for (i in 0 until messagesToProcess) {
-            try {
-                val textMatch = textMatches.getOrNull(i)
-                val timeMatch = timeMatches.getOrNull(i)
-                
-                if (textMatch == null || timeMatch == null) {
-                    println("⚠️ Skipping message $i - missing text or time")
-                    continue
-                }
-                
-                val messageText = textMatch.groupValues[1]
-                    .replace(Regex("<[^>]*>"), "") // Remove HTML tags
-                    .replace("&amp;", "&")
-                    .replace("&lt;", "<")
-                    .replace("&gt;", ">")
-                    .replace("&quot;", "\"")
-                    .replace("&#39;", "'")
-                    .replace(Regex("\\s+"), " ") // Normalize whitespace
-                    .trim()
-                
-                if (messageText.isEmpty() || messageText.length < 20) {
-                    println("⚠️ Skipping message $i - too short: '${messageText.take(30)}...'")
-                    continue
-                }
-                
-                // Parse timestamp
-                val timestamp = parseTimestamp(timeMatch.groupValues[1])
-                val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
-                
-                // Skip messages older than 7 days
-                val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
-                if (timestamp < sevenDaysAgo) {
-                    println("⏰ Skipping old message from: $messageDate")
-                    continue
-                }
-                
-                // Create unique message ID
-                private fun generateMessageId(text: String, timestamp: Long, index: Int): Long {
-    // Create a more stable message ID
-    val textHash = text.hashCode().toLong() and 0x7FFFFFFF // Positive hash
-    val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
-    
-    // Combine day + content hash + index for uniqueness
-    return (dayTimestamp * 1000000) + (textHash % 100000) + index
-}
-                
-                println("📝 Message ${i + 1}: ID=$messageId, Date=$messageDate, Text='${messageText.take(50)}...'")
-                
-                // Limited translations for recent messages only
-                val translations = if (i < 3 && timestamp > System.currentTimeMillis() - (24 * 60 * 60 * 1000)) {
-                    try {
+            // Process up to 20 most recent messages
+            val messagesToProcess = minOf(textMatches.size, timeMatches.size, 20)
+            println("🔍 Processing $messagesToProcess messages...")
+            
+            for (i in 0 until messagesToProcess) {
+                try {
+                    val textMatch = textMatches.getOrNull(i)
+                    val timeMatch = timeMatches.getOrNull(i)
+                    
+                    if (textMatch == null || timeMatch == null) {
+                        println("⚠️ Skipping message $i - missing text or time")
+                        continue
+                    }
+                    
+                    val messageText = textMatch.groupValues[1]
+                        .replace(Regex("<[^>]*>"), "") // Remove HTML tags
+                        .replace("&amp;", "&")
+                        .replace("&lt;", "<")
+                        .replace("&gt;", ">")
+                        .replace("&quot;", "\"")
+                        .replace("&#39;", "'")
+                        .replace(Regex("\\s+"), " ") // Normalize whitespace
+                        .trim()
+                    
+                    if (messageText.isEmpty() || messageText.length < 20) {
+                        println("⚠️ Skipping message $i - too short: '${messageText.take(30)}...'")
+                        continue
+                    }
+                    
+                    // Parse timestamp
+                    val timestamp = parseTimestamp(timeMatch.groupValues[1])
+                    val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
+                    
+                    // Skip messages older than 7 days
+                    val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
+                    if (timestamp < sevenDaysAgo) {
+                        println("⏰ Skipping old message from: $messageDate")
+                        continue
+                    }
+                    
+                    // Create unique message ID
+                    val messageId = generateMessageId(messageText, timestamp, i)
+                    
+                    println("📝 Message ${i + 1}: ID=$messageId, Date=$messageDate, Text='${messageText.take(50)}...'")
+                    
+                    // Limited translations for recent messages only
+                    val translations = if (i < 3 && timestamp > System.currentTimeMillis() - (24 * 60 * 60 * 1000)) {
+                        try {
+                            mapOf(
+                                "en" to translateText(messageText, "English", "Russian"),
+                                "he" to translateText(messageText, "Hebrew", "Russian"),
+                                "ru" to messageText,
+                                "el" to translateText(messageText, "Greek", "Russian")
+                            )
+                        } catch (e: Exception) {
+                            println("⚠️ Translation failed for message $i: ${e.message}")
+                            mapOf(
+                                "en" to "Translation failed",
+                                "he" to "תרגום נכשל",
+                                "ru" to messageText,
+                                "el" to "Η μετάφραση απέτυχε"
+                            )
+                        }
+                    } else {
                         mapOf(
-                            "en" to translateText(messageText, "English", "Russian"),
-                            "he" to translateText(messageText, "Hebrew", "Russian"),
+                            "en" to "Translation pending...",
+                            "he" to "תרגום ממתין...",
                             "ru" to messageText,
-                            "el" to translateText(messageText, "Greek", "Russian")
-                        )
-                    } catch (e: Exception) {
-                        println("⚠️ Translation failed for message $i: ${e.message}")
-                        mapOf(
-                            "en" to "Translation failed",
-                            "he" to "תרגום נכשל",
-                            "ru" to messageText,
-                            "el" to "Η μετάφραση απέτυχε"
+                            "el" to "Μετάφραση σε εκκρεμότητα..."
                         )
                     }
-                } else {
-                    mapOf(
-                        "en" to "Translation pending...",
-                        "he" to "תרגום ממתין...",
-                        "ru" to messageText,
-                        "el" to "Μετάφραση σε εκκρεμότητα..."
+                    
+                    val message = TelegramNewsMessage(
+                        messageId = messageId,
+                        text = messageText,
+                        timestamp = timestamp,
+                        date = messageDate,
+                        isBreaking = isBreakingNews(messageText),
+                        priority = calculatePriority(messageText),
+                        translations = translations
                     )
+                    
+                    messages.add(message)
+                    
+                    // Add small delay to avoid overwhelming the translation API
+                    if (i < 3) {
+                        Thread.sleep(1000)
+                    }
+                    
+                } catch (e: Exception) {
+                    println("⚠️ Error parsing message $i: ${e.message}")
+                    // Continue with next message
                 }
-                
-                val message = TelegramNewsMessage(
-                    messageId = messageId,
-                    text = messageText,
-                    timestamp = timestamp,
-                    date = messageDate,
-                    isBreaking = isBreakingNews(messageText),
-                    priority = calculatePriority(messageText),
-                    translations = translations
-                )
-                
-                messages.add(message)
-                
-                // Add small delay to avoid overwhelming the translation API
-                if (i < 3) {
-                    Thread.sleep(1000)
-                }
-                
-            } catch (e: Exception) {
-                println("⚠️ Error parsing message $i: ${e.message}")
-                // Continue with next message
             }
+            
+            println("📊 Successfully parsed ${messages.size} messages")
+            
+        } catch (e: Exception) {
+            println("❌ Error in parseChannelMessages: ${e.message}")
+            e.printStackTrace()
         }
         
-        println("📊 Successfully parsed ${messages.size} messages")
-        
-    } catch (e: Exception) {
-        println("❌ Error in parseChannelMessages: ${e.message}")
-        e.printStackTrace()
+        // Return messages sorted by timestamp (newest first)
+        return messages.sortedByDescending { it.timestamp }
     }
     
-    // Return messages sorted by timestamp (newest first)
-    return messages.sortedByDescending { it.timestamp }
-}
-private fun parseTimestamp(datetime: String): Long {
-    return try {
-        println("🕐 Parsing timestamp: '$datetime'")
+    private fun generateMessageId(text: String, timestamp: Long, index: Int): Long {
+        // Create a more stable message ID
+        val textHash = text.hashCode().toLong() and 0x7FFFFFFF // Positive hash
+        val dayTimestamp = timestamp / (24 * 60 * 60 * 1000) // Day-level timestamp
         
-        // Handle different datetime formats from Telegram
-        val formats = listOf(
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX"),     // 2025-08-21T07:50:47+00:00
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),     // 2025-08-21T07:50:47Z
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),        // 2025-08-21T07:50:47
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss"),          // 2025-08-21 07:50:47
-            SimpleDateFormat("MMM dd, yyyy 'at' HH:mm"),      // Aug 21, 2025 at 07:50
-            SimpleDateFormat("dd.MM.yyyy HH:mm")              // 21.08.2025 07:50
-        )
-        
-        for (format in formats) {
-            try {
-                val parsed = format.parse(datetime)?.time
-                if (parsed != null) {
-                    val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
-                    println("✅ Parsed '$datetime' as: $parsedDate")
-                    return parsed
+        // Combine day + content hash + index for uniqueness
+        return (dayTimestamp * 1000000) + (textHash % 100000) + index
+    }
+    
+    private fun parseTimestamp(datetime: String): Long {
+        return try {
+            println("🕐 Parsing timestamp: '$datetime'")
+            
+            // Handle different datetime formats from Telegram
+            val formats = listOf(
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX"),     // 2025-08-21T07:50:47+00:00
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),     // 2025-08-21T07:50:47Z
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),        // 2025-08-21T07:50:47
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss"),          // 2025-08-21 07:50:47
+                SimpleDateFormat("MMM dd, yyyy 'at' HH:mm"),      // Aug 21, 2025 at 07:50
+                SimpleDateFormat("dd.MM.yyyy HH:mm")              // 21.08.2025 07:50
+            )
+            
+            for (format in formats) {
+                try {
+                    val parsed = format.parse(datetime)?.time
+                    if (parsed != null) {
+                        val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
+                        println("✅ Parsed '$datetime' as: $parsedDate")
+                        return parsed
+                    }
+                } catch (e: Exception) {
+                    // Try next format
                 }
-            } catch (e: Exception) {
-                // Try next format
             }
+            
+            println("⚠️ Could not parse timestamp '$datetime', using current time")
+            System.currentTimeMillis()
+            
+        } catch (e: Exception) {
+            println("❌ Error parsing timestamp '$datetime': ${e.message}")
+            System.currentTimeMillis()
         }
-        
-        println("⚠️ Could not parse timestamp '$datetime', using current time")
-        System.currentTimeMillis()
-        
-    } catch (e: Exception) {
-        println("❌ Error parsing timestamp '$datetime': ${e.message}")
-        System.currentTimeMillis()
     }
-}
-
-private fun filterRecentMessages(messages: List<TelegramNewsMessage>): List<TelegramNewsMessage> {
-    val threeDaysAgo = System.currentTimeMillis() - (3 * 24 * 60 * 60 * 1000)
-    val recentMessages = messages.filter { it.timestamp > threeDaysAgo }
-    
-    println("📅 Filtered to ${recentMessages.size} messages from last 3 days (was ${messages.size})")
-    
-    return recentMessages.sortedByDescending { it.timestamp }
-}
     
     private fun isBreakingNews(text: String): Boolean {
         val breakingKeywords = listOf(
@@ -367,223 +369,223 @@ private fun filterRecentMessages(messages: List<TelegramNewsMessage>): List<Tele
         }
     }
     
-private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
-    if (openAiApiKey.isNullOrEmpty()) {
-        println("⚠️ No OpenAI API key, using fallback translations")
-        return when (targetLanguage) {
-            "English" -> "English translation unavailable (no API key)"
-            "Hebrew" -> "תרגום לא זמין"
-            "Greek" -> "Μετάφραση μη διαθέσιμη"
-            else -> text
-        }
-    }
-
-    // Try translating from the specified source language first
-    val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-    
-    // FIXED: Better detection of translation failures
-    val translationFailed = isTranslationFailure(translation, text, targetLanguage)
-    
-    // If translation failed and we haven't tried English yet, try English as fallback
-    if (translationFailed && sourceLanguage != "English") {
-        println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
-        val englishTranslation = attemptTranslation(text, targetLanguage, "English")
-        
-        val englishFailed = isTranslationFailure(englishTranslation, text, targetLanguage)
-        
-        if (!englishFailed) {
-            println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
-            return englishTranslation
-        } else {
-            println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
-        }
-    }
-    
-    // If all else fails, return a proper fallback message
-    if (translationFailed) {
-        println("❌ All translation attempts failed for target: $targetLanguage")
-        return when (targetLanguage) {
-            "English" -> "Translation unavailable"
-            "Hebrew" -> "תרגום לא זמין"
-            "Greek" -> "Μετάφραση μη διαθέσιμη"
-            else -> text
-        }
-    }
-    
-    println("✅ Translation successful: '${translation.take(50)}...'")
-    return translation
-}
-
-// NEW: More accurate translation failure detection
-private fun isTranslationFailure(translation: String, originalText: String, targetLanguage: String): Boolean {
-    // Don't consider it a failure if translation equals original for same-language translation
-    if (targetLanguage == "Russian" && translation == originalText) {
-        return false
-    }
-    
-    // Check for obvious failure indicators
-    val failureIndicators = listOf(
-        "I'm unable to translate",
-        "I cannot translate", 
-        "I don't have",
-        "I cannot provide",
-        "Unable to translate",
-        "Cannot translate",
-        "Translation error",
-        "Error translating"
-    )
-    
-    val translationLower = translation.lowercase()
-    val hasFailureIndicator = failureIndicators.any { translationLower.contains(it) }
-    
-    // Check for known fallback messages
-    val knownFallbacks = when (targetLanguage) {
-        "Hebrew" -> listOf("תרגום לא זמין", "כותרת בעברית")
-        "Greek" -> listOf("μετάφραση μη διαθέσιμη", "τίτλος στα ελληνικά")
-        "English" -> listOf("translation unavailable", "english translation unavailable")
-        else -> emptyList()
-    }
-    
-    val isKnownFallback = knownFallbacks.any { translation.lowercase().contains(it.lowercase()) }
-    
-    // Consider it failed if:
-    // 1. Has failure indicators
-    // 2. Is a known fallback message
-    // 3. Is too short (less than 10 characters) and not intentionally short
-    // 4. Is empty or blank
-    val tooShort = translation.length < 10 && originalText.length > 20
-    
-    return hasFailureIndicator || isKnownFallback || tooShort || translation.isBlank()
-}
-
-// UPDATED: Better translation attempt with improved prompts
-private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
-    return try {
-        // More specific system prompt based on source language
-        val systemPrompt = when (sourceLanguage) {
-            "Russian" -> "You are a professional Russian-to-$targetLanguage translator. Translate the following Russian text to $targetLanguage. Provide ONLY the translation, no explanations."
-            "English" -> "You are a professional English-to-$targetLanguage translator. Translate the following English text to $targetLanguage. Provide ONLY the translation, no explanations."
-            else -> "You are a professional translator. Translate the following $sourceLanguage text to $targetLanguage. Provide ONLY the translation, no explanations."
-        }
-
-        val userPrompt = "Translate this text: $text"
-
-        val requestBody = """{
-  "model": "gpt-4o-mini",
-  "messages": [
-    {"role": "system", "content": "$systemPrompt"},
-    {"role": "user", "content": "$userPrompt"}
-  ],
-  "temperature": 0.1,
-  "max_tokens": 400
-}"""
-
-        val request = Request.Builder()
-            .url("https://api.openai.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer $openAiApiKey")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
-                val json = JSONObject(response.body?.string())
-                val translation = json.getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-                
-                println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
-                translation
-            } else {
-                println("❌ Translation API failed with code: ${response.code}")
-                text
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
+        if (openAiApiKey.isNullOrEmpty()) {
+            println("⚠️ No OpenAI API key, using fallback translations")
+            return when (targetLanguage) {
+                "English" -> "English translation unavailable (no API key)"
+                "Hebrew" -> "תרגום לא זמין"
+                "Greek" -> "Μετάφραση μη διαθέσιμη"
+                else -> text
             }
         }
-    } catch (e: Exception) {
-        println("❌ Translation error for $sourceLanguage->$targetLanguage: ${e.message}")
-        text
-    }
-}
-    
-private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
-    try {
-        println("🔥 Processing ${newMessages.size} new messages...")
+
+        // Try translating from the specified source language first
+        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
         
-        // Add to processed messages
-        val processedMessages = loadProcessedMessages().toMutableList()
-        processedMessages.addAll(newMessages)
+        // FIXED: Better detection of translation failures
+        val translationFailed = isTranslationFailure(translation, text, targetLanguage)
         
-        // Keep last 500 messages (about 1 month of data)
-        val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
-        
-        // Find messages needing translation updates (limit to 2 to control costs)
-        val messagesNeedingTranslation = recentMessages.filter { message ->
-            val hasValidTranslations = message.translations?.let { translations ->
-                translations["en"]?.let { en ->
-                    en.isNotEmpty() && 
-                    en != "English translation unavailable" &&
-                    en != "Translation unavailable" &&
-                    en != "Translation failed" &&
-                    en != "Translation pending..." &&
-                    !en.contains("translation unavailable") &&
-                    !en.contains("Translation pending") &&
-                    en.length > 10
-                } == true
-            } ?: false
+        // If translation failed and we haven't tried English yet, try English as fallback
+        if (translationFailed && sourceLanguage != "English") {
+            println("⚠️ Translation from $sourceLanguage failed, trying English fallback...")
+            val englishTranslation = attemptTranslation(text, targetLanguage, "English")
             
-            !hasValidTranslations
-        }.take(2) // LIMIT: Only 2 messages per run to control costs
-        
-        println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
-        
-        // Update translations for messages that need them
-        messagesNeedingTranslation.forEach { oldMessage ->
-            try {
-                println("🔄 Updating translations for message: '${oldMessage.text.take(50)}...'")
-                
-                val updatedTranslations = mapOf(
-                    "en" to translateText(oldMessage.text, "English", "Russian"),
-                    "he" to translateText(oldMessage.text, "Hebrew", "Russian"),
-                    "ru" to oldMessage.text, // Keep original Russian
-                    "el" to translateText(oldMessage.text, "Greek", "Russian")
-                )
-                
-                // Update the message in the list
-                val messageIndex = recentMessages.indexOfFirst { it.messageId == oldMessage.messageId }
-                if (messageIndex != -1) {
-                    val updatedMessage = oldMessage.copy(translations = updatedTranslations)
-                    recentMessages[messageIndex] = updatedMessage
-                    println("✅ Updated translations for message ID: ${oldMessage.messageId}")
-                }
-                
-                // Small delay to avoid API rate limits
-                Thread.sleep(1000)
-            } catch (e: Exception) {
-                println("⚠️ Failed to update translation for message: ${e.message}")
+            val englishFailed = isTranslationFailure(englishTranslation, text, targetLanguage)
+            
+            if (!englishFailed) {
+                println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
+                return englishTranslation
+            } else {
+                println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
             }
         }
         
-        // Save updated messages
-        saveProcessedMessages(recentMessages)
-        if (messagesNeedingTranslation.isNotEmpty()) {
-            println("💾 Saved ${messagesNeedingTranslation.size} updated message translations")
+        // If all else fails, return a proper fallback message
+        if (translationFailed) {
+            println("❌ All translation attempts failed for target: $targetLanguage")
+            return when (targetLanguage) {
+                "English" -> "Translation unavailable"
+                "Hebrew" -> "תרגום לא זמין"
+                "Greek" -> "Μετάφραση μη διαθέσιμη"
+                else -> text
+            }
         }
         
-        // Show last 30 messages on website
-        updateLiveWebsite(recentMessages.take(30))
-        
-        // Upload to GitHub Pages
-        uploadToGitHub()
-        
-        println("✅ Messages processed and website updated")
-        
-    } catch (e: Exception) {
-        println("❌ Error processing messages: ${e.message}")
-        e.printStackTrace()
+        println("✅ Translation successful: '${translation.take(50)}...'")
+        return translation
     }
-}
+
+    // NEW: More accurate translation failure detection
+    private fun isTranslationFailure(translation: String, originalText: String, targetLanguage: String): Boolean {
+        // Don't consider it a failure if translation equals original for same-language translation
+        if (targetLanguage == "Russian" && translation == originalText) {
+            return false
+        }
+        
+        // Check for obvious failure indicators
+        val failureIndicators = listOf(
+            "I'm unable to translate",
+            "I cannot translate", 
+            "I don't have",
+            "I cannot provide",
+            "Unable to translate",
+            "Cannot translate",
+            "Translation error",
+            "Error translating"
+        )
+        
+        val translationLower = translation.lowercase()
+        val hasFailureIndicator = failureIndicators.any { translationLower.contains(it) }
+        
+        // Check for known fallback messages
+        val knownFallbacks = when (targetLanguage) {
+            "Hebrew" -> listOf("תרגום לא זמין", "כותרת בעברית")
+            "Greek" -> listOf("μετάφραση μη διαθέσιμη", "τίτλος στα ελληνικά")
+            "English" -> listOf("translation unavailable", "english translation unavailable")
+            else -> emptyList()
+        }
+        
+        val isKnownFallback = knownFallbacks.any { translation.lowercase().contains(it.lowercase()) }
+        
+        // Consider it failed if:
+        // 1. Has failure indicators
+        // 2. Is a known fallback message
+        // 3. Is too short (less than 10 characters) and not intentionally short
+        // 4. Is empty or blank
+        val tooShort = translation.length < 10 && originalText.length > 20
+        
+        return hasFailureIndicator || isKnownFallback || tooShort || translation.isBlank()
+    }
+
+    // UPDATED: Better translation attempt with improved prompts
+    private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+        return try {
+            // More specific system prompt based on source language
+            val systemPrompt = when (sourceLanguage) {
+                "Russian" -> "You are a professional Russian-to-$targetLanguage translator. Translate the following Russian text to $targetLanguage. Provide ONLY the translation, no explanations."
+                "English" -> "You are a professional English-to-$targetLanguage translator. Translate the following English text to $targetLanguage. Provide ONLY the translation, no explanations."
+                else -> "You are a professional translator. Translate the following $sourceLanguage text to $targetLanguage. Provide ONLY the translation, no explanations."
+            }
+
+            val userPrompt = "Translate this text: $text"
+
+            val requestBody = """{
+      "model": "gpt-4o-mini",
+      "messages": [
+        {"role": "system", "content": "$systemPrompt"},
+        {"role": "user", "content": "$userPrompt"}
+      ],
+      "temperature": 0.1,
+      "max_tokens": 400
+    }"""
+
+            val request = Request.Builder()
+                .url("https://api.openai.com/v1/chat/completions")
+                .addHeader("Authorization", "Bearer $openAiApiKey")
+                .addHeader("Content-Type", "application/json")
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string())
+                    val translation = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                        .trim()
+                    
+                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
+                    translation
+                } else {
+                    println("❌ Translation API failed with code: ${response.code}")
+                    text
+                }
+            }
+        } catch (e: Exception) {
+            println("❌ Translation error for $sourceLanguage->$targetLanguage: ${e.message}")
+            text
+        }
+    }
+    
+    private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
+        try {
+            println("🔥 Processing ${newMessages.size} new messages...")
+            
+            // Add to processed messages
+            val processedMessages = loadProcessedMessages().toMutableList()
+            processedMessages.addAll(newMessages)
+            
+            // Keep last 500 messages (about 1 month of data)
+            val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
+            
+            // Find messages needing translation updates (limit to 2 to control costs)
+            val messagesNeedingTranslation = recentMessages.filter { message ->
+                val hasValidTranslations = message.translations?.let { translations ->
+                    translations["en"]?.let { en ->
+                        en.isNotEmpty() && 
+                        en != "English translation unavailable" &&
+                        en != "Translation unavailable" &&
+                        en != "Translation failed" &&
+                        en != "Translation pending..." &&
+                        !en.contains("translation unavailable") &&
+                        !en.contains("Translation pending") &&
+                        en.length > 10
+                    } == true
+                } ?: false
+                
+                !hasValidTranslations
+            }.take(2) // LIMIT: Only 2 messages per run to control costs
+            
+            println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
+            
+            // Update translations for messages that need them
+            messagesNeedingTranslation.forEach { oldMessage ->
+                try {
+                    println("🔄 Updating translations for message: '${oldMessage.text.take(50)}...'")
+                    
+                    val updatedTranslations = mapOf(
+                        "en" to translateText(oldMessage.text, "English", "Russian"),
+                        "he" to translateText(oldMessage.text, "Hebrew", "Russian"),
+                        "ru" to oldMessage.text, // Keep original Russian
+                        "el" to translateText(oldMessage.text, "Greek", "Russian")
+                    )
+                    
+                    // Update the message in the list
+                    val messageIndex = recentMessages.indexOfFirst { it.messageId == oldMessage.messageId }
+                    if (messageIndex != -1) {
+                        val updatedMessage = oldMessage.copy(translations = updatedTranslations)
+                        recentMessages[messageIndex] = updatedMessage
+                        println("✅ Updated translations for message ID: ${oldMessage.messageId}")
+                    }
+                    
+                    // Small delay to avoid API rate limits
+                    Thread.sleep(1000)
+                } catch (e: Exception) {
+                    println("⚠️ Failed to update translation for message: ${e.message}")
+                }
+            }
+            
+            // Save updated messages
+            saveProcessedMessages(recentMessages)
+            if (messagesNeedingTranslation.isNotEmpty()) {
+                println("💾 Saved ${messagesNeedingTranslation.size} updated message translations")
+            }
+            
+            // Show last 30 messages on website
+            updateLiveWebsite(recentMessages.take(30))
+            
+            // Upload to GitHub Pages
+            uploadToGitHub()
+            
+            println("✅ Messages processed and website updated")
+            
+        } catch (e: Exception) {
+            println("❌ Error processing messages: ${e.message}")
+            e.printStackTrace()
+        }
+    }
     
     private fun loadProcessedMessages(): List<TelegramNewsMessage> {
         return if (processedMessagesFile.exists()) {
@@ -677,18 +679,7 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
     <div class="priority $priorityClass">
         $priorityLabel
     </div>
-    <div class="lang en active">
-        <div class="text">$englishText</div>
-    </div>
-    <div class="lang he">
-        <div class="text" dir="rtl">$hebrewText</div>
-    </div>
-    <div class="lang ru">
-        <div class="text">$russianText</div>
-    </div>
-    <div class="lang el">
-        <div class="text">$greekText</div>
-    </div>
+    <div class="text">$russianText</div>
 </div>
                 """.trimIndent()
             }
@@ -701,6 +692,9 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
     }
     
     private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
+        val breakingCount = recentMessages.count { it.isBreaking }
+        val urgentCount = recentMessages.count { it.priority == 1 }
+        
         return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -773,63 +767,6 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             background: #764ba2;
             transform: translateY(-2px);
         }
-        
-        /* FIXED: Added missing lang-buttons CSS */
-        .lang-buttons { 
-            text-align: center; 
-            margin: 30px 0; 
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 8px;
-        }
-        
-        .lang-buttons button { 
-            padding: 10px 16px; 
-            border: none; 
-            border-radius: 20px; 
-            background: #667eea; 
-            color: white; 
-            cursor: pointer; 
-            font-size: 0.9rem;
-            min-width: 80px;
-            transition: all 0.3s ease;
-        }
-        
-        .lang-buttons button.active { 
-            background: #764ba2; 
-            transform: scale(1.05);
-        }
-        
-        .lang-buttons button:hover { 
-            background: #764ba2; 
-        }
-        
-        /* FIXED: Proper language visibility control */
-        .lang { display: none; }
-        .lang.active { display: block; }
-        
-        .lang.he { 
-            direction: rtl; 
-            text-align: right; 
-            font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
-        }
-        
-        .lang.he h2, .lang.he h3 { 
-            text-align: right; 
-            direction: rtl; 
-        }
-        
-        .lang.he p { 
-            text-align: right; 
-            direction: rtl; 
-        }
-        
-        .lang.he .text { 
-            direction: rtl;
-            text-align: right;
-        }
-        
         .message { 
             margin: 20px 0; 
             padding: 25px; 
@@ -940,18 +877,7 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
                 margin: 5px 0; 
                 padding: 12px 20px; 
             }
-            .lang-buttons {
-                flex-direction: column;
-                align-items: center;
-            }
-            .lang-buttons button {
-                width: 90%;
-                max-width: 200px;
-                margin: 5px 0;
-                padding: 12px;
-                font-size: 1rem;
-            }
-            .stats { grid-template-columns: repeat(1, 1fr); }
+            .stats { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -959,7 +885,7 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
 <div class="container">
     <div class="header">
         <div class="live-indicator">🔴 LIVE</div>
-        <div class="logo">AI News</div>
+        <div class="logo">🤖 AI News</div>
         <h1>🇨🇾 Cyprus Breaking News</h1>
         <p>Real-time updates from @cyprus_control</p>
         <p><strong>$currentDate</strong></p>
@@ -974,24 +900,29 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         <a href="https://t.me/cyprus_control" target="_blank">📱 @cyprus_control</a>
     </div>
 
-    <div class="lang-buttons">
-        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-    </div>
-
     <div class="stats">
         <div class="stat-item">
             <div class="stat-number">${recentMessages.size}</div>
             <div class="stat-label">Recent Messages</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">$breakingCount</div>
+            <div class="stat-label">Breaking News</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">$urgentCount</div>
+            <div class="stat-label">Urgent Updates</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-number">10 min</div>
+            <div class="stat-label">Update Frequency</div>
         </div>
     </div>
 
     $messagesHtml
 
     <div class="footer">
-        <p><strong>Automated Live Monitoring</strong></p>
+        <p>🤖 <strong>Automated Live Monitoring</strong></p>
         <p>Updates every 10 minutes • Source: <a href="https://t.me/cyprus_control" target="_blank">@cyprus_control</a></p>
         <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
         <p style="margin-top: 15px; font-size: 0.8rem;">
@@ -1000,48 +931,6 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         </p>
     </div>
 </div>
-
-<script>
-    let currentLang = 'en';
-
-    function setLang(lang) {
-        // Hide all language elements
-        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-        // Show selected language elements
-        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-        // Update button states
-        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-        document.getElementById('btn-' + lang).classList.add('active');
-        currentLang = lang;
-        
-        try {
-            localStorage.setItem('liveNewsLang', lang);
-        } catch (e) {
-            // Silently fail if localStorage not available
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        let savedLang = 'en';
-        try {
-            savedLang = localStorage.getItem('liveNewsLang') || 'en';
-        } catch (e) {
-            // Silently fail if localStorage not available
-        }
-        setLang(savedLang);
-        
-        document.addEventListener('keydown', function(e) {
-            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                e.preventDefault();
-                const langs = ['en', 'he', 'ru', 'el'];
-                const langIndex = parseInt(e.key) - 1;
-                if (langs[langIndex]) {
-                    setLang(langs[langIndex]);
-                }
-            }
-        });
-    });
-</script>
 </body>
 </html>"""
     }
