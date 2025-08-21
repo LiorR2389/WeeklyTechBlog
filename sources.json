@@ -234,6 +234,123 @@
       "delayMs": 2000
     },
     {
+      "country": "ISRAEL",
+      "sourceId": "ynet-english",
+      "sourceName": "Ynet English",
+      "baseUrl": "https://www.ynetnews.com/",
+      "linkSelectors": [
+        ".smallheader a",
+        ".art_header_link",
+        "h2 a",
+        ".slotTitle a"
+      ],
+      "paragraphSelectors": [
+        ".art_header_footer_author p:first-of-type",
+        ".TextView p:first-of-type",
+        ".article-text p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "i24news",
+      "sourceName": "i24NEWS",
+      "baseUrl": "https://www.i24news.tv/en",
+      "linkSelectors": [
+        ".article-title a",
+        ".headline a",
+        "h2 a",
+        ".title a"
+      ],
+      "paragraphSelectors": [
+        ".article-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "israel-national-news",
+      "sourceName": "Israel National News (Arutz Sheva)",
+      "baseUrl": "https://www.israelnationalnews.com/",
+      "linkSelectors": [
+        ".title a",
+        ".headline a",
+        "h2 a",
+        ".article-title a"
+      ],
+      "paragraphSelectors": [
+        ".article-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "calcalist-tech",
+      "sourceName": "Calcalist Tech",
+      "baseUrl": "https://www.calcalistech.com/",
+      "linkSelectors": [
+        ".article-title a",
+        "h2 a",
+        ".headline a"
+      ],
+      "paragraphSelectors": [
+        ".article-body p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "jta",
+      "sourceName": "Jewish Telegraphic Agency",
+      "baseUrl": "https://www.jta.org/",
+      "linkSelectors": [
+        ".entry-title a",
+        "h2 a",
+        ".post-title a"
+      ],
+      "paragraphSelectors": [
+        ".entry-content p:first-of-type",
+        ".post-content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
+      "country": "ISRAEL",
+      "sourceId": "globes",
+      "sourceName": "Globes English",
+      "baseUrl": "https://en.globes.co.il/",
+      "linkSelectors": [
+        ".article-title a",
+        "h2 a",
+        ".headline a"
+      ],
+      "paragraphSelectors": [
+        ".article-content p:first-of-type",
+        ".content p:first-of-type",
+        "article p:first-of-type"
+      ],
+      "sourceLanguage": "en",
+      "timezone": "Asia/Jerusalem",
+      "delayMs": 2000
+    },
+    {
       "country": "GREECE",
       "sourceId": "kathimerini-greece",
       "sourceName": "Kathimerini Greece",
