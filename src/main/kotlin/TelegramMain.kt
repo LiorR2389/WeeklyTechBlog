@@ -384,9 +384,9 @@ private fun translateText(text: String, targetLanguage: String, sourceLanguage: 
     if (openAiApiKey.isNullOrEmpty()) {
         println("⚠️ No OpenAI API key, using fallback translations")
         return when (targetLanguage) {
-            "English" -> "English translation unavailable (no API key)"
-            "Hebrew" -> "תרגום לא זמין"
-            "Greek" -> "Μετάφραση μη διαθέσιμη"
+            "English" -> "Translation unavailable (no API key)"
+            "Hebrew" -> "תרגום לא זמין (אין מפתח API)"
+            "Greek" -> "Μετάφραση μη διαθέσιμη (δεν υπάρχει κλειδί API)"
             else -> text
         }
     }
@@ -398,7 +398,7 @@ private fun translateText(text: String, targetLanguage: String, sourceLanguage: 
     }
 
     // Add rate limiting delay
-    Thread.sleep(1500) // 1.5 second delay between requests
+    Thread.sleep(1000) // Reduced to 1 second to allow more translations per run
     
     val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
     
@@ -408,9 +408,9 @@ private fun translateText(text: String, targetLanguage: String, sourceLanguage: 
     if (translationFailed) {
         println("❌ Translation failed for $sourceLanguage->$targetLanguage")
         return when (targetLanguage) {
-            "English" -> "Translation unavailable"
-            "Hebrew" -> "תרגום לא זמין"
-            "Greek" -> "Μετάφραση μη διαθέσιμη"
+            "English" -> "Translation temporarily unavailable"
+            "Hebrew" -> "תרגום זמנית לא זמין"
+            "Greek" -> "Μετάφραση προσωρινά μη διαθέσιμη"
             else -> text
         }
     }
@@ -555,39 +555,90 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         processedMessages.addAll(newMessages)
         
         // Keep last 3-4 days of messages
-        val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(500).toMutableList()
+        val recentMessages = processedMessages.sortedByDescending { it.timestamp }.take(100).toMutableList()
         
-        // HEAVILY REDUCED: Only translate 1-2 most recent messages to avoid rate limiting
+        // IMPROVED: Prioritize messages that need translations
         val messagesNeedingTranslation = recentMessages.filter { message ->
-            val hasValidTranslations = message.translations?.let { translations ->
-                translations["en"]?.let { en ->
-                    en.isNotEmpty() && 
-                    en != "English translation unavailable" &&
-                    en != "Translation unavailable" &&
-                    !en.contains("translation unavailable") &&
-                    !en.contains("Translation pending") &&
-                    en.length > 10
-                } == true
-            } ?: false
+            // Check if ANY language is missing proper translation
+            val missingEnglish = message.translations?.get("en")?.let { en ->
+                en.isEmpty() || 
+                en == "English translation unavailable" ||
+                en == "Translation unavailable" ||
+                en == "Translation pending..." ||
+                en.contains("translation unavailable") ||
+                en.contains("Translation pending") ||
+                en.length < 10 ||
+                en == message.text // Same as original Russian
+            } ?: true
             
-            !hasValidTranslations
-        }.take(1) // REDUCED: Only 1 message per run to avoid rate limits
+            val missingHebrew = message.translations?.get("he")?.let { he ->
+                he.isEmpty() || 
+                he == "תרגום לא זמין" ||
+                he == "תרגום ממתין..." ||
+                he.contains("תרגום ממתין") ||
+                he.length < 5 ||
+                he == message.text // Same as original Russian
+            } ?: true
+            
+            val missingGreek = message.translations?.get("el")?.let { el ->
+                el.isEmpty() || 
+                el == "Μετάφραση μη διαθέσιμη" ||
+                el == "Μετάφραση σε εκκρεμότητα..." ||
+                el.contains("Μετάφραση σε εκκρεμότητα") ||
+                el.length < 10 ||
+                el == message.text // Same as original Russian
+            } ?: true
+            
+            missingEnglish || missingHebrew || missingGreek
+        }
+        .sortedByDescending { it.timestamp } // Prioritize newest messages
+        .take(5) // Process up to 5 messages per run
         
         println("📝 Found ${messagesNeedingTranslation.size} messages needing translation updates")
         
         // Update translations for messages that need them
-        messagesNeedingTranslation.forEach { oldMessage ->
+        messagesNeedingTranslation.forEachIndexed { index, oldMessage ->
             try {
-                println("🔄 Updating translations for message: '${oldMessage.text.take(50)}...'")
+                println("🔄 Updating translations for message ${index + 1}/${messagesNeedingTranslation.size}: '${oldMessage.text.take(50)}...'")
                 
-                // Translate one language at a time with delays
-                val englishTranslation = translateText(oldMessage.text, "English", "Russian")
-                Thread.sleep(2000) // 2 second delay
+                // Check which specific translations are needed
+                val currentTranslations = oldMessage.translations ?: mapOf()
                 
-                val hebrewTranslation = translateText(oldMessage.text, "Hebrew", "Russian") 
-                Thread.sleep(2000) // 2 second delay
+                val needsEnglish = currentTranslations["en"]?.let { en ->
+                    en.isEmpty() || en == "Translation unavailable" || en == "Translation pending..." || en == oldMessage.text
+                } ?: true
                 
-                val greekTranslation = translateText(oldMessage.text, "Greek", "Russian")
+                val needsHebrew = currentTranslations["he"]?.let { he ->
+                    he.isEmpty() || he == "תרגום לא זמין" || he == "תרגום ממתין..." || he == oldMessage.text
+                } ?: true
+                
+                val needsGreek = currentTranslations["el"]?.let { el ->
+                    el.isEmpty() || el == "Μετάφραση μη διαθέσιμη" || el == "Μετάφραση σε εκκρεμότητα..." || el == oldMessage.text
+                } ?: true
+                
+                // Only translate what's actually needed
+                val englishTranslation = if (needsEnglish) {
+                    translateText(oldMessage.text, "English", "Russian")
+                } else {
+                    currentTranslations["en"] ?: oldMessage.text
+                }
+                
+                // Add delay between language translations
+                if (needsEnglish) Thread.sleep(1500)
+                
+                val hebrewTranslation = if (needsHebrew) {
+                    translateText(oldMessage.text, "Hebrew", "Russian")
+                } else {
+                    currentTranslations["he"] ?: oldMessage.text
+                }
+                
+                if (needsHebrew) Thread.sleep(1500)
+                
+                val greekTranslation = if (needsGreek) {
+                    translateText(oldMessage.text, "Greek", "Russian")
+                } else {
+                    currentTranslations["el"] ?: oldMessage.text
+                }
                 
                 val updatedTranslations = mapOf(
                     "en" to englishTranslation,
@@ -601,11 +652,20 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
                 if (messageIndex != -1) {
                     val updatedMessage = oldMessage.copy(translations = updatedTranslations)
                     recentMessages[messageIndex] = updatedMessage
-                    println("✅ Updated translations for message ID: ${oldMessage.messageId}")
+                    
+                    val translatedLanguages = mutableListOf<String>()
+                    if (needsEnglish) translatedLanguages.add("EN")
+                    if (needsHebrew) translatedLanguages.add("HE") 
+                    if (needsGreek) translatedLanguages.add("EL")
+                    
+                    println("✅ Updated translations for message ID: ${oldMessage.messageId} (${translatedLanguages.joinToString(", ")})")
                 }
                 
-                // Longer delay between messages
-                Thread.sleep(3000) // 3 second delay between messages
+                // Longer delay between messages to avoid rate limiting
+                if (index < messagesNeedingTranslation.size - 1) {
+                    Thread.sleep(2000)
+                }
+                
             } catch (e: Exception) {
                 println("⚠️ Failed to update translation for message: ${e.message}")
             }
@@ -622,6 +682,18 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         
         // Upload to GitHub Pages
         uploadToGitHub()
+        
+        // Print translation progress
+        val totalMessages = recentMessages.take(30).size
+        val fullyTranslatedMessages = recentMessages.take(30).count { message ->
+            val translations = message.translations ?: mapOf()
+            val hasEnglish = translations["en"]?.let { it.isNotEmpty() && it != "Translation unavailable" && it != message.text } == true
+            val hasHebrew = translations["he"]?.let { it.isNotEmpty() && it != "תרגום לא זמין" && it != message.text } == true
+            val hasGreek = translations["el"]?.let { it.isNotEmpty() && it != "Μετάφραση μη διαθέσιμη" && it != message.text } == true
+            hasEnglish && hasHebrew && hasGreek
+        }
+        
+        println("📊 Translation Progress: $fullyTranslatedMessages/$totalMessages messages fully translated (${(fullyTranslatedMessages * 100 / totalMessages)}%)")
         
         println("✅ Messages processed and website updated")
         
