@@ -428,85 +428,162 @@ private fun cleanParagraphText(text: String): String {
         .take(400) // Increased from 300 to 400 for better summaries
         .let { if (it.length == 400) "$it..." else it }
 }
-// UPDATED: Translation with enhanced fallback - try original language first, then English
-    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
-        if (openAiApiKey.isNullOrEmpty()) {
-            return when (targetLanguage) {
-                "Hebrew" -> "כותרת בעברית"
-                "Russian" -> "Заголовок на русском"
-                "Greek" -> "Τίτλος στα ελληνικά"
-                else -> text
-            }
-        }
+// ADD this to your Main.kt file - REPLACE your translateText function:
 
-        // Check cache first
-        val cache = loadTranslationCache()
-        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
-        
-        if (cache.containsKey(cacheKey)) {
-            println("✅ Using cached translation for: ${text.take(50)}...")
-            return cache[cacheKey]!!
+private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
+    if (openAiApiKey.isNullOrEmpty()) {
+        return when (targetLanguage) {
+            "Hebrew" -> "כותרת בעברית"
+            "Russian" -> "Заголовок на русском"
+            "Greek" -> "Τίτλος στα ελληνικά"
+            else -> text
         }
-
-        // Try translating from the specified source language first
-        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-        
-        // FIXED: Enhanced detection of translation failures
-        val translationFailed = translation == text || 
-                               translation.contains("I'm unable to translate") ||
-                               translation.contains("I cannot translate") ||
-                               translation.contains("translation unavailable") || 
-                               translation.contains("תרגום לא זמין") ||
-                               translation.contains("Μετάφραση μη διαθέσιμη") ||
-                               translation.lowercase().contains("error") ||
-                               translation.isBlank() ||
-                               translation.length < 10 ||
-                               translation.lowercase().contains("unable to") ||
-                               translation.lowercase().contains("cannot provide") ||
-                               translation.lowercase().contains("i don't have")
-        
-        // If translation failed and we haven't tried English yet, try English as fallback
-        if (translationFailed && sourceLanguage != "English") {
-            println("⚠️ Translation from $sourceLanguage failed (result: '${translation.take(50)}'), trying English fallback...")
-            val englishTranslation = attemptTranslation(text, targetLanguage, "English")
-            
-            val englishFailed = englishTranslation == text || 
-                               englishTranslation.contains("I'm unable to translate") ||
-                               englishTranslation.contains("I cannot translate") ||
-                               englishTranslation.contains("translation unavailable") ||
-                               englishTranslation.lowercase().contains("error") ||
-                               englishTranslation.isBlank() ||
-                               englishTranslation.length < 10 ||
-                               englishTranslation.lowercase().contains("unable to") ||
-                               englishTranslation.lowercase().contains("cannot provide")
-            
-            if (!englishFailed) {
-                println("✅ English fallback successful: '${englishTranslation.take(50)}...'")
-                cache[cacheKey] = englishTranslation
-                saveTranslationCache(cache)
-                return englishTranslation
-            } else {
-                println("❌ English fallback also failed: '${englishTranslation.take(50)}...'")
-            }
-        }
-        
-        // Cache and return the result (even if it failed, to avoid re-trying)
-        val finalResult = if (translationFailed) {
-            when (targetLanguage) {
-                "Hebrew" -> "כותרת בעברית"
-                "Russian" -> "Заголовок на русском"
-                "Greek" -> "Τίτλος στα ελληνικά"
-                else -> text
-            }
-        } else {
-            translation
-        }
-        
-        cache[cacheKey] = finalResult
-        saveTranslationCache(cache)
-        return finalResult
     }
 
+    // Check cache first
+    val cache = loadTranslationCache()
+    val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
+    
+    if (cache.containsKey(cacheKey)) {
+        println("✅ Using cached translation for: ${text.take(50)}...")
+        return cache[cacheKey]!!
+    }
+
+    // RATE LIMITING: Add delays between API calls
+    val lastApiCallFile = File("last_api_call.txt")
+    if (lastApiCallFile.exists()) {
+        try {
+            val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
+            val timeSinceLastCall = System.currentTimeMillis() - lastCall
+            val minimumDelay = 2000L // 2 seconds between calls
+            
+            if (timeSinceLastCall < minimumDelay) {
+                val waitTime = minimumDelay - timeSinceLastCall
+                println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
+                Thread.sleep(waitTime)
+            }
+        } catch (e: Exception) {
+            // Ignore file errors
+        }
+    }
+
+    // Try translating with retry logic
+    var retryCount = 0
+    val maxRetries = 3
+    
+    while (retryCount < maxRetries) {
+        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+        
+        // Check if we got rate limited
+        if (translation.contains("rate limit") || translation == text) {
+            retryCount++
+            if (retryCount < maxRetries) {
+                val backoffDelay = (retryCount * 5000L) // 5s, 10s, 15s
+                println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
+                Thread.sleep(backoffDelay)
+                continue
+            } else {
+                println("❌ Max retries reached for $targetLanguage translation")
+                break
+            }
+        }
+        
+        // Save timestamp of successful call
+        try {
+            lastApiCallFile.writeText(System.currentTimeMillis().toString())
+        } catch (e: Exception) {
+            // Ignore file errors
+        }
+        
+        // Cache successful translation
+        cache[cacheKey] = translation
+        saveTranslationCache(cache)
+        
+        return translation
+    }
+    
+    // Fallback if all retries failed
+    val fallbackResult = when (targetLanguage) {
+        "Hebrew" -> "תרגום נכשל - חריגה ממגבלת קצב"
+        "Russian" -> "Перевод не удался - превышен лимит скорости"
+        "Greek" -> "Η μετάφραση απέτυχε - υπέρβαση ορίου ρυθμού"
+        else -> text
+    }
+    
+    // Cache the fallback to avoid repeated failures
+    cache[cacheKey] = fallbackResult
+    saveTranslationCache(cache)
+    
+    return fallbackResult
+}
+
+// REPLACE your attemptTranslation function with this improved version:
+
+private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+    return try {
+        val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
+
+        val userPrompt = when (sourceLanguage.lowercase()) {
+            "hebrew" -> "Translate this Hebrew text to $targetLanguage: $text"
+            "russian" -> "Translate this Russian text to $targetLanguage: $text"
+            "greek" -> "Translate this Greek text to $targetLanguage: $text"
+            else -> "Translate this $sourceLanguage text to $targetLanguage: $text"
+        }
+
+        val requestBody = """
+            {
+              "model": "gpt-4o-mini",
+              "messages": [
+                {"role": "system", "content": "$systemPrompt"},
+                {"role": "user", "content": "$userPrompt"}
+              ],
+              "temperature": 0.0,
+              "max_tokens": 150
+            }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url("https://api.openai.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer $openAiApiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(requestBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            when (response.code) {
+                200 -> {
+                    val json = JSONObject(response.body?.string())
+                    val translation = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                        .trim()
+                    
+                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
+                    translation
+                }
+                429 -> {
+                    println("❌ Translation API failed with code: 429 (Rate Limited)")
+                    "RATE_LIMITED" // Special marker for rate limiting
+                }
+                else -> {
+                    println("❌ Translation API failed with code: ${response.code}")
+                    text
+                }
+            }
+        }
+    } catch (e: Exception) {
+        println("❌ Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
+        text
+    }
+}
+
+// ADD this optimization to your aggregateNews function:
+
+fun aggregateNews(): List<Article> {
+    println("📰 Starting multi-country news aggregation...")
+    val seen = loadSeenArticles()
+    val allArticles = mutableListOf<Arti
     // FIXED: Enhanced translation attempt with clearer prompts
     private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
