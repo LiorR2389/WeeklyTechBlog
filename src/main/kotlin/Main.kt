@@ -557,7 +557,14 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         )
         else -> emptyMap()
     }
-    
+    private fun getSimpleFallback(text: String, targetLanguage: String): String {
+    return when (targetLanguage) {
+        "Hebrew" -> translateKeywords(text, "Hebrew")
+        "Russian" -> translateKeywords(text, "Russian") 
+        "Greek" -> translateKeywords(text, "Greek")
+        else -> text
+    }
+}
 
 
 private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
@@ -639,6 +646,132 @@ private fun translateText(text: String, targetLanguage: String, sourceLanguage: 
     return fallbackResult
 }
 
+private fun translateKeywords(text: String, targetLanguage: String): String {
+    if (targetLanguage == "English") return text // Already in English
+    
+    val keywordMaps = when (targetLanguage) {
+        "Hebrew" -> mapOf(
+            "police" to "משטרה",
+            "arrested" to "נעצר", 
+            "detained" to "נעצר",
+            "fire" to "שריפה",
+            "accident" to "תאונה",
+            "hospital" to "בית חולים",
+            "court" to "בית משפט",
+            "bank" to "בנק",
+            "government" to "ממשלה",
+            "minister" to "שר",
+            "president" to "נשיא",
+            "parliament" to "פרלמנט",
+            "Cyprus" to "קפריסין",
+            "Limassol" to "לימסול",
+            "Nicosia" to "ניקוסיה", 
+            "Larnaca" to "לרנקה",
+            "Paphos" to "פאפוס",
+            "euro" to "יורו",
+            "euros" to "יורו",
+            "temperature" to "טמפרטורה",
+            "weather" to "מזג אויר",
+            "Technology" to "טכנולוגיה",
+            "Politics" to "פוליטיקה",
+            "Business & Economy" to "עסקים וכלכלה",
+            "Crime & Justice" to "פשע וצדק",
+            "General News" to "חדשות כלליות",
+            "Holidays & Travel" to "חגים ונסיעות"
+        )
+        "Russian" -> mapOf(
+            "police" to "полиция",
+            "arrested" to "арестован", 
+            "detained" to "задержан",
+            "fire" to "пожар",
+            "accident" to "авария",
+            "hospital" to "больница",
+            "court" to "суд",
+            "bank" to "банк",
+            "government" to "правительство",
+            "minister" to "министр",
+            "president" to "президент",
+            "parliament" to "парламент",
+            "Cyprus" to "Кипр",
+            "Limassol" to "Лимассол",
+            "Nicosia" to "Никосия",
+            "Larnaca" to "Ларнака",
+            "Paphos" to "Пафос",
+            "euro" to "евро",
+            "euros" to "евро",
+            "temperature" to "температура",
+            "weather" to "погода",
+            "Technology" to "Технология",
+            "Politics" to "Политика", 
+            "Business & Economy" to "Бизнес и экономика",
+            "Crime & Justice" to "Преступление и правосудие",
+            "General News" to "Общие новости",
+            "Holidays & Travel" to "Праздники и путешествия"
+        )
+        "Greek" -> mapOf(
+            "police" to "αστυνομία",
+            "arrested" to "συνελήφθη",
+            "detained" to "κρατήθηκε", 
+            "fire" to "φωτιά",
+            "accident" to "ατύχημα",
+            "hospital" to "νοσοκομείο",
+            "court" to "δικαστήριο",
+            "bank" to "τράπεζα",
+            "government" to "κυβέρνηση",
+            "minister" to "υπουργός",
+            "president" to "πρόεδρος",
+            "parliament" to "κοινοβούλιο",
+            "Cyprus" to "Κύπρος",
+            "Limassol" to "Λεμεσός",
+            "Nicosia" to "Λευκωσία",
+            "Larnaca" to "Λάρνακα",
+            "Paphos" to "Πάφος", 
+            "euro" to "ευρώ",
+            "euros" to "ευρώ",
+            "temperature" to "θερμοκρασία",
+            "weather" to "καιρός",
+            "Technology" to "Τεχνολογία",
+            "Politics" to "Πολιτική",
+            "Business & Economy" to "Επιχειρήσεις & Οικονομία",
+            "Crime & Justice" to "Έγκλημα & Δικαιοσύνη", 
+            "General News" to "Γενικές Ειδήσεις",
+            "Holidays & Travel" to "Διακοπές & Ταξίδια"
+        )
+        else -> emptyMap()
+    }
+    
+    var translatedText = text
+    keywordMaps.forEach { (english, translated) ->
+        translatedText = translatedText.replace(english, translated, ignoreCase = true)
+    }
+    
+    return translatedText
+}
+
+
+private fun isCachedTranslationFailure(translation: String, targetLanguage: String): Boolean {
+    val failureIndicators = when (targetLanguage) {
+        "Hebrew" -> listOf(
+            "תרגום נכשל",
+            "חריגה ממגבלת קצב", 
+            "תרגום לא זמין",
+            "כותרת בעברית"
+        )
+        "Russian" -> listOf(
+            "перевод не удался",
+            "превышен лимит скорости",
+            "заголовок на русском"
+        )
+        "Greek" -> listOf(
+            "η μετάφραση απέτυχε",
+            "υπέρβαση ορίου ρυθμού",
+            "τίτλος στα ελληνικά"
+        )
+        else -> listOf("translation failed", "rate limit", "translation unavailable")
+    }
+    
+    return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
+}
     var translatedText = text
     keywordMaps.forEach { (english, translated) ->
         translatedText = translatedText.replace(english, translated, ignoreCase = true)

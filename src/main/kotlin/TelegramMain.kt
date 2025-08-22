@@ -707,92 +707,10 @@ private fun translateTextFast(text: String, targetLanguage: String): String {
 }
 
 // NEW: Fast translation attempt with reduced timeouts
-private fun attemptTranslationFast(text: String, targetLanguage: String): String {
-    return try {
-        // Clean and validate input text
-        val cleanText = text.trim()
-        if (cleanText.isEmpty() || cleanText.length > 4000) {
-            return text
-        }
 
-        // Simpler, faster prompts
-        val systemPrompt = "Translate Russian to $targetLanguage. Keep emojis. Respond only with translation."
-        val userPrompt = cleanText
-
-        // Streamlined JSON request
-        val requestBody = JSONObject().apply {
-            put("model", "gpt-4o-mini")
-            put("messages", org.json.JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "system")
-                    put("content", systemPrompt)
-                })
-                put(JSONObject().apply {
-                    put("role", "user") 
-                    put("content", userPrompt)
-                })
-            })
-            put("temperature", 0.1)
-            put("max_tokens", 300) // Reduced for faster response
-        }
-
-        val request = Request.Builder()
-            .url("https://api.openai.com/v1/chat/completions")
-            .addHeader("Authorization", "Bearer $openAiApiKey")
-            .addHeader("Content-Type", "application/json")
-            .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-
-        // Use faster client with shorter timeouts for catch-up
-        val fastClient = OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build()
-
-        fastClient.newCall(request).execute().use { response ->
-            val responseBody = response.body?.string()
-            
-            if (response.isSuccessful && responseBody != null) {
-                try {
-                    val json = JSONObject(responseBody)
-                    val translation = json.getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                        .trim()
-                    
-                    return translation
-                } catch (e: Exception) {
-                    println("❌ Error parsing translation response: ${e.message}")
-                    return text
-                }
-            } else {
-                println("❌ Translation API failed with code: ${response.code}")
-                
-                // Handle rate limiting with shorter backoff
-                if (response.code == 429) {
-                    println("⏰ Rate limited, adding short delay...")
-                    Thread.sleep(1000) // Reduced from 5000ms to 1000ms
-                }
-                
-                return text
-            }
-        }
-    } catch (e: Exception) {
-        println("❌ Fast translation error for Russian->$targetLanguage: ${e.message}")
-        return text
-    }
-}
 
 // NEW: Better fallback translations
-private fun getFallbackTranslation(text: String, targetLanguage: String): String {
-    return when (targetLanguage) {
-        "English" -> translateKeywords(text, "English")
-        "Hebrew" -> "$text [רוסית]"
-        "Greek" -> "$text [Ρωσικά]"
-        else -> text
-    }
-}
+
 
 // NEW: Simple keyword-based translation for common terms
 private fun translateKeywords(text: String, targetLanguage: String): String {
