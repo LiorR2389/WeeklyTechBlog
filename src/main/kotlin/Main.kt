@@ -557,228 +557,220 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         )
         else -> emptyMap()
     }
+// NEW: Simple fallback translation function
     private fun getSimpleFallback(text: String, targetLanguage: String): String {
-    return when (targetLanguage) {
-        "Hebrew" -> translateKeywords(text, "Hebrew")
-        "Russian" -> translateKeywords(text, "Russian") 
-        "Greek" -> translateKeywords(text, "Greek")
-        else -> text
-    }
-}
-
-
-private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
-    if (openAiApiKey.isNullOrEmpty()) {
-        return getSimpleFallback(text, targetLanguage)
-    }
-
-    // Check cache first
-    val cache = loadTranslationCache()
-    val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
-    
-    if (cache.containsKey(cacheKey)) {
-        val cachedTranslation = cache[cacheKey]!!
-        // Don't use cached translations that are failures
-        if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
-            println("✅ Using cached translation for: ${text.take(50)}...")
-            return cachedTranslation
+        return when (targetLanguage) {
+            "Hebrew" -> translateKeywords(text, "Hebrew")
+            "Russian" -> translateKeywords(text, "Russian") 
+            "Greek" -> translateKeywords(text, "Greek")
+            else -> text
         }
     }
 
-    // RATE LIMITING: Add delays between API calls
-    val lastApiCallFile = File("last_api_call.txt")
-    if (lastApiCallFile.exists()) {
-        try {
-            val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
-            val timeSinceLastCall = System.currentTimeMillis() - lastCall
-            val minimumDelay = 2000L // 2 seconds between calls
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
+        if (openAiApiKey.isNullOrEmpty()) {
+            return getSimpleFallback(text, targetLanguage)
+        }
+
+        // Check cache first
+        val cache = loadTranslationCache()
+        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
+        
+        if (cache.containsKey(cacheKey)) {
+            val cachedTranslation = cache[cacheKey]!!
+            // Don't use cached translations that are failures
+            if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
+                println("✅ Using cached translation for: ${text.take(50)}...")
+                return cachedTranslation
+            }
+        }
+
+        // RATE LIMITING: Add delays between API calls
+        val lastApiCallFile = File("last_api_call.txt")
+        if (lastApiCallFile.exists()) {
+            try {
+                val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
+                val timeSinceLastCall = System.currentTimeMillis() - lastCall
+                val minimumDelay = 2000L // 2 seconds between calls
+                
+                if (timeSinceLastCall < minimumDelay) {
+                    val waitTime = minimumDelay - timeSinceLastCall
+                    println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
+                    Thread.sleep(waitTime)
+                }
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
+        }
+
+        // Try translating with retry logic
+        var retryCount = 0
+        val maxRetries = 2 // Reduced retries for faster processing
+        
+        while (retryCount < maxRetries) {
+            val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
             
-            if (timeSinceLastCall < minimumDelay) {
-                val waitTime = minimumDelay - timeSinceLastCall
-                println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
-                Thread.sleep(waitTime)
+            // Check if we got rate limited or other failure
+            if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
+                translation.contains("תרגום נכשל") || translation == text) {
+                retryCount++
+                if (retryCount < maxRetries) {
+                    val backoffDelay = (retryCount * 2000L) // 2s, 4s
+                    println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
+                    Thread.sleep(backoffDelay)
+                    continue
+                } else {
+                    println("❌ Max retries reached for $targetLanguage translation")
+                    break
+                }
             }
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
-    }
-
-    // Try translating with retry logic
-    var retryCount = 0
-    val maxRetries = 2 // Reduced retries for faster processing
-    
-    while (retryCount < maxRetries) {
-        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-        
-        // Check if we got rate limited or other failure
-        if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
-            translation.contains("תרגום נכשל") || translation == text) {
-            retryCount++
-            if (retryCount < maxRetries) {
-                val backoffDelay = (retryCount * 2000L) // 2s, 4s
-                println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
-                Thread.sleep(backoffDelay)
-                continue
-            } else {
-                println("❌ Max retries reached for $targetLanguage translation")
-                break
+            
+            // Save timestamp of successful call
+            try {
+                lastApiCallFile.writeText(System.currentTimeMillis().toString())
+            } catch (e: Exception) {
+                // Ignore file errors
             }
+            
+            // Cache successful translation
+            cache[cacheKey] = translation
+            saveTranslationCache(cache)
+            
+            return translation
         }
         
-        // Save timestamp of successful call
-        try {
-            lastApiCallFile.writeText(System.currentTimeMillis().toString())
-        } catch (e: Exception) {
-            // Ignore file errors
+        // Fallback if all retries failed - DON'T cache failures
+        val fallbackResult = getSimpleFallback(text, targetLanguage)
+        
+        println("❌ Using fallback translation for $targetLanguage")
+        return fallbackResult
+    }
+
+    private fun translateKeywords(text: String, targetLanguage: String): String {
+        if (targetLanguage == "English") return text // Already in English
+        
+        val keywordMaps = when (targetLanguage) {
+            "Hebrew" -> mapOf(
+                "police" to "משטרה",
+                "arrested" to "נעצר", 
+                "detained" to "נעצר",
+                "fire" to "שריפה",
+                "accident" to "תאונה",
+                "hospital" to "בית חולים",
+                "court" to "בית משפט",
+                "bank" to "בנק",
+                "government" to "ממשלה",
+                "minister" to "שר",
+                "president" to "נשיא",
+                "parliament" to "פרלמנט",
+                "Cyprus" to "קפריסין",
+                "Limassol" to "לימסול",
+                "Nicosia" to "ניקוסיה", 
+                "Larnaca" to "לרנקה",
+                "Paphos" to "פאפוס",
+                "euro" to "יורו",
+                "euros" to "יורו",
+                "temperature" to "טמפרטורה",
+                "weather" to "מזג אויר",
+                "Technology" to "טכנולוגיה",
+                "Politics" to "פוליטיקה",
+                "Business & Economy" to "עסקים וכלכלה",
+                "Crime & Justice" to "פשע וצדק",
+                "General News" to "חדשות כלליות",
+                "Holidays & Travel" to "חגים ונסיעות"
+            )
+            "Russian" -> mapOf(
+                "police" to "полиция",
+                "arrested" to "арестован", 
+                "detained" to "задержан",
+                "fire" to "пожар",
+                "accident" to "авария",
+                "hospital" to "больница",
+                "court" to "суд",
+                "bank" to "банк",
+                "government" to "правительство",
+                "minister" to "министр",
+                "president" to "президент",
+                "parliament" to "парламент",
+                "Cyprus" to "Кипр",
+                "Limassol" to "Лимассол",
+                "Nicosia" to "Никосия",
+                "Larnaca" to "Ларнака",
+                "Paphos" to "Пафос",
+                "euro" to "евро",
+                "euros" to "евро",
+                "temperature" to "температура",
+                "weather" to "погода",
+                "Technology" to "Технология",
+                "Politics" to "Политика", 
+                "Business & Economy" to "Бизнес и экономика",
+                "Crime & Justice" to "Преступление и правосудие",
+                "General News" to "Общие новости",
+                "Holidays & Travel" to "Праздники и путешествия"
+            )
+            "Greek" -> mapOf(
+                "police" to "αστυνομία",
+                "arrested" to "συνελήφθη",
+                "detained" to "κρατήθηκε", 
+                "fire" to "φωτιά",
+                "accident" to "ατύχημα",
+                "hospital" to "νοσοκομείο",
+                "court" to "δικαστήριο",
+                "bank" to "τράπεζα",
+                "government" to "κυβέρνηση",
+                "minister" to "υπουργός",
+                "president" to "πρόεδρος",
+                "parliament" to "κοινοβούλιο",
+                "Cyprus" to "Κύπρος",
+                "Limassol" to "Λεμεσός",
+                "Nicosia" to "Λευκωσία",
+                "Larnaca" to "Λάρνακα",
+                "Paphos" to "Πάφος", 
+                "euro" to "ευρώ",
+                "euros" to "ευρώ",
+                "temperature" to "θερμοκρασία",
+                "weather" to "καιρός",
+                "Technology" to "Τεχνολογία",
+                "Politics" to "Πολιτική",
+                "Business & Economy" to "Επιχειρήσεις & Οικονομία",
+                "Crime & Justice" to "Έγκλημα & Δικαιοσύνη", 
+                "General News" to "Γενικές Ειδήσεις",
+                "Holidays & Travel" to "Διακοπές & Ταξίδια"
+            )
+            else -> emptyMap()
         }
         
-        // Cache successful translation
-        cache[cacheKey] = translation
-        saveTranslationCache(cache)
+        var translatedText = text
+        keywordMaps.forEach { (english, translated) ->
+            translatedText = translatedText.replace(english, translated, ignoreCase = true)
+        }
         
-        return translation
+        return translatedText
     }
-    
-    // Fallback if all retries failed - DON'T cache failures
-    val fallbackResult = getSimpleFallback(text, targetLanguage)
-    
-    println("❌ Using fallback translation for $targetLanguage")
-    return fallbackResult
-}
 
-private fun translateKeywords(text: String, targetLanguage: String): String {
-    if (targetLanguage == "English") return text // Already in English
-    
-    val keywordMaps = when (targetLanguage) {
-        "Hebrew" -> mapOf(
-            "police" to "משטרה",
-            "arrested" to "נעצר", 
-            "detained" to "נעצר",
-            "fire" to "שריפה",
-            "accident" to "תאונה",
-            "hospital" to "בית חולים",
-            "court" to "בית משפט",
-            "bank" to "בנק",
-            "government" to "ממשלה",
-            "minister" to "שר",
-            "president" to "נשיא",
-            "parliament" to "פרלמנט",
-            "Cyprus" to "קפריסין",
-            "Limassol" to "לימסול",
-            "Nicosia" to "ניקוסיה", 
-            "Larnaca" to "לרנקה",
-            "Paphos" to "פאפוס",
-            "euro" to "יורו",
-            "euros" to "יורו",
-            "temperature" to "טמפרטורה",
-            "weather" to "מזג אויר",
-            "Technology" to "טכנולוגיה",
-            "Politics" to "פוליטיקה",
-            "Business & Economy" to "עסקים וכלכלה",
-            "Crime & Justice" to "פשע וצדק",
-            "General News" to "חדשות כלליות",
-            "Holidays & Travel" to "חגים ונסיעות"
-        )
-        "Russian" -> mapOf(
-            "police" to "полиция",
-            "arrested" to "арестован", 
-            "detained" to "задержан",
-            "fire" to "пожар",
-            "accident" to "авария",
-            "hospital" to "больница",
-            "court" to "суд",
-            "bank" to "банк",
-            "government" to "правительство",
-            "minister" to "министр",
-            "president" to "президент",
-            "parliament" to "парламент",
-            "Cyprus" to "Кипр",
-            "Limassol" to "Лимассол",
-            "Nicosia" to "Никосия",
-            "Larnaca" to "Ларнака",
-            "Paphos" to "Пафос",
-            "euro" to "евро",
-            "euros" to "евро",
-            "temperature" to "температура",
-            "weather" to "погода",
-            "Technology" to "Технология",
-            "Politics" to "Политика", 
-            "Business & Economy" to "Бизнес и экономика",
-            "Crime & Justice" to "Преступление и правосудие",
-            "General News" to "Общие новости",
-            "Holidays & Travel" to "Праздники и путешествия"
-        )
-        "Greek" -> mapOf(
-            "police" to "αστυνομία",
-            "arrested" to "συνελήφθη",
-            "detained" to "κρατήθηκε", 
-            "fire" to "φωτιά",
-            "accident" to "ατύχημα",
-            "hospital" to "νοσοκομείο",
-            "court" to "δικαστήριο",
-            "bank" to "τράπεζα",
-            "government" to "κυβέρνηση",
-            "minister" to "υπουργός",
-            "president" to "πρόεδρος",
-            "parliament" to "κοινοβούλιο",
-            "Cyprus" to "Κύπρος",
-            "Limassol" to "Λεμεσός",
-            "Nicosia" to "Λευκωσία",
-            "Larnaca" to "Λάρνακα",
-            "Paphos" to "Πάφος", 
-            "euro" to "ευρώ",
-            "euros" to "ευρώ",
-            "temperature" to "θερμοκρασία",
-            "weather" to "καιρός",
-            "Technology" to "Τεχνολογία",
-            "Politics" to "Πολιτική",
-            "Business & Economy" to "Επιχειρήσεις & Οικονομία",
-            "Crime & Justice" to "Έγκλημα & Δικαιοσύνη", 
-            "General News" to "Γενικές Ειδήσεις",
-            "Holidays & Travel" to "Διακοπές & Ταξίδια"
-        )
-        else -> emptyMap()
+    private fun isCachedTranslationFailure(translation: String, targetLanguage: String): Boolean {
+        val failureIndicators = when (targetLanguage) {
+            "Hebrew" -> listOf(
+                "תרגום נכשל",
+                "חריגה ממגבלת קצב", 
+                "תרגום לא זמין",
+                "כותרת בעברית"
+            )
+            "Russian" -> listOf(
+                "перевод не удался",
+                "превышен лимит скорости",
+                "заголовок на русском"
+            )
+            "Greek" -> listOf(
+                "η μετάφραση απέτυχε",
+                "υπέρβαση ορίου ρυθμού",
+                "τίτλος στα ελληνικά"
+            )
+            else -> listOf("translation failed", "rate limit", "translation unavailable")
+        }
+        
+        return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
     }
-    
-    var translatedText = text
-    keywordMaps.forEach { (english, translated) ->
-        translatedText = translatedText.replace(english, translated, ignoreCase = true)
-    }
-    
-    return translatedText
-}
-
-
-private fun isCachedTranslationFailure(translation: String, targetLanguage: String): Boolean {
-    val failureIndicators = when (targetLanguage) {
-        "Hebrew" -> listOf(
-            "תרגום נכשל",
-            "חריגה ממגבלת קצב", 
-            "תרגום לא זמין",
-            "כותרת בעברית"
-        )
-        "Russian" -> listOf(
-            "перевод не удался",
-            "превышен лимит скорости",
-            "заголовок на русском"
-        )
-        "Greek" -> listOf(
-            "η μετάφραση απέτυχε",
-            "υπέρβαση ορίου ρυθμού",
-            "τίτλος στα ελληνικά"
-        )
-        else -> listOf("translation failed", "rate limit", "translation unavailable")
-    }
-    
-    return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
-}
-    var translatedText = text
-    keywordMaps.forEach { (english, translated) ->
-        translatedText = translatedText.replace(english, translated, ignoreCase = true)
-    }
-    
-    return translatedText
-}
 
 
 
