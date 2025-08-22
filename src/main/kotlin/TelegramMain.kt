@@ -250,81 +250,6 @@ private fun parseChannelMessages(html: String): List<TelegramNewsMessage> {
     return messages.sortedByDescending { it.timestamp }.take(30)
 }
 
-// Improved timestamp parsing function
-private fun parseTimestampImproved(datetime: String): Long {
-    return try {
-        println("🕐 Parsing timestamp: '$datetime'")
-        
-        if (datetime.isEmpty()) {
-            println("⚠️ Empty datetime string, using current time")
-            return System.currentTimeMillis()
-        }
-        
-        // Handle different datetime formats from Telegram
-        val formats = listOf(
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.US),     // 2025-08-22T07:50:47+00:00
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US),     // 2025-08-22T07:50:47Z
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),        // 2025-08-22T07:50:47
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),          // 2025-08-22 07:50:47
-            SimpleDateFormat("MMM dd, yyyy 'at' HH:mm", Locale.US),      // Aug 22, 2025 at 07:50
-            SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US)              // 22.08.2025 07:50
-        )
-        
-        for (format in formats) {
-            try {
-                format.timeZone = TimeZone.getTimeZone("UTC") // Ensure UTC parsing
-                val parsed = format.parse(datetime)?.time
-                if (parsed != null && parsed > 0) {
-                    val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
-                    println("✅ Parsed '$datetime' as: $parsedDate")
-                    return parsed
-                }
-            } catch (e: Exception) {
-                // Try next format
-            }
-        }
-        
-        // If all parsing fails, try to extract date components manually
-        val dateRegex = Regex("""(\d{4})-(\d{2})-(\d{2})""")
-        val timeRegex = Regex("""(\d{2}):(\d{2}):(\d{2})""")
-        
-        val dateMatch = dateRegex.find(datetime)
-        val timeMatch = timeRegex.find(datetime)
-        
-        if (dateMatch != null) {
-            val year = dateMatch.groupValues[1].toInt()
-            val month = dateMatch.groupValues[2].toInt() - 1 // Calendar months are 0-based
-            val day = dateMatch.groupValues[3].toInt()
-            
-            val calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-            calendar.set(year, month, day)
-            
-            if (timeMatch != null) {
-                val hour = timeMatch.groupValues[1].toInt()
-                val minute = timeMatch.groupValues[2].toInt() 
-                val second = timeMatch.groupValues[3].toInt()
-                calendar.set(Calendar.HOUR_OF_DAY, hour)
-                calendar.set(Calendar.MINUTE, minute)
-                calendar.set(Calendar.SECOND, second)
-            } else {
-                // Default to noon if no time found
-                calendar.set(Calendar.HOUR_OF_DAY, 12)
-                calendar.set(Calendar.MINUTE, 0)
-                calendar.set(Calendar.SECOND, 0)
-            }
-            
-            val parsed = calendar.timeInMillis
-            println("✅ Manual parsing of '$datetime' successful: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))}")
-            return parsed
-        }
-        
-        println("⚠️ Could not parse timestamp '$datetime', using current time")
-        System.currentTimeMillis()
-    } catch (e: Exception) {
-        println("❌ Error parsing timestamp '$datetime': ${e.message}")
-        System.currentTimeMillis()
-    }
-}
 
 // Improved timestamp parsing function
 private fun parseTimestampImproved(datetime: String): Long {
@@ -428,7 +353,7 @@ private fun parseChannelMessagesFallback(html: String): List<TelegramNewsMessage
                     .trim()
                 
                 if (cleanText.length > 20) {
-                    val timestamp = parseTimestamp(datetime)
+                    val timestamp = parseTimestampImproved(datetime)
                     val messageDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(timestamp))
                     
                     println("📝 Fallback message ${index + 1}: '${cleanText.take(50)}...'")
