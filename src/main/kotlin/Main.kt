@@ -80,8 +80,8 @@ class AINewsSystem {
     private val gson = Gson()
     private val seenArticlesFile = File("seen_articles.json")
     private val subscribersFile = File("subscribers.json")
-    private val sourcesConfigFile = File("sources.json") // NEW
-    private val translationCacheFile = File("translations.json") // NEW
+    private val sourcesConfigFile = File("sources.json")
+    private val translationCacheFile = File("translations.json")
 
     private val openAiApiKey = System.getenv("OPENAI_API_KEY")
     private val githubToken = System.getenv("GITHUB_TOKEN")
@@ -94,92 +94,33 @@ class AINewsSystem {
     private val subscribersRepoName = "ainews-website"
     private val subscribersFilePath = "data/subscribers.json"
 
-    // NEW: Load sources from configuration file
+    // Load sources from existing sources.json file
     private fun loadSources(): List<Source> {
         return if (sourcesConfigFile.exists()) {
             try {
                 val json = sourcesConfigFile.readText()
                 val config = gson.fromJson(json, SourceConfig::class.java)
-                println("✅ Loaded ${config.sources.size} sources from configuration")
+                println("✅ Loaded ${config.sources.size} sources from sources.json")
                 config.sources
             } catch (e: Exception) {
-                println("❌ Error loading sources config: ${e.message}")
-                println("🔄 Falling back to hardcoded Cyprus sources")
-                getDefaultCyprusSources()
+                println("❌ Error loading sources.json: ${e.message}")
+                emptyList()
             }
         } else {
-            println("⚠️ sources.json not found, creating default configuration")
-            createDefaultSourcesConfig()
-            getDefaultCyprusSources()
+            println("❌ sources.json file not found!")
+            emptyList()
         }
     }
 
     fun processFormspreeEmails() {
         println("📧 Email processing temporarily disabled")
-        // Placeholder function
     }
 
     fun checkAndImportWebSubscriptions() {
         println("📧 Web subscription import temporarily disabled")
-        // Placeholder function
     }
 
-    // NEW: Create default sources configuration file
-    private fun createDefaultSourcesConfig() {
-        val defaultSources = SourceConfig(
-            sources = listOf(
-                Source(
-                    country = "CYPRUS",
-                    sourceId = "cyprus-mail",
-                    sourceName = "Cyprus Mail",
-                    baseUrl = "https://cyprus-mail.com/",
-                    linkSelectors = listOf(".td-module-title a", ".entry-title a", "h2 a"),
-                    paragraphSelectors = listOf(".td-post-content p:first-of-type", ".entry-content p:first-of-type"),
-                    sourceLanguage = "en",
-                    timezone = "Europe/Nicosia",
-                    delayMs = 2000
-                )
-                // Add more default sources as needed
-            )
-        )
-        
-        try {
-            sourcesConfigFile.writeText(gson.toJson(defaultSources))
-            println("✅ Created default sources.json configuration")
-        } catch (e: Exception) {
-            println("❌ Error creating sources config: ${e.message}")
-        }
-    }
-
-    // NEW: Fallback to hardcoded sources for backwards compatibility
-    private fun getDefaultCyprusSources(): List<Source> {
-        return listOf(
-            Source(
-                country = "CYPRUS",
-                sourceId = "cyprus-mail",
-                sourceName = "Cyprus Mail",
-                baseUrl = "https://cyprus-mail.com/",
-                linkSelectors = listOf(".td-module-title a", ".entry-title a", "h2 a"),
-                paragraphSelectors = listOf(".td-post-content p:first-of-type", ".entry-content p:first-of-type"),
-                sourceLanguage = "en",
-                timezone = "Europe/Nicosia",
-                delayMs = 2000
-            ),
-            Source(
-                country = "CYPRUS",
-                sourceId = "in-cyprus-local",
-                sourceName = "In-Cyprus Local",
-                baseUrl = "https://in-cyprus.philenews.com/local/",
-                linkSelectors = listOf(".post-title a", "h2 a", "h3 a"),
-                paragraphSelectors = listOf(".post-content p:first-of-type", "article p:first-of-type"),
-                sourceLanguage = "en",
-                timezone = "Europe/Nicosia",
-                delayMs = 2000
-            )
-        )
-    }
-
-    // NEW: Translation cache management
+    // Translation cache management
     private fun loadTranslationCache(): MutableMap<String, String> {
         return if (translationCacheFile.exists()) {
             try {
@@ -201,7 +142,7 @@ class AINewsSystem {
         }
     }
 
-    // NEW: Generate cache key for translations
+    // Generate cache key for translations
     private fun generateCacheKey(text: String, targetLanguage: String): String {
         val input = "$text|$targetLanguage"
         val md = MessageDigest.getInstance("SHA-256")
@@ -230,19 +171,16 @@ class AINewsSystem {
         }
     }
 
-    // FIXED: Load subscribers from GitHub instead of local file
     fun loadSubscribers(): List<Subscriber> {
         return try {
             println("📧 Loading subscribers from GitHub...")
             
-            // Try to load from GitHub first
             val githubSubscribers = loadSubscribersFromGitHub()
             if (githubSubscribers.isNotEmpty()) {
                 println("✅ Loaded ${githubSubscribers.size} subscribers from GitHub")
                 return githubSubscribers
             }
             
-            // Fallback to local file if GitHub fails
             println("⚠️ No subscribers found in GitHub, checking local file...")
             if (subscribersFile.exists()) {
                 val json = subscribersFile.readText()
@@ -265,7 +203,6 @@ class AINewsSystem {
         }
     }
 
-    // NEW: Load subscribers from GitHub
     private fun loadSubscribersFromGitHub(): List<Subscriber> {
         if (githubToken.isNullOrEmpty()) {
             println("⚠️ No GitHub token, cannot load subscribers from GitHub")
@@ -301,22 +238,16 @@ class AINewsSystem {
         }
     }
 
-    // FIXED: Save subscribers to GitHub instead of local file
     private fun saveSubscribers(subscribers: List<Subscriber>) {
         try {
-            // Always save to GitHub
             saveSubscribersToGitHub(subscribers)
-            
-            // Also save locally as backup
             subscribersFile.writeText(gson.toJson(subscribers))
             println("💾 Saved ${subscribers.size} subscribers to both GitHub and local backup")
-            
         } catch (e: Exception) {
             println("❌ Error saving subscribers: ${e.message}")
         }
     }
 
-    // NEW: Save subscribers to GitHub
     private fun saveSubscribersToGitHub(subscribers: List<Subscriber>) {
         if (githubToken.isNullOrEmpty()) {
             println("⚠️ No GitHub token, cannot save subscribers to GitHub")
@@ -324,7 +255,6 @@ class AINewsSystem {
         }
         
         try {
-            // Get existing file SHA (if exists)
             val getRequest = Request.Builder()
                 .url("https://api.github.com/repos/LiorR2389/$subscribersRepoName/contents/$subscribersFilePath")
                 .addHeader("Authorization", "token $githubToken")
@@ -344,7 +274,6 @@ class AINewsSystem {
                 }
             }
 
-            // Upload/update subscribers file
             val subscribersJson = gson.toJson(subscribers)
             val base64Content = Base64.getEncoder().encodeToString(subscribersJson.toByteArray())
             
@@ -367,7 +296,6 @@ class AINewsSystem {
                     println("✅ Successfully saved ${subscribers.size} subscribers to GitHub")
                 } else {
                     println("❌ Failed to save subscribers to GitHub: ${response.code}")
-                    // Print response body for debugging
                     val errorBody = response.body?.string()
                     println("❌ Error details: $errorBody")
                 }
@@ -397,11 +325,9 @@ class AINewsSystem {
         return try {
             val doc = fetchPage(articleUrl)
             if (doc != null) {
-                // Try each paragraph selector from the source configuration
                 for (selector in source.paragraphSelectors) {
                     val paragraphElements = doc.select(selector)
                     
-                    // Try multiple paragraphs in case first one is empty/short
                     for (element in paragraphElements.take(3)) {
                         val text = element.text().trim()
                         if (text.isNotEmpty() && text.length > 50) {
@@ -410,7 +336,6 @@ class AINewsSystem {
                     }
                 }
                 
-                // Fallback: try any paragraph with substantial content
                 val fallbackParagraphs = doc.select("p")
                 for (element in fallbackParagraphs.take(10)) {
                     val text = element.text().trim()
@@ -433,131 +358,36 @@ class AINewsSystem {
             .replace(Regex("^(Reuters|AP|Bloomberg|AFP|By\\s+\\w+)[\\s\\-,]+", RegexOption.IGNORE_CASE), "") 
             .replace(Regex("\\(.*?\\)"), "") 
             .replace(Regex("\\[.*?\\]"), "") 
-            .replace(Regex("^[\\s\\-•]+"), "") // Remove leading dashes/bullets
+            .replace(Regex("^[\\s\\-•]+"), "")
             .trim()
-            .take(400) // Increased from 300 to 400 for better summaries
+            .take(400)
             .let { if (it.length == 400) "$it..." else it }
     }
 
     private fun isCachedTranslationFailure(translation: String, targetLanguage: String): Boolean {
-    val failureIndicators = when (targetLanguage) {
-        "Hebrew" -> listOf(
-            "תרגום נכשל",
-            "חריגה ממגבלת קצב", 
-            "תרגום לא זמין",
-            "כותרת בעברית"
-        )
-        "Russian" -> listOf(
-            "перевод не удался",
-            "превышен лимит скорости",
-            "заголовок на русском"
-        )
-        "Greek" -> listOf(
-            "η μετάφραση απέτυχε",
-            "υπέρβαση ορίου ρυθμού",
-            "τίτλος στα ελληνικά"
-        )
-        else -> listOf("translation failed", "rate limit", "translation unavailable")
+        val failureIndicators = when (targetLanguage) {
+            "Hebrew" -> listOf(
+                "תרגום נכשל",
+                "חריגה ממגבלת קצב", 
+                "תרגום לא זמין",
+                "כותרת בעברית"
+            )
+            "Russian" -> listOf(
+                "перевод не удался",
+                "превышен лимит скорости",
+                "заголовок на русском"
+            )
+            "Greek" -> listOf(
+                "η μετάφραση απέτυχε",
+                "υπέρβαση ορίου ρυθμού",
+                "τίτλος στα ελληνικά"
+            )
+            else -> listOf("translation failed", "rate limit", "translation unavailable")
+        }
+        
+        return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
     }
-    
-    return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
-}
 
-
-private fun translateKeywords(text: String, targetLanguage: String): String {
-    if (targetLanguage == "English") return text // Already in English
-    
-    val keywordMaps = when (targetLanguage) {
-        "Hebrew" -> mapOf(
-            "police" to "משטרה",
-            "arrested" to "נעצר", 
-            "detained" to "נעצר",
-            "fire" to "שריפה",
-            "accident" to "תאונה",
-            "hospital" to "בית חולים",
-            "court" to "בית משפט",
-            "bank" to "בנק",
-            "government" to "ממשלה",
-            "minister" to "שר",
-            "president" to "נשיא",
-            "parliament" to "פרלמנט",
-            "Cyprus" to "קפריסין",
-            "Limassol" to "לימסול",
-            "Nicosia" to "ניקוסיה", 
-            "Larnaca" to "לרנקה",
-            "Paphos" to "פאפוס",
-            "euro" to "יורו",
-            "euros" to "יורו",
-            "temperature" to "טמפרטורה",
-            "weather" to "מזג אויר",
-            "Technology" to "טכנולוגיה",
-            "Politics" to "פוליטיקה",
-            "Business & Economy" to "עסקים וכלכלה",
-            "Crime & Justice" to "פשע וצדק",
-            "General News" to "חדשות כלליות",
-            "Holidays & Travel" to "חגים ונסיעות"
-        )
-        "Russian" -> mapOf(
-            "police" to "полиция",
-            "arrested" to "арестован", 
-            "detained" to "задержан",
-            "fire" to "пожар",
-            "accident" to "авария",
-            "hospital" to "больница",
-            "court" to "суд",
-            "bank" to "банк",
-            "government" to "правительство",
-            "minister" to "министр",
-            "president" to "президент",
-            "parliament" to "парламент",
-            "Cyprus" to "Кипр",
-            "Limassol" to "Лимассол",
-            "Nicosia" to "Никосия",
-            "Larnaca" to "Ларнака",
-            "Paphos" to "Пафос",
-            "euro" to "евро",
-            "euros" to "евро",
-            "temperature" to "температура",
-            "weather" to "погода",
-            "Technology" to "Технология",
-            "Politics" to "Политика", 
-            "Business & Economy" to "Бизнес и экономика",
-            "Crime & Justice" to "Преступление и правосудие",
-            "General News" to "Общие новости",
-            "Holidays & Travel" to "Праздники и путешествия"
-        )
-        "Greek" -> mapOf(
-            "police" to "αστυνομία",
-            "arrested" to "συνελήφθη",
-            "detained" to "κρατήθηκε", 
-            "fire" to "φωτιά",
-            "accident" to "ατύχημα",
-            "hospital" to "νοσοκομείο",
-            "court" to "δικαστήριο",
-            "bank" to "τράπεζα",
-            "government" to "κυβέρνηση",
-            "minister" to "υπουργός",
-            "president" to "πρόεδρος",
-            "parliament" to "κοινοβούλιο",
-            "Cyprus" to "Κύπρος",
-            "Limassol" to "Λεμεσός",
-            "Nicosia" to "Λευκωσία",
-            "Larnaca" to "Λάρνακα",
-            "Paphos" to "Πάφος", 
-            "euro" to "ευρώ",
-            "euros" to "ευρώ",
-            "temperature" to "θερμοκρασία",
-            "weather" to "καιρός",
-            "Technology" to "Τεχνολογία",
-            "Politics" to "Πολιτική",
-            "Business & Economy" to "Επιχειρήσεις & Οικονομία",
-            "Crime & Justice" to "Έγκλημα & Δικαιοσύνη", 
-            "General News" to "Γενικές Ειδήσεις",
-            "Holidays & Travel" to "Διακοπές & Ταξίδια"
-        )
-        else -> emptyMap()
-    }
-// NEW: Simple fallback translation function
     private fun getSimpleFallback(text: String, targetLanguage: String): String {
         return when (targetLanguage) {
             "Hebrew" -> translateKeywords(text, "Hebrew")
@@ -567,87 +397,8 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         }
     }
 
-    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
-        if (openAiApiKey.isNullOrEmpty()) {
-            return getSimpleFallback(text, targetLanguage)
-        }
-
-        // Check cache first
-        val cache = loadTranslationCache()
-        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
-        
-        if (cache.containsKey(cacheKey)) {
-            val cachedTranslation = cache[cacheKey]!!
-            // Don't use cached translations that are failures
-            if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
-                println("✅ Using cached translation for: ${text.take(50)}...")
-                return cachedTranslation
-            }
-        }
-
-        // RATE LIMITING: Add delays between API calls
-        val lastApiCallFile = File("last_api_call.txt")
-        if (lastApiCallFile.exists()) {
-            try {
-                val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
-                val timeSinceLastCall = System.currentTimeMillis() - lastCall
-                val minimumDelay = 2000L // 2 seconds between calls
-                
-                if (timeSinceLastCall < minimumDelay) {
-                    val waitTime = minimumDelay - timeSinceLastCall
-                    println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
-                    Thread.sleep(waitTime)
-                }
-            } catch (e: Exception) {
-                // Ignore file errors
-            }
-        }
-
-        // Try translating with retry logic
-        var retryCount = 0
-        val maxRetries = 2 // Reduced retries for faster processing
-        
-        while (retryCount < maxRetries) {
-            val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-            
-            // Check if we got rate limited or other failure
-            if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
-                translation.contains("תרגום נכשל") || translation == text) {
-                retryCount++
-                if (retryCount < maxRetries) {
-                    val backoffDelay = (retryCount * 2000L) // 2s, 4s
-                    println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
-                    Thread.sleep(backoffDelay)
-                    continue
-                } else {
-                    println("❌ Max retries reached for $targetLanguage translation")
-                    break
-                }
-            }
-            
-            // Save timestamp of successful call
-            try {
-                lastApiCallFile.writeText(System.currentTimeMillis().toString())
-            } catch (e: Exception) {
-                // Ignore file errors
-            }
-            
-            // Cache successful translation
-            cache[cacheKey] = translation
-            saveTranslationCache(cache)
-            
-            return translation
-        }
-        
-        // Fallback if all retries failed - DON'T cache failures
-        val fallbackResult = getSimpleFallback(text, targetLanguage)
-        
-        println("❌ Using fallback translation for $targetLanguage")
-        return fallbackResult
-    }
-
     private fun translateKeywords(text: String, targetLanguage: String): String {
-        if (targetLanguage == "English") return text // Already in English
+        if (targetLanguage == "English") return text
         
         val keywordMaps = when (targetLanguage) {
             "Hebrew" -> mapOf(
@@ -748,33 +499,77 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         return translatedText
     }
 
-    private fun isCachedTranslationFailure(translation: String, targetLanguage: String): Boolean {
-        val failureIndicators = when (targetLanguage) {
-            "Hebrew" -> listOf(
-                "תרגום נכשל",
-                "חריגה ממגבלת קצב", 
-                "תרגום לא זמין",
-                "כותרת בעברית"
-            )
-            "Russian" -> listOf(
-                "перевод не удался",
-                "превышен лимит скорости",
-                "заголовок на русском"
-            )
-            "Greek" -> listOf(
-                "η μετάφραση απέτυχε",
-                "υπέρβαση ορίου ρυθμού",
-                "τίτλος στα ελληνικά"
-            )
-            else -> listOf("translation failed", "rate limit", "translation unavailable")
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
+        if (openAiApiKey.isNullOrEmpty()) {
+            return getSimpleFallback(text, targetLanguage)
+        }
+
+        val cache = loadTranslationCache()
+        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
+        
+        if (cache.containsKey(cacheKey)) {
+            val cachedTranslation = cache[cacheKey]!!
+            if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
+                println("✅ Using cached translation for: ${text.take(50)}...")
+                return cachedTranslation
+            }
+        }
+
+        val lastApiCallFile = File("last_api_call.txt")
+        if (lastApiCallFile.exists()) {
+            try {
+                val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
+                val timeSinceLastCall = System.currentTimeMillis() - lastCall
+                val minimumDelay = 2000L
+                
+                if (timeSinceLastCall < minimumDelay) {
+                    val waitTime = minimumDelay - timeSinceLastCall
+                    println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
+                    Thread.sleep(waitTime)
+                }
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
+        }
+
+        var retryCount = 0
+        val maxRetries = 2
+        
+        while (retryCount < maxRetries) {
+            val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+            
+            if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
+                translation.contains("תרגום נכשל") || translation == text) {
+                retryCount++
+                if (retryCount < maxRetries) {
+                    val backoffDelay = (retryCount * 2000L)
+                    println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
+                    Thread.sleep(backoffDelay)
+                    continue
+                } else {
+                    println("❌ Max retries reached for $targetLanguage translation")
+                    break
+                }
+            }
+            
+            try {
+                lastApiCallFile.writeText(System.currentTimeMillis().toString())
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
+            
+            cache[cacheKey] = translation
+            saveTranslationCache(cache)
+            
+            return translation
         }
         
-        return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
+        val fallbackResult = getSimpleFallback(text, targetLanguage)
+        
+        println("❌ Using fallback translation for $targetLanguage")
+        return fallbackResult
     }
 
-
-
-    // FIXED: Enhanced translation attempt with clearer prompts
     private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
             val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
@@ -840,7 +635,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         }
     }
 
-    // UPDATED: Scrape news source using configuration
     private fun scrapeNewsSource(source: Source): List<Article> {
         println("🔍 Scraping ${source.sourceName} (${source.country})...")
         val doc = fetchPage(source.baseUrl) 
@@ -875,19 +669,16 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
                         if (title.isNotEmpty() && articleUrl.startsWith("http") && title.length > 15) {
                             println("✅ Valid article found: $title")
                             
-                            // Extract first paragraph from article
                             val paragraph = extractFirstParagraph(articleUrl, source)
                             val summary = if (paragraph.isNotEmpty()) paragraph else generateFallbackSummary(title)
                             val category = categorizeArticle(title)
 
-                            // Translate titles to all required languages with source language detection
                             val titleTranslations = mutableMapOf<String, String>()
                             titleTranslations["en"] = title
                             titleTranslations["he"] = translateText(title, "Hebrew", source.sourceLanguage)
                             titleTranslations["ru"] = translateText(title, "Russian", source.sourceLanguage)
                             titleTranslations["el"] = translateText(title, "Greek", source.sourceLanguage)
 
-                            // Translate summaries to all required languages with source language detection
                             val summaryTranslations = mutableMapOf<String, String>()
                             summaryTranslations["en"] = summary
                             summaryTranslations["he"] = translateText(summary, "Hebrew", source.sourceLanguage)
@@ -935,11 +726,9 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
     }
 
     private fun generateFallbackSummary(title: String): String {
-        // Use full title instead of filtering words
         return when {
-            title.length <= 150 -> title // Use title as-is if reasonable length
+            title.length <= 150 -> title
             else -> {
-                // For long titles, truncate at word boundary
                 val truncated = title.take(150)
                 val lastSpace = truncated.lastIndexOf(' ')
                 if (lastSpace > 100) {
@@ -951,7 +740,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         }
     }
 
-    // UPDATED: Aggregate news from all configured sources
     fun aggregateNews(): List<Article> {
         println("📰 Starting multi-country news aggregation...")
         val seen = loadSeenArticles()
@@ -965,11 +753,9 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
             try {
                 val sourceArticles = scrapeNewsSource(source)
                 
-                // Enhanced duplicate detection with paragraph hash
                 sourceArticles.forEach { newArticle ->
                     var isDuplicate = false
                     
-                    // Check against existing articles
                     for (existingArticle in allArticles) {
                         val titleSimilarity = calculateTitleSimilarity(newArticle.title, existingArticle.title)
                         val paragraphHash = hashString(newArticle.summary)
@@ -997,7 +783,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         seen.addAll(newArticles.map { it.url })
         saveSeenArticles(seen)
 
-        // Print statistics per country
         val articlesByCountry = newArticles.groupBy { it.country }
         articlesByCountry.forEach { (country, articles) ->
             println("📊 $country: Found ${articles.size} new articles")
@@ -1007,7 +792,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         return newArticles
     }
 
-    // NEW: Hash string for paragraph comparison
     private fun hashString(text: String): String {
         val cleanText = text.lowercase().replace(Regex("[^a-z0-9]"), "")
         val md = MessageDigest.getInstance("SHA-256")
@@ -1027,7 +811,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         return intersection.toDouble() / union.toDouble()
     }
 
-    // UPDATED: Multi-country page generation with fixed Hebrew read more button
     fun generateCountryWebsite(articles: List<Article>, country: String): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
@@ -1639,7 +1422,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
             </html>""".trimIndent()
     }
 
-    // NEW: Generate main index page with links to all countries
     fun generateMainIndexPage(articles: List<Article>): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
@@ -1878,7 +1660,6 @@ private fun translateKeywords(text: String, targetLanguage: String): String {
         }
     }
 
-    // Email and subscriber functions
     private fun extractEmailContent(message: Message): String {
         return try {
             when (val content = message.content) {
@@ -2032,10 +1813,6 @@ fun main() {
     
     val system = AINewsSystem()
     
-    // COMMENT OUT these problematic lines:
-    // system.processFormspreeEmails()
-    // system.checkAndImportWebSubscriptions()
-
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"), listOf("CYPRUS", "ISRAEL"))
 
     val existingSubscribers = system.loadSubscribers()
