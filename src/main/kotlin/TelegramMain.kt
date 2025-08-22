@@ -461,38 +461,7 @@ private fun parseChannelMessagesFallback(html: String): List<TelegramNewsMessage
     
     return messages.sortedByDescending { it.timestamp }
 }
- private fun parseTimestamp(datetime: String): Long {
-    return try {
-        println("🕐 Parsing timestamp: '$datetime'")
-        
-        // Handle different datetime formats from Telegram
-        val formats = listOf(
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX"),     // 2025-08-21T07:50:47+00:00
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'"),     // 2025-08-21T07:50:47Z
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss"),        // 2025-08-21T07:50:47
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss")           // 2025-08-21 07:50:47
-        )
-        
-        for (format in formats) {
-            try {
-                val parsed = format.parse(datetime)?.time
-                if (parsed != null) {
-                    val parsedDate = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date(parsed))
-                    println("✅ Parsed '$datetime' as: $parsedDate")
-                    return parsed
-                }
-            } catch (e: Exception) {
-                // Try next format
-            }
-        }
-        
-        println("⚠️ Could not parse timestamp '$datetime', using current time")
-        System.currentTimeMillis()
-    } catch (e: Exception) {
-        println("❌ Error parsing timestamp '$datetime': ${e.message}")
-        System.currentTimeMillis()
-    }
-}
+
 
 private fun filterRecentMessages(messages: List<TelegramNewsMessage>): List<TelegramNewsMessage> {
     val threeDaysAgo = System.currentTimeMillis() - (3 * 24 * 60 * 60 * 1000)
