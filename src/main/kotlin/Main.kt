@@ -113,11 +113,158 @@ class AINewsSystem {
     }
 
     fun processFormspreeEmails() {
-        println("📧 Email processing temporarily disabled")
+        if (emailPassword.isNullOrEmpty()) {
+            println("📧 Email processing disabled - no EMAIL_PASSWORD configured")
+            return
+        }
+
+        try {
+            println("📧 Checking for new subscription emails...")
+            
+            val props = Properties().apply {
+                put("mail.store.protocol", "imaps")
+                put("mail.imaps.host", "imap.gmail.com")
+                put("mail.imaps.port", "993")
+                put("mail.imaps.ssl.enable", "true")
+            }
+
+            val session = Session.getDefaultInstance(props)
+            val store = session.getStore("imaps")
+            store.connect("imap.gmail.com", fromEmail, emailPassword)
+
+            val inbox = store.getFolder("INBOX")
+            inbox.open(Folder.READ_WRITE)
+
+            // Search for unread emails from Formspree
+            val searchTerm = AndTerm(
+                AndTerm(
+                    FromTerm(InternetAddress("noreply@formspree.io")),
+                    SubjectTerm("AI News")
+                ),
+                FlagTerm(Flags(Flags.Flag.SEEN), false)
+            )
+
+            val messages = inbox.search(searchTerm)
+            println("📧 Found ${messages.size} unread subscription emails")
+
+            messages.forEach { message ->
+                try {
+                    val content = extractEmailContent(message)
+                    parseSubscriptionEmail(content)
+                    
+                    // Mark as read
+                    message.setFlag(Flags.Flag.SEEN, true)
+                    println("✅ Processed subscription email")
+                } catch (e: Exception) {
+                    println("❌ Error processing email: ${e.message}")
+                }
+            }
+
+            inbox.close(false)
+            store.close()
+            
+        } catch (e: Exception) {
+            println("❌ Error accessing email: ${e.message}")
+        }
     }
 
+
     fun checkAndImportWebSubscriptions() {
-        println("📧 Web subscription import temporarily disabled")
+        try {
+            println("📧 Checking for new CSV subscribers...")
+            val csvFile = File("new_subscribers.csv")
+            
+            if (!csvFile.exists() || csvFile.length() == 0L) {
+                println("📧 No new subscribers CSV found")
+                return
+            }
+
+            val csvContent = csvFile.readText().trim()
+            if (csvContent.isEmpty()) {
+                println("📧 CSV file is empty")
+                return
+            }
+
+            val lines = csvContent.split('\n').filter { it.isNotBlank() }
+            println("📧 Found ${lines.size} potential new subscribers in CSV")
+
+            val currentSubscribers = loadSubscribers().toMutableList()
+            var newSubscribersCount = 0
+
+            lines.forEach { line ->
+                try {
+                    val parts = line.split(',').map { it.trim() }
+                    if (parts.size >= 3) {
+                        val email = parts[0]
+                        val name = if (parts[1].isNotEmpty()) parts[1] else null
+                        val languages = if (parts[2].isNotEmpty()) parts[2].split(';') else listOf("en")
+                        val countries = if (parts.size > 3 && parts[3].isNotEmpty()) parts[3].split(';') else listOf("CYPRUS")
+
+                        // Check if subscriber already exists
+                        if (currentSubscribers.none { it.email.equals(email, ignoreCase = true) }) {
+                            val newSubscriber = Subscriber(
+                                email = email,
+                                name = name,
+                                languages = languages,
+                                countries = countries,
+                                subscribed = true,
+                                subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+                            )
+                            currentSubscribers.add(newSubscriber)
+                            newSubscribersCount++
+                            println("✅ Added new subscriber: $email")
+                        } else {
+                            println("⚠️ Subscriber $email already exists")
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("❌ Error parsing CSV line '$line': ${e.message}")
+                }
+            }
+
+            if (newSubscribersCount > 0) {
+                saveSubscribers(currentSubscribers)
+                println("💾 Added $newSubscribersCount new subscribers")
+                
+                // Clear the CSV file after processing
+                csvFile.writeText("")
+                println("🗑️ Cleared processed CSV file")
+            } else {
+                println("📧 No new subscribers to add")
+            }
+
+        } catch (e: Exception) {
+            println("❌ Error importing web subscriptions: ${e.message}")
+        }
+    }
+
+
+   private fun parseSubscriptionEmail(content: String) {
+        try {
+            // Extract email, name, languages, and countries from Formspree email format
+            val emailRegex = Regex("email[:\\s]+([^\\s\\n]+@[^\\s\\n]+)")
+            val nameRegex = Regex("name[:\\s]+([^\\n]+)")
+            val languagesRegex = Regex("languages[:\\s]+([^\\n]+)")
+            val countriesRegex = Regex("countries[:\\s]+([^\\n]+)")
+
+            val emailMatch = emailRegex.find(content)
+            val nameMatch = nameRegex.find(content)
+            val languagesMatch = languagesRegex.find(content)
+            val countriesMatch = countriesRegex.find(content)
+
+            if (emailMatch != null) {
+                val email = emailMatch.groupValues[1].trim()
+                val name = nameMatch?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+                val languages = languagesMatch?.groupValues?.get(1)?.trim()?.split(",") ?: listOf("en")
+                val countries = countriesMatch?.groupValues?.get(1)?.trim()?.split(",") ?: listOf("CYPRUS")
+
+                addSubscriber(email, name, languages, countries)
+            } else {
+                println("❌ Could not extract email from subscription")
+            }
+        } catch (e: Exception) {
+            println("❌ Error parsing subscription email: ${e.message}")
+        }
     }
 
     // Translation cache management
@@ -1785,20 +1932,83 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
                 }
             })
 
+            // Filter articles by subscriber's countries
             val subscriberCountryArticles = articles.filter { article ->
                 subscriber.countries.contains(article.country)
+            }
+
+            if (subscriberCountryArticles.isEmpty()) {
+                println("📧 No articles for ${subscriber.email} countries: ${subscriber.countries.joinToString(", ")}")
+                return
+            }
+
+            // Get primary language (first in list)
+            val primaryLang = subscriber.languages.firstOrNull() ?: "en"
+            
+            // Create language-appropriate subject and content
+            val (subject, greeting, bodyText, buttonText) = when (primaryLang) {
+                "he" -> Tuple4(
+                    "עדכון חדשות יומי - ${subscriberCountryArticles.size} כתבות חדשות",
+                    "שלום ${subscriber.name ?: ""}!",
+                    "עדכוני חדשות טריים זמינים עם ${subscriberCountryArticles.size} כתבות חדשות מ${subscriber.countries.joinToString(", ")}.",
+                    "📖 קרא חדשות"
+                )
+                "ru" -> Tuple4(
+                    "Ежедневный дайджест новостей - ${subscriberCountryArticles.size} новых статей",
+                    "Привет ${subscriber.name ?: ""}!",
+                    "Доступны свежие новости с ${subscriberCountryArticles.size} новыми статьями из ${subscriber.countries.joinToString(", ")}.",
+                    "📖 Читать новости"
+                )
+                "el" -> Tuple4(
+                    "Ημερήσια περίληψη ειδήσεων - ${subscriberCountryArticles.size} νέα άρθρα",
+                    "Γεια σας ${subscriber.name ?: ""}!",
+                    "Διατίθενται φρέσκες ενημερώσεις ειδήσεων με ${subscriberCountryArticles.size} νέα άρθρα από ${subscriber.countries.joinToString(", ")}.",
+                    "📖 Διαβάστε ειδήσεις"
+                )
+                else -> Tuple4(
+                    "Your Daily News Digest - ${subscriberCountryArticles.size} new stories",
+                    "Hello ${subscriber.name ?: "there"}!",
+                    "Fresh news updates are available with ${subscriberCountryArticles.size} new articles from ${subscriber.countries.joinToString(", ")}.",
+                    "📖 Read News"
+                )
             }
 
             val message = MimeMessage(session).apply {
                 setFrom(InternetAddress(fromEmail, "AI News"))
                 setRecipients(Message.RecipientType.TO, InternetAddress.parse(subscriber.email))
-                subject = "Your Daily News Digest - ${subscriberCountryArticles.size} new stories"
+                this.subject = subject
 
                 val htmlContent = """
-                <h1>AI News</h1>
-                <p>Hello ${subscriber.name ?: "there"}!</p>
-                <p>Fresh news updates are available with ${subscriberCountryArticles.size} new articles from ${subscriber.countries.joinToString(", ")}.</p>
-                <a href="$websiteUrl" style="background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px;">📖 Read News</a>
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+                        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; }
+                        .header { text-align: center; margin-bottom: 30px; }
+                        .logo { font-size: 2rem; font-weight: bold; color: #667eea; }
+                        .button { display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; margin: 20px 0; }
+                        .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 0.9rem; color: #666; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <div class="logo">🤖 AI News</div>
+                        </div>
+                        <h1>$greeting</h1>
+                        <p>$bodyText</p>
+                        <div style="text-align: center;">
+                            <a href="$websiteUrl" class="button">$buttonText</a>
+                        </div>
+                        <div class="footer">
+                            <p>You're receiving this because you subscribed to AI News updates.</p>
+                            <p>Visit <a href="$websiteUrl">ainews.eu.com</a> to read the latest news.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
                 """.trimIndent()
 
                 setContent(htmlContent, "text/html; charset=utf-8")
@@ -1807,8 +2017,12 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
             Transport.send(message)
         } catch (e: Exception) {
             println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
+            throw e // Re-throw to handle in calling function
         }
     }
+
+    // Helper data class for multi-language email content
+    data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
     fun sendDailyNotification(articles: List<Article>, websiteUrl: String) {
         val subscribers = loadSubscribers().filter { it.subscribed }
@@ -1819,7 +2033,8 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
         }
 
         if (emailPassword.isNullOrEmpty()) {
-            println("📧 Email notifications disabled - no password configured")
+            println("📧 Email notifications disabled - no EMAIL_PASSWORD configured")
+            println("💡 To enable email notifications, set the EMAIL_PASSWORD environment variable")
             return
         }
 
@@ -1829,14 +2044,13 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
             try {
                 sendEmailNotification(subscriber, articles, websiteUrl)
                 println("✅ Email sent to ${subscriber.email}")
-                Thread.sleep(1000)
+                Thread.sleep(1000) // Delay between emails to avoid spam filters
             } catch (e: Exception) {
                 println("❌ Failed to send email to ${subscriber.email}: ${e.message}")
             }
         }
         println("✅ Finished sending notifications")
     }
-
     fun addSubscriber(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
         val subscribers = loadSubscribers().toMutableList()
         val existingSubscriber = subscribers.find { it.email == email }
@@ -1873,6 +2087,10 @@ fun main() {
     
     val system = AINewsSystem()
     
+    // ENABLE THESE LINES:
+    system.processFormspreeEmails()
+    system.checkAndImportWebSubscriptions()
+
     system.addSubscriber("lior.global@gmail.com", "Lior", listOf("en", "he"), listOf("CYPRUS", "ISRAEL"))
 
     val existingSubscribers = system.loadSubscribers()
@@ -1888,6 +2106,10 @@ fun main() {
             val websiteUrl = system.uploadToGitHubPages(articles)
             if (websiteUrl.isNotEmpty()) {
                 println("🚀 Multi-country website uploaded: $websiteUrl")
+                
+                // ENABLE EMAIL NOTIFICATIONS:
+                system.sendDailyNotification(articles, websiteUrl)
+                
                 println("✅ AI News multi-country update complete!")
             }
         } else {
