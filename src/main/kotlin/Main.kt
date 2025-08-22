@@ -570,17 +570,42 @@ class AINewsSystem {
         return fallbackResult
     }
 
-    private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
+private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
+            // Clean and validate input text
+            val cleanText = text.trim()
+                .replace("\"", "'") // Replace quotes that might break JSON
+                .replace("\n", " ") // Replace newlines
+                .replace("\r", " ") // Replace carriage returns
+                .replace("\t", " ") // Replace tabs
+                .replace(Regex("\\s+"), " ") // Normalize whitespace
+                .take(3000) // Limit length to avoid token limits
+            
+            if (cleanText.isEmpty() || cleanText.length < 3) {
+                println("⚠️ Text too short or empty after cleaning, returning original")
+                return text
+            }
+
+            // Escape text for JSON
+            val escapedText = cleanText
+                .replace("\\", "\\\\") // Escape backslashes first
+                .replace("\"", "\\\"") // Escape quotes
+                .replace("\b", "\\b")
+                .replace("\u000C", "\\f")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+
             val systemPrompt = "You are a professional translator. Translate ONLY the provided text from $sourceLanguage to $targetLanguage. Provide ONLY the translation, no explanations or additional text."
 
             val userPrompt = when (sourceLanguage.lowercase()) {
-                "hebrew" -> "Translate this Hebrew text to $targetLanguage: $text"
-                "russian" -> "Translate this Russian text to $targetLanguage: $text"
-                "greek" -> "Translate this Greek text to $targetLanguage: $text"
-                else -> "Translate this $sourceLanguage text to $targetLanguage: $text"
+                "hebrew" -> "Translate this Hebrew text to $targetLanguage: $escapedText"
+                "russian" -> "Translate this Russian text to $targetLanguage: $escapedText"
+                "greek" -> "Translate this Greek text to $targetLanguage: $escapedText"
+                else -> "Translate this $sourceLanguage text to $targetLanguage: $escapedText"
             }
 
+            // Build JSON manually to avoid escaping issues
             val requestBody = """
                 {
                   "model": "gpt-4o-mini",
@@ -593,6 +618,14 @@ class AINewsSystem {
                 }
             """.trimIndent()
 
+            // Validate JSON structure
+            try {
+                JSONObject(requestBody) // Test if JSON is valid
+            } catch (e: Exception) {
+                println("❌ Invalid JSON structure, falling back")
+                return text
+            }
+
             val request = Request.Builder()
                 .url("https://api.openai.com/v1/chat/completions")
                 .addHeader("Authorization", "Bearer $openAiApiKey")
@@ -601,24 +634,51 @@ class AINewsSystem {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val json = JSONObject(response.body?.string())
-                    val translation = json.getJSONArray("choices")
-                        .getJSONObject(0)
-                        .getJSONObject("message")
-                        .getString("content")
-                        .trim()
-                    
-                    println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
-                    translation
+                val responseBody = response.body?.string()
+                
+                if (response.isSuccessful && responseBody != null) {
+                    try {
+                        val json = JSONObject(responseBody)
+                        val translation = json.getJSONArray("choices")
+                            .getJSONObject(0)
+                            .getJSONObject("message")
+                            .getString("content")
+                            .trim()
+                        
+                        if (translation.isNotEmpty() && translation != cleanText) {
+                            println("🔄 Translation API response for $sourceLanguage->$targetLanguage: '${translation.take(50)}...'")
+                            return translation
+                        } else {
+                            println("⚠️ Empty or identical translation received")
+                            return text
+                        }
+                    } catch (e: Exception) {
+                        println("❌ Error parsing translation response: ${e.message}")
+                        return text
+                    }
                 } else {
                     println("❌ Translation API failed with code: ${response.code}")
-                    text
+                    if (responseBody != null && responseBody.length < 500) {
+                        println("❌ Error response: $responseBody")
+                    }
+                    
+                    // Handle specific error codes
+                    when (response.code) {
+                        400 -> {
+                            println("❌ Bad request - likely malformed content or JSON")
+                            return text
+                        }
+                        429 -> {
+                            println("⏰ Rate limited by OpenAI")
+                            return "rate limit"
+                        }
+                        else -> return text
+                    }
                 }
             }
         } catch (e: Exception) {
             println("❌ Translation error for $targetLanguage from $sourceLanguage: ${e.message}")
-            text
+            return text
         }
     }
 
