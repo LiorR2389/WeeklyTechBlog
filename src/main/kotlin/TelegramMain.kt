@@ -379,13 +379,312 @@ private fun filterRecentMessages(messages: List<TelegramNewsMessage>): List<Tele
             else -> 3 // Normal
         }
     }
+
+
+
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "Russian"): String {
+    if (openAiApiKey.isNullOrEmpty()) {
+        println("⚠️ No OpenAI API key, using fallback translations")
+        return when (targetLanguage) {
+            "English" -> "English translation unavailable (no API key)"
+            "Hebrew" -> "תרגום לא זמין"
+            "Greek" -> "Μετάφραση μη διαθέσιμη"
+            else -> text
+        }
+    }
+
+    // Skip translation if same language
+    if ((sourceLanguage == "Russian" && targetLanguage == "Russian") ||
+        (sourceLanguage == "English" && targetLanguage == "English")) {
+        return text
+    }
+
+    // Add rate limiting delay
+    Thread.sleep(1500) // 1.5 second delay between requests
+    
+    val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+    
+    // Better detection of translation failures
+    val translationFailed = isTranslationFailure(translation, text, targetLanguage)
+    
+    if (translationFailed) {
+        println("❌ Translation failed for $sourceLanguage->$targetLanguage")
+        return when (targetLanguage) {
+            "English" -> "Translation unavailable"
+            "Hebrew" -> "תרגום לא זמין"
+            "Greek" -> "Μετάφραση μη διαθέσιμη"
+            else -> text
+        }
+    }
+    
+    println("✅ Translation successful: '${translation.take(50)}...'")
+    return translation
+}
     
 
-    private fun translateTextFast(text: String, targetLanguage: String): String {
+
+// NEW: Fast translation attempt with reduced timeouts
+private fun attemptTranslationFast(text: String, targetLanguage: String): String {
+    return try {
+        // Clean and validate input text
+        val cleanText = text.trim()
+        if (cleanText.isEmpty() || cleanText.length > 4000) {
+            return text
+        }
+
+        // Simpler, faster prompts
+        val systemPrompt = "Translate Russian to $targetLanguage. Keep emojis. Respond only with translation."
+        val userPrompt = cleanText
+
+        // Streamlined JSON request
+        val requestBody = JSONObject().apply {
+            put("model", "gpt-4o-mini")
+            put("messages", org.json.JSONArray().apply {
+                put(JSONObject().apply {
+                    put("role", "system")
+                    put("content", systemPrompt)
+                })
+                put(JSONObject().apply {
+                    put("role", "user") 
+                    put("content", userPrompt)
+                })
+            })
+            put("temperature", 0.1)
+            put("max_tokens", 300) // Reduced for faster response
+        }
+
+        val request = Request.Builder()
+            .url("https://api.openai.com/v1/chat/completions")
+            .addHeader("Authorization", "Bearer $openAiApiKey")
+            .addHeader("Content-Type", "application/json")
+            .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+        // Use faster client with shorter timeouts for catch-up
+        val fastClient = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+
+        fastClient.newCall(request).execute().use { response ->
+            val responseBody = response.body?.string()
+            
+            if (response.isSuccessful && responseBody != null) {
+                try {
+                    val json = JSONObject(responseBody)
+                    val translation = json.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+                        .trim()
+                    
+                    return translation
+                } catch (e: Exception) {
+                    println("❌ Error parsing translation response: ${e.message}")
+                    return text
+                }
+            } else {
+                println("❌ Translation API failed with code: ${response.code}")
+                
+                // Handle rate limiting with shorter backoff
+                if (response.code == 429) {
+                    println("⏰ Rate limited, adding short delay...")
+                    Thread.sleep(1000) // Reduced from 5000ms to 1000ms
+                }
+                
+                return text
+            }
+        }
+    } catch (e: Exception) {
+        println("❌ Fast translation error for Russian->$targetLanguage: ${e.message}")
+        return text
+    }
+}
+
+// NEW: Better fallback translations
+private fun getFallbackTranslation(text: String, targetLanguage: String): String {
+    return when (targetLanguage) {
+        "English" -> translateKeywords(text, "English")
+        "Hebrew" -> "$text [רוסית]"
+        "Greek" -> "$text [Ρωσικά]"
+        else -> text
+    }
+}
+
+
+
+private fun needsTranslation(message: TelegramNewsMessage): Boolean {
+    val translations = message.translations ?: return true
+    
+    // Check each language to see if it needs translation
+    val languagesToCheck = listOf("en", "he", "el")
+    
+    return languagesToCheck.any { lang ->
+        val translation = translations[lang]
+        
+        // Needs translation if:
+        // 1. Translation is null or empty
+        // 2. Translation is a placeholder/fallback message
+        // 3. Translation is identical to Russian original (failed translation)
+        when {
+            translation.isNullOrEmpty() -> true
+            isPlaceholderTranslation(translation, lang) -> true
+            translation == message.text && lang != "ru" -> true // Failed translation
+            translation.length < 10 && message.text.length > 50 -> true // Too short
+            else -> false
+        }
+    }
+}
+
+
+
+
+
+private fun isPlaceholderTranslation(translation: String, language: String): Boolean {
+    val placeholders = when (language) {
+        "en" -> listOf(
+            "translation unavailable", 
+            "english translation unavailable",
+            "translation pending",
+            "translation not available"
+        )
+        "he" -> listOf(
+            "תרגום לא זמין",
+            "תרגום ממתין",
+            "כותרת בעברית"
+        )
+        "el" -> listOf(
+            "μετάφραση μη διαθέσιμη",
+            "μετάφραση σε εκκρεμότητα",
+            "τίτλος στα ελληνικά"
+        )
+        else -> emptyList()
+    }
+    
+    return placeholders.any { translation.lowercase().contains(it.lowercase()) }
+}
+
+
+
+
+
+private fun translateMessageSafely(message: TelegramNewsMessage): Map<String, String> {
+    val originalText = message.text
+    val existingTranslations = message.translations ?: emptyMap()
+    
+    val updatedTranslations = mutableMapOf<String, String>()
+    
+    // Always keep the original Russian
+    updatedTranslations["ru"] = originalText
+    
+    // Try to translate each language
+    val languagesToTranslate = mapOf(
+        "en" to "English",
+        "he" to "Hebrew", 
+        "el" to "Greek"
+    )
+    
+    languagesToTranslate.forEach { (langCode, langName) ->
+        val existingTranslation = existingTranslations[langCode]
+        
+        // Only translate if current translation is bad/missing
+        if (existingTranslation == null || isPlaceholderTranslation(existingTranslation, langCode) || 
+            existingTranslation == originalText || existingTranslation.length < 10) {
+            
+            println("🔄 Translating to $langName...")
+            val newTranslation = translateTextWithFallback(originalText, langName)
+            updatedTranslations[langCode] = newTranslation
+            
+            // Small delay between languages
+            Thread.sleep(500)
+        } else {
+            // Keep existing translation if it's good
+            updatedTranslations[langCode] = existingTranslation
+            println("✅ Keeping existing $langName translation")
+        }
+    }
+    
+    return updatedTranslations
+}
+
+// NEW: Fast translation mode for catch-up
+private fun translateMessageFast(message: TelegramNewsMessage): Map<String, String> {
+    val originalText = message.text
+    val existingTranslations = message.translations ?: emptyMap()
+    
+    val updatedTranslations = mutableMapOf<String, String>()
+    
+    // Always keep the original Russian
+    updatedTranslations["ru"] = originalText
+    
+    // Try to translate each language with minimal delays
+    val languagesToTranslate = mapOf(
+        "en" to "English",
+        "he" to "Hebrew", 
+        "el" to "Greek"
+    )
+    
+    languagesToTranslate.forEach { (langCode, langName) ->
+        val existingTranslation = existingTranslations[langCode]
+        
+        // Only translate if current translation is bad/missing
+        if (existingTranslation == null || isPlaceholderTranslation(existingTranslation, langCode) || 
+            existingTranslation == originalText || existingTranslation.length < 10) {
+            
+            println("🔄 Fast translating to $langName...")
+            val newTranslation = translateTextFast(originalText, langName)
+            updatedTranslations[langCode] = newTranslation
+            
+            // Very minimal delay
+            Thread.sleep(100)
+        } else {
+            // Keep existing translation if it's good
+            updatedTranslations[langCode] = existingTranslation
+            println("✅ Keeping existing $langName translation")
+        }
+    }
+    
+    return updatedTranslations
+}
+
+// NEW: Translation with multiple fallback strategies
+private fun translateTextWithFallback(text: String, targetLanguage: String): String {
+    // Strategy 1: Try OpenAI translation
+    if (!openAiApiKey.isNullOrEmpty()) {
+        val aiTranslation = translateText(text, targetLanguage, "Russian")
+        
+        // Check if AI translation succeeded
+        if (!isTranslationFailure(aiTranslation, text, targetLanguage)) {
+            return aiTranslation
+        }
+        
+        println("⚠️ AI translation failed, trying fallbacks...")
+    }
+    
+    // Strategy 2: Try simple keyword-based translation for common phrases
+    val keywordTranslation = translateKeywords(text, targetLanguage)
+    if (keywordTranslation != text) {
+        println("✅ Using keyword-based translation")
+        return keywordTranslation
+    }
+    
+    // Strategy 3: Return original with language indicator
+    println("⚠️ All translation strategies failed, keeping original")
+    return when (targetLanguage) {
+        "English" -> "$text [RU]"
+        "Hebrew" -> "$text [רוסית]"
+        "Greek" -> "$text [Ρωσικά]"
+        else -> text
+    }
+}
+
+// NEW: Fast translation with reduced delays
+private fun translateTextFast(text: String, targetLanguage: String): String {
     if (openAiApiKey.isNullOrEmpty()) {
         return getFallbackTranslation(text, targetLanguage)
     }
-        // Skip translation if same language
+
+    // Skip translation if same language
     if (targetLanguage == "Russian") {
         return text
     }
@@ -494,45 +793,47 @@ private fun getFallbackTranslation(text: String, targetLanguage: String): String
         else -> text
     }
 }
-private fun translateMessageFast(message: TelegramNewsMessage): Map<String, String> {
-    val originalText = message.text
-    val existingTranslations = message.translations ?: emptyMap()
+
+// NEW: Simple keyword-based translation for common terms
+private fun translateKeywords(text: String, targetLanguage: String): String {
+    if (targetLanguage != "English") return text // Only implement English for now
     
-    val updatedTranslations = mutableMapOf<String, String>()
-    
-    // Always keep the original Russian
-    updatedTranslations["ru"] = originalText
-    
-    // Try to translate each language with minimal delays
-    val languagesToTranslate = mapOf(
-        "en" to "English",
-        "he" to "Hebrew", 
-        "el" to "Greek"
+    val keywordMap = mapOf(
+        // Common news terms
+        "полиция" to "police",
+        "арестован" to "arrested", 
+        "задержан" to "detained",
+        "пожар" to "fire",
+        "авария" to "accident",
+        "больница" to "hospital",
+        "суд" to "court",
+        "банк" to "bank",
+        "правительство" to "government",
+        "министр" to "minister",
+        "президент" to "president",
+        "парламент" to "parliament",
+        "Кипр" to "Cyprus",
+        "Лимассол" to "Limassol",
+        "Никосия" to "Nicosia", 
+        "Ларнака" to "Larnaca",
+        "Пафос" to "Paphos",
+        "евро" to "euros",
+        "температура" to "temperature",
+        "погода" to "weather"
     )
     
-    languagesToTranslate.forEach { (langCode, langName) ->
-        val existingTranslation = existingTranslations[langCode]
-        
-        // Only translate if current translation is bad/missing
-        if (existingTranslation == null || isPlaceholderTranslation(existingTranslation, langCode) || 
-            existingTranslation == originalText || existingTranslation.length < 10) {
-            
-            println("🔄 Fast translating to $langName...")
-            val newTranslation = translateTextFast(originalText, langName)
-            updatedTranslations[langCode] = newTranslation
-            
-            // Very minimal delay
-            Thread.sleep(100)
-        } else {
-            // Keep existing translation if it's good
-            updatedTranslations[langCode] = existingTranslation
-            println("✅ Keeping existing $langName translation")
-        }
+    var translatedText = text
+    keywordMap.forEach { (russian, english) ->
+        translatedText = translatedText.replace(russian, english, ignoreCase = true)
     }
     
-    return updatedTranslations
+    // If we made any substitutions, it's a partial translation
+    return if (translatedText != text) {
+        "$translatedText [Partial Translation]"
+    } else {
+        text
+    }
 }
-
 private fun isTranslationFailure(translation: String, originalText: String, targetLanguage: String): Boolean {
     // Don't consider it a failure if translation equals original for same-language translation
     if (targetLanguage == "Russian" && translation == originalText) {

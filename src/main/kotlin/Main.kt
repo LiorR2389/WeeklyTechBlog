@@ -463,90 +463,8 @@ class AINewsSystem {
     return failureIndicators.any { translation.lowercase().contains(it.lowercase()) }
 }
 
-private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
-    if (openAiApiKey.isNullOrEmpty()) {
-        return getSimpleFallback(text, targetLanguage)
-    }
 
-    // Check cache first
-    val cache = loadTranslationCache()
-    val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
-    
-    if (cache.containsKey(cacheKey)) {
-        val cachedTranslation = cache[cacheKey]!!
-        // Don't use cached translations that are failures
-        if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
-            println("✅ Using cached translation for: ${text.take(50)}...")
-            return cachedTranslation
-        }
-    }
-
-    // RATE LIMITING: Add delays between API calls
-    val lastApiCallFile = File("last_api_call.txt")
-    if (lastApiCallFile.exists()) {
-        try {
-            val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
-            val timeSinceLastCall = System.currentTimeMillis() - lastCall
-            val minimumDelay = 2000L // 2 seconds between calls
-            
-            if (timeSinceLastCall < minimumDelay) {
-                val waitTime = minimumDelay - timeSinceLastCall
-                println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
-                Thread.sleep(waitTime)
-            }
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
-    }
-
-    // Try translating with retry logic
-    var retryCount = 0
-    val maxRetries = 2 // Reduced retries for faster processing
-    
-    while (retryCount < maxRetries) {
-        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-        
-        // Check if we got rate limited or other failure
-        if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
-            translation.contains("תרגום נכשל") || translation == text) {
-            retryCount++
-            if (retryCount < maxRetries) {
-                val backoffDelay = (retryCount * 2000L) // 2s, 4s
-                println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
-                Thread.sleep(backoffDelay)
-                continue
-            } else {
-                println("❌ Max retries reached for $targetLanguage translation")
-                break
-            }
-        }
-        
-        // Save timestamp of successful call
-        try {
-            lastApiCallFile.writeText(System.currentTimeMillis().toString())
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
-        
-        // Cache successful translation
-        cache[cacheKey] = translation
-        saveTranslationCache(cache)
-        
-        return translation
-    }
-    
-    // Fallback if all retries failed - DON'T cache failures
-    val fallbackResult = getSimpleFallback(text, targetLanguage)
-    
-    println("❌ Using fallback translation for $targetLanguage")
-    return fallbackResult
-}
-
-private fun getSimpleFallback(text: String, targetLanguage: String): String {
-    // For very short text, try keyword replacement
-    if (text.length < 100) {
-        val keywordTranslation = translateKeywords(text, targetLanguage)
-        private fun translateKeywords(text: String, targetLanguage: String): String {
+private fun translateKeywords(text: String, targetLanguage: String): String {
     if (targetLanguage == "English") return text // Already in English
     
     val keywordMaps = when (targetLanguage) {
@@ -640,72 +558,93 @@ private fun getSimpleFallback(text: String, targetLanguage: String): String {
         else -> emptyMap()
     }
     
+
+
+private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
+    if (openAiApiKey.isNullOrEmpty()) {
+        return getSimpleFallback(text, targetLanguage)
+    }
+
+    // Check cache first
+    val cache = loadTranslationCache()
+    val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
+    
+    if (cache.containsKey(cacheKey)) {
+        val cachedTranslation = cache[cacheKey]!!
+        // Don't use cached translations that are failures
+        if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
+            println("✅ Using cached translation for: ${text.take(50)}...")
+            return cachedTranslation
+        }
+    }
+
+    // RATE LIMITING: Add delays between API calls
+    val lastApiCallFile = File("last_api_call.txt")
+    if (lastApiCallFile.exists()) {
+        try {
+            val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
+            val timeSinceLastCall = System.currentTimeMillis() - lastCall
+            val minimumDelay = 2000L // 2 seconds between calls
+            
+            if (timeSinceLastCall < minimumDelay) {
+                val waitTime = minimumDelay - timeSinceLastCall
+                println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
+                Thread.sleep(waitTime)
+            }
+        } catch (e: Exception) {
+            // Ignore file errors
+        }
+    }
+
+    // Try translating with retry logic
+    var retryCount = 0
+    val maxRetries = 2 // Reduced retries for faster processing
+    
+    while (retryCount < maxRetries) {
+        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
+        
+        // Check if we got rate limited or other failure
+        if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
+            translation.contains("תרגום נכשל") || translation == text) {
+            retryCount++
+            if (retryCount < maxRetries) {
+                val backoffDelay = (retryCount * 2000L) // 2s, 4s
+                println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
+                Thread.sleep(backoffDelay)
+                continue
+            } else {
+                println("❌ Max retries reached for $targetLanguage translation")
+                break
+            }
+        }
+        
+        // Save timestamp of successful call
+        try {
+            lastApiCallFile.writeText(System.currentTimeMillis().toString())
+        } catch (e: Exception) {
+            // Ignore file errors
+        }
+        
+        // Cache successful translation
+        cache[cacheKey] = translation
+        saveTranslationCache(cache)
+        
+        return translation
+    }
+    
+    // Fallback if all retries failed - DON'T cache failures
+    val fallbackResult = getSimpleFallback(text, targetLanguage)
+    
+    println("❌ Using fallback translation for $targetLanguage")
+    return fallbackResult
+}
+
     var translatedText = text
     keywordMaps.forEach { (english, translated) ->
         translatedText = translatedText.replace(english, translated, ignoreCase = true)
     }
     
     return translatedText
-}
-        if (keywordTranslation != text) {
-            return keywordTranslation
-        }
-    }
-        return when (targetLanguage) {
-        "Hebrew" -> {
-            // Try to translate key Cyprus/news terms
-            var hebrewText = text
-                .replace("Cyprus", "קפריסין")
-                .replace("Limassol", "לימסול") 
-                .replace("Nicosia", "ניקוסיה")
-                .replace("Larnaca", "לרנקה")
-                .replace("Paphos", "פאפוס")
-                .replace("police", "משטרה")
-                .replace("government", "ממשלה")
-                .replace("president", "נשיא")
-            
-            if (hebrewText != text) {
-                "$hebrewText [תרגום חלקי]"
-            } else {
-                "$text [אנגלית]"
-            }
-        }
-        "Russian" -> {
-            var russianText = text
-                .replace("Cyprus", "Кипр")
-                .replace("Limassol", "Лимассол")
-                .replace("Nicosia", "Никосия") 
-                .replace("Larnaca", "Ларнака")
-                .replace("Paphos", "Пафос")
-                .replace("police", "полиция")
-                .replace("government", "правительство")
-                .replace("president", "президент")
-            
-            if (russianText != text) {
-                "$russianText [частичный перевод]"
-            } else {
-                "$text [английский]"
-            }
-        }
-        "Greek" -> {
-            var greekText = text
-                .replace("Cyprus", "Κύπρος")
-                .replace("Limassol", "Λεμεσός")
-                .replace("Nicosia", "Λευκωσία")
-                .replace("Larnaca", "Λάρνακα") 
-                .replace("Paphos", "Πάφος")
-                .replace("police", "αστυνομία")
-                .replace("government", "κυβέρνηση")
-                .replace("president", "πρόεδρος")
-            
-            if (greekText != text) {
-                "$greekText [μερική μετάφραση]"
-            } else {
-                "$text [Αγγλικά]"
-            }
-        }
-        else -> text
-    }
 }
 
 
