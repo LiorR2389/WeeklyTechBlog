@@ -918,6 +918,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
 
 // UPDATED: Reduce translation load to prevent rate limiting
 // UPDATED: Only translate truly NEW messages to save API costs
+// FIXED: Ensure messages are properly passed to website
 private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
     try {
         println("🔥 Processing ${newMessages.size} new messages...")
@@ -988,8 +989,10 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             println("💰 API Cost Saved: Skipped ${alreadySeenMessages.size} already translated messages")
         }
         
-        // Show last 30 messages on website (mix of new and existing)
-        updateLiveWebsite(recentMessages.take(30))
+        // FIXED: Always show recent messages on website, not just new ones
+        val websiteMessages = recentMessages.take(30)
+        println("📄 Live website updated with ${websiteMessages.size} recent messages")
+        updateLiveWebsite(websiteMessages)
         
         // Upload to GitHub Pages
         uploadToGitHub()
@@ -998,6 +1001,22 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         
     } catch (e: Exception) {
         println("❌ Error processing messages: ${e.message}")
+    }
+}
+
+// Helper function to check if a message has good translations
+private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
+    val translations = message.translations ?: return false
+    
+    val requiredLanguages = listOf("en", "he", "el")
+    
+    return requiredLanguages.all { lang ->
+        val translation = translations[lang]
+        translation != null && 
+        translation.isNotEmpty() && 
+        !isPlaceholderTranslation(translation, lang) && 
+        translation != message.text && // Not identical to original
+        translation.length > 10 // Not too short
     }
 }
 
