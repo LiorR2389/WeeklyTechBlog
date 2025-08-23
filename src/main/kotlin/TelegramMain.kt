@@ -919,6 +919,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
 // UPDATED: Reduce translation load to prevent rate limiting
 // UPDATED: Only translate truly NEW messages to save API costs
 // FIXED: Ensure messages are properly passed to website
+// FIXED: Only show recently translated messages, filter out old untranslated ones
 private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
     try {
         println("🔥 Processing ${newMessages.size} new messages...")
@@ -974,12 +975,28 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             }
         }
         
-        // Clean up: Keep only last 30 days of messages to prevent file bloat
-        val thirtyDaysAgo = System.currentTimeMillis() - (30 * 24 * 60 * 60 * 1000)
+        // FIXED: Only keep messages from last 7 days AND have good translations
+        val sevenDaysAgo = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000)
         val recentMessages = processedMessages
-            .filter { it.timestamp > thirtyDaysAgo }
+            .filter { message ->
+                val isRecent = message.timestamp > sevenDaysAgo
+                val hasGoodTranslations = hasGoodTranslations(message)
+                
+                if (!isRecent) {
+                    println("🗑️ Filtering out old message: ${message.text.take(30)}... (${message.date})")
+                }
+                if (!hasGoodTranslations) {
+                    println("🗑️ Filtering out untranslated message: ${message.text.take(30)}...")
+                }
+                
+                isRecent && hasGoodTranslations
+            }
             .sortedByDescending { it.timestamp }
             .take(500) // Keep max 500 messages total
+        
+        println("📊 FILTERING RESULTS:")
+        println("   • Total processed messages: ${processedMessages.size}")
+        println("   • After filtering (recent + translated): ${recentMessages.size}")
         
         // Save all messages (with translations preserved)
         saveProcessedMessages(recentMessages)
@@ -989,9 +1006,9 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             println("💰 API Cost Saved: Skipped ${alreadySeenMessages.size} already translated messages")
         }
         
-        // FIXED: Always show recent messages on website, not just new ones
+        // Show only well-translated recent messages on website
         val websiteMessages = recentMessages.take(30)
-        println("📄 Live website updated with ${websiteMessages.size} recent messages")
+        println("📄 Live website will show ${websiteMessages.size} recent translated messages")
         updateLiveWebsite(websiteMessages)
         
         // Upload to GitHub Pages
