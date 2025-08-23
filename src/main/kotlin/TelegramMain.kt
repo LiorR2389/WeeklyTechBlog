@@ -1020,21 +1020,6 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
     }
 }
 
-// Helper function to check if a message has good translations
-private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
-    val translations = message.translations ?: return false
-    
-    val requiredLanguages = listOf("en", "he", "el")
-    
-    return requiredLanguages.all { lang ->
-        val translation = translations[lang]
-        translation != null && 
-        translation.isNotEmpty() && 
-        !isPlaceholderTranslation(translation, lang) && 
-        translation != message.text && // Not identical to original
-        translation.length > 10 // Not too short
-    }
-}
     private fun loadProcessedMessages(): List<TelegramNewsMessage> {
         return if (processedMessagesFile.exists()) {
             try {
