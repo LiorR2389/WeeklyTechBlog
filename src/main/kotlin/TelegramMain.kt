@@ -919,7 +919,6 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
 // UPDATED: Reduce translation load to prevent rate limiting
 // UPDATED: Only translate truly NEW messages to save API costs
 // FIXED: Ensure messages are properly passed to website
-// DEBUG VERSION: Fixed processNewMessages with detailed logging
 private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
     try {
         println("🔥 Processing ${newMessages.size} new messages...")
@@ -927,10 +926,6 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         // Load existing processed messages
         val processedMessages = loadProcessedMessages().toMutableList()
         val existingMessageIds = processedMessages.map { it.messageId }.toSet()
-        
-        println("📊 CURRENT STATE:")
-        println("   • Existing processed messages: ${processedMessages.size}")
-        println("   • Existing message IDs: ${existingMessageIds.size}")
         
         // Identify TRULY new messages (never seen before)
         val trulyNewMessages = newMessages.filter { it.messageId !in existingMessageIds }
@@ -951,7 +946,6 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
                 
                 // Add to processed messages
                 processedMessages.add(translatedMessage)
-                println("✅ Added message ID ${translatedMessage.messageId} to processed list")
                 
                 // Reasonable delay between new message translations
                 Thread.sleep(2000) // 2 seconds between new messages
@@ -959,7 +953,6 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
                 println("⚠️ Failed to translate new message: ${e.message}")
                 // Add without translation rather than lose the message
                 processedMessages.add(newMessage)
-                println("⚠️ Added untranslated message ID ${newMessage.messageId} to processed list")
             }
         }
         
@@ -981,18 +974,12 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             }
         }
         
-        println("📊 AFTER PROCESSING:")
-        println("   • Total processed messages: ${processedMessages.size}")
-        
-        // FIXED: Remove the 30-day filter that was removing messages
-        // Clean up: Keep only last 500 messages (remove the time filter)
+        // Clean up: Keep only last 30 days of messages to prevent file bloat
+        val thirtyDaysAgo = System.currentTimeMillis() - (30 * 24 * 60 * 60 * 1000)
         val recentMessages = processedMessages
+            .filter { it.timestamp > thirtyDaysAgo }
             .sortedByDescending { it.timestamp }
             .take(500) // Keep max 500 messages total
-        
-        println("📊 AFTER CLEANUP:")
-        println("   • Recent messages after cleanup: ${recentMessages.size}")
-        println("   • Timestamps range: ${recentMessages.minOfOrNull { it.timestamp }} to ${recentMessages.maxOfOrNull { it.timestamp }}")
         
         // Save all messages (with translations preserved)
         saveProcessedMessages(recentMessages)
@@ -1002,13 +989,9 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             println("💰 API Cost Saved: Skipped ${alreadySeenMessages.size} already translated messages")
         }
         
-        // FIXED: Show recent messages on website
+        // FIXED: Always show recent messages on website, not just new ones
         val websiteMessages = recentMessages.take(30)
-        println("📄 BEFORE updateLiveWebsite:")
-        println("   • websiteMessages count: ${websiteMessages.size}")
-        println("   • First message: ${websiteMessages.firstOrNull()?.text?.take(50) ?: "NONE"}")
-        println("   • Last message: ${websiteMessages.lastOrNull()?.text?.take(50) ?: "NONE"}")
-        
+        println("📄 Live website updated with ${websiteMessages.size} recent messages")
         updateLiveWebsite(websiteMessages)
         
         // Upload to GitHub Pages
@@ -1018,7 +1001,6 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         
     } catch (e: Exception) {
         println("❌ Error processing messages: ${e.message}")
-        e.printStackTrace()
     }
 }
 
@@ -1037,6 +1019,7 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         translation.length > 10 // Not too short
     }
 }
+
 
     private fun loadProcessedMessages(): List<TelegramNewsMessage> {
         return if (processedMessagesFile.exists()) {
@@ -1059,80 +1042,72 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         }
     }
     
-private fun updateLiveWebsite(recentMessages: List<TelegramNewsMessage>) {
-    val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())
-    val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy").format(Date())
-    
-    println("🌐 WEBSITE GENERATION DEBUG:")
-    println("   • Input messages: ${recentMessages.size}")
-    println("   • Current time: $currentTime")
-    println("   • Current date: $currentDate")
-    
-    val messagesHtml = if (recentMessages.isEmpty()) {
-        println("   • No messages - generating empty state")
-        """
-            <div class="no-messages">
-                <h3>No recent messages</h3>
-                <p>Monitoring @cyprus_control for breaking news...</p>
-                <p>This page updates automatically every 10 minutes</p>
-            </div>
-        """.trimIndent()
-    } else {
-        println("   • Generating HTML for ${recentMessages.size} messages")
-        recentMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
-            println("   • Processing message: ${message.messageId} - ${message.text.take(30)}...")
-            
-            val priorityClass = "priority-${message.priority}"
-            val messageClass = when {
-                message.isBreaking -> "message breaking"
-                message.priority == 1 -> "message urgent"
-                else -> "message"
-            }
-            
-            val priorityLabel = when(message.priority) {
-                1 -> "🔥 URGENT"
-                2 -> "⚡ IMPORTANT"
-                else -> "📢 NEWS"
-            }
-            
-            // Get translations with better fallbacks
-            val englishText = message.translations?.get("en")?.let { translation ->
-                if (translation.isNotEmpty() && 
-                    !translation.contains("translation unavailable", ignoreCase = true) && 
-                    !translation.contains("Translation pending", ignoreCase = true) &&
-                    translation.length > 10) {
-                    translation
-                } else {
-                    // Use original Russian text with [RU] indicator
-                    "${message.text} [Original Russian]"
+    private fun updateLiveWebsite(recentMessages: List<TelegramNewsMessage>) {
+        val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())
+        val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy").format(Date())
+        
+        val messagesHtml = if (recentMessages.isEmpty()) {
+            """
+                <div class="no-messages">
+                    <h3>No recent messages</h3>
+                    <p>Monitoring @cyprus_control for breaking news...</p>
+                    <p>This page updates automatically every 10 minutes</p>
+                </div>
+            """.trimIndent()
+        } else {
+            recentMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
+                val priorityClass = "priority-${message.priority}"
+                val messageClass = when {
+                    message.isBreaking -> "message breaking"
+                    message.priority == 1 -> "message urgent"
+                    else -> "message"
                 }
-            } ?: "${message.text} [Original Russian]"
-            
-            val hebrewText = message.translations?.get("he")?.let { translation ->
-                if (translation.isNotEmpty() && 
-                    !translation.contains("תרגום", ignoreCase = true) &&
-                    !translation.contains("ממתין", ignoreCase = true) &&
-                    translation.length > 5) {
-                    translation
-                } else {
-                    "${message.text} [רוסית מקורית]"
+                
+                val priorityLabel = when(message.priority) {
+                    1 -> "🔥 URGENT"
+                    2 -> "⚡ IMPORTANT"
+                    else -> "📢 NEWS"
                 }
-            } ?: "${message.text} [רוסית מקורית]"
-            
-            val russianText = message.translations?.get("ru") ?: message.text
-            
-            val greekText = message.translations?.get("el")?.let { translation ->
-                if (translation.isNotEmpty() && 
-                    !translation.contains("μετάφραση", ignoreCase = true) &&
-                    !translation.contains("εκκρεμότητα", ignoreCase = true) &&
-                    translation.length > 10) {
-                    translation
-                } else {
-                    "${message.text} [Αρχικά Ρωσικά]"
-                }
-            } ?: "${message.text} [Αρχικά Ρωσικά]"
-            
-            val messageHtml = """
+                
+                val englishText = message.translations?.get("en")?.let { translation ->
+                    if (translation.isNotEmpty() && 
+                        translation != "English translation unavailable" && 
+                        translation != "Translation unavailable" &&
+                        !translation.contains("translation unavailable") &&
+                        !translation.contains("Translation pending") &&
+                        translation.length > 10) {
+                        translation
+                    } else {
+                        // Runtime fallback for older messages (with reduced frequency)
+                        message.text // Show original Russian for now
+                    }
+                } ?: message.text
+                
+                val hebrewText = message.translations?.get("he")?.let { translation ->
+                    if (translation.isNotEmpty() && 
+                        translation != "תרגום לא זמין" &&
+                        !translation.contains("תרגום ממתין") &&
+                        translation.length > 5) {
+                        translation
+                    } else {
+                        message.text // Show original Russian for now
+                    }
+                } ?: message.text
+                
+                val russianText = message.translations?.get("ru") ?: message.text
+                
+                val greekText = message.translations?.get("el")?.let { translation ->
+                    if (translation.isNotEmpty() && 
+                        translation != "Μετάφραση μη διαθέσιμη" &&
+                        !translation.contains("Μετάφραση σε εκκρεμότητα") &&
+                        translation.length > 10) {
+                        translation
+                    } else {
+                        message.text // Show original Russian for now
+                    }
+                } ?: message.text
+                
+                """
 <div class="$messageClass">
     <div class="timestamp">📅 ${message.date}</div>
     <div class="priority $priorityClass">
@@ -1151,21 +1126,15 @@ private fun updateLiveWebsite(recentMessages: List<TelegramNewsMessage>) {
         <div class="text">$greekText</div>
     </div>
 </div>
-            """.trimIndent()
-            
-            println("   • Generated HTML length: ${messageHtml.length} characters")
-            messageHtml
+                """.trimIndent()
+            }
         }
+        
+        val liveHtml = generateLiveHtmlPage(currentDate, currentTime, recentMessages, messagesHtml)
+        
+        File("live_news.html").writeText(liveHtml)
+        println("📄 Live website updated with ${recentMessages.size} recent messages")
     }
-    
-    println("   • Total messages HTML length: ${messagesHtml.length} characters")
-    
-    val liveHtml = generateLiveHtmlPage(currentDate, currentTime, recentMessages, messagesHtml)
-    
-    File("live_news.html").writeText(liveHtml)
-    println("📄 Live website updated with ${recentMessages.size} recent messages")
-    println("   • Generated HTML file size: ${File("live_news.html").length()} bytes")
-}
     
     private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
         return """<!DOCTYPE html>
