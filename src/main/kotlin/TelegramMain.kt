@@ -919,6 +919,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
 // UPDATED: Reduce translation load to prevent rate limiting
 // UPDATED: Only translate truly NEW messages to save API costs
 // FIXED: Ensure messages are properly passed to website
+// DEBUG VERSION: Fixed processNewMessages with detailed logging
 private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
     try {
         println("🔥 Processing ${newMessages.size} new messages...")
@@ -926,6 +927,10 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         // Load existing processed messages
         val processedMessages = loadProcessedMessages().toMutableList()
         val existingMessageIds = processedMessages.map { it.messageId }.toSet()
+        
+        println("📊 CURRENT STATE:")
+        println("   • Existing processed messages: ${processedMessages.size}")
+        println("   • Existing message IDs: ${existingMessageIds.size}")
         
         // Identify TRULY new messages (never seen before)
         val trulyNewMessages = newMessages.filter { it.messageId !in existingMessageIds }
@@ -946,6 +951,7 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
                 
                 // Add to processed messages
                 processedMessages.add(translatedMessage)
+                println("✅ Added message ID ${translatedMessage.messageId} to processed list")
                 
                 // Reasonable delay between new message translations
                 Thread.sleep(2000) // 2 seconds between new messages
@@ -953,6 +959,7 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
                 println("⚠️ Failed to translate new message: ${e.message}")
                 // Add without translation rather than lose the message
                 processedMessages.add(newMessage)
+                println("⚠️ Added untranslated message ID ${newMessage.messageId} to processed list")
             }
         }
         
@@ -974,12 +981,18 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             }
         }
         
-        // Clean up: Keep only last 30 days of messages to prevent file bloat
-        val thirtyDaysAgo = System.currentTimeMillis() - (30 * 24 * 60 * 60 * 1000)
+        println("📊 AFTER PROCESSING:")
+        println("   • Total processed messages: ${processedMessages.size}")
+        
+        // FIXED: Remove the 30-day filter that was removing messages
+        // Clean up: Keep only last 500 messages (remove the time filter)
         val recentMessages = processedMessages
-            .filter { it.timestamp > thirtyDaysAgo }
             .sortedByDescending { it.timestamp }
             .take(500) // Keep max 500 messages total
+        
+        println("📊 AFTER CLEANUP:")
+        println("   • Recent messages after cleanup: ${recentMessages.size}")
+        println("   • Timestamps range: ${recentMessages.minOfOrNull { it.timestamp }} to ${recentMessages.maxOfOrNull { it.timestamp }}")
         
         // Save all messages (with translations preserved)
         saveProcessedMessages(recentMessages)
@@ -989,9 +1002,13 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
             println("💰 API Cost Saved: Skipped ${alreadySeenMessages.size} already translated messages")
         }
         
-        // FIXED: Always show recent messages on website, not just new ones
+        // FIXED: Show recent messages on website
         val websiteMessages = recentMessages.take(30)
-        println("📄 Live website updated with ${websiteMessages.size} recent messages")
+        println("📄 BEFORE updateLiveWebsite:")
+        println("   • websiteMessages count: ${websiteMessages.size}")
+        println("   • First message: ${websiteMessages.firstOrNull()?.text?.take(50) ?: "NONE"}")
+        println("   • Last message: ${websiteMessages.lastOrNull()?.text?.take(50) ?: "NONE"}")
+        
         updateLiveWebsite(websiteMessages)
         
         // Upload to GitHub Pages
@@ -1001,6 +1018,7 @@ private fun processNewMessages(newMessages: List<TelegramNewsMessage>) {
         
     } catch (e: Exception) {
         println("❌ Error processing messages: ${e.message}")
+        e.printStackTrace()
     }
 }
 
