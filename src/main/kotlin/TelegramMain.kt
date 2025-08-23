@@ -1059,72 +1059,80 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         }
     }
     
-    private fun updateLiveWebsite(recentMessages: List<TelegramNewsMessage>) {
-        val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())
-        val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy").format(Date())
-        
-        val messagesHtml = if (recentMessages.isEmpty()) {
-            """
-                <div class="no-messages">
-                    <h3>No recent messages</h3>
-                    <p>Monitoring @cyprus_control for breaking news...</p>
-                    <p>This page updates automatically every 10 minutes</p>
-                </div>
-            """.trimIndent()
-        } else {
-            recentMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
-                val priorityClass = "priority-${message.priority}"
-                val messageClass = when {
-                    message.isBreaking -> "message breaking"
-                    message.priority == 1 -> "message urgent"
-                    else -> "message"
+private fun updateLiveWebsite(recentMessages: List<TelegramNewsMessage>) {
+    val currentTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())
+    val currentDate = SimpleDateFormat("EEEE, MMMM dd, yyyy").format(Date())
+    
+    println("🌐 WEBSITE GENERATION DEBUG:")
+    println("   • Input messages: ${recentMessages.size}")
+    println("   • Current time: $currentTime")
+    println("   • Current date: $currentDate")
+    
+    val messagesHtml = if (recentMessages.isEmpty()) {
+        println("   • No messages - generating empty state")
+        """
+            <div class="no-messages">
+                <h3>No recent messages</h3>
+                <p>Monitoring @cyprus_control for breaking news...</p>
+                <p>This page updates automatically every 10 minutes</p>
+            </div>
+        """.trimIndent()
+    } else {
+        println("   • Generating HTML for ${recentMessages.size} messages")
+        recentMessages.sortedByDescending { it.timestamp }.joinToString("\n") { message ->
+            println("   • Processing message: ${message.messageId} - ${message.text.take(30)}...")
+            
+            val priorityClass = "priority-${message.priority}"
+            val messageClass = when {
+                message.isBreaking -> "message breaking"
+                message.priority == 1 -> "message urgent"
+                else -> "message"
+            }
+            
+            val priorityLabel = when(message.priority) {
+                1 -> "🔥 URGENT"
+                2 -> "⚡ IMPORTANT"
+                else -> "📢 NEWS"
+            }
+            
+            // Get translations with better fallbacks
+            val englishText = message.translations?.get("en")?.let { translation ->
+                if (translation.isNotEmpty() && 
+                    !translation.contains("translation unavailable", ignoreCase = true) && 
+                    !translation.contains("Translation pending", ignoreCase = true) &&
+                    translation.length > 10) {
+                    translation
+                } else {
+                    // Use original Russian text with [RU] indicator
+                    "${message.text} [Original Russian]"
                 }
-                
-                val priorityLabel = when(message.priority) {
-                    1 -> "🔥 URGENT"
-                    2 -> "⚡ IMPORTANT"
-                    else -> "📢 NEWS"
+            } ?: "${message.text} [Original Russian]"
+            
+            val hebrewText = message.translations?.get("he")?.let { translation ->
+                if (translation.isNotEmpty() && 
+                    !translation.contains("תרגום", ignoreCase = true) &&
+                    !translation.contains("ממתין", ignoreCase = true) &&
+                    translation.length > 5) {
+                    translation
+                } else {
+                    "${message.text} [רוסית מקורית]"
                 }
-                
-                val englishText = message.translations?.get("en")?.let { translation ->
-                    if (translation.isNotEmpty() && 
-                        translation != "English translation unavailable" && 
-                        translation != "Translation unavailable" &&
-                        !translation.contains("translation unavailable") &&
-                        !translation.contains("Translation pending") &&
-                        translation.length > 10) {
-                        translation
-                    } else {
-                        // Runtime fallback for older messages (with reduced frequency)
-                        message.text // Show original Russian for now
-                    }
-                } ?: message.text
-                
-                val hebrewText = message.translations?.get("he")?.let { translation ->
-                    if (translation.isNotEmpty() && 
-                        translation != "תרגום לא זמין" &&
-                        !translation.contains("תרגום ממתין") &&
-                        translation.length > 5) {
-                        translation
-                    } else {
-                        message.text // Show original Russian for now
-                    }
-                } ?: message.text
-                
-                val russianText = message.translations?.get("ru") ?: message.text
-                
-                val greekText = message.translations?.get("el")?.let { translation ->
-                    if (translation.isNotEmpty() && 
-                        translation != "Μετάφραση μη διαθέσιμη" &&
-                        !translation.contains("Μετάφραση σε εκκρεμότητα") &&
-                        translation.length > 10) {
-                        translation
-                    } else {
-                        message.text // Show original Russian for now
-                    }
-                } ?: message.text
-                
-                """
+            } ?: "${message.text} [רוסית מקורית]"
+            
+            val russianText = message.translations?.get("ru") ?: message.text
+            
+            val greekText = message.translations?.get("el")?.let { translation ->
+                if (translation.isNotEmpty() && 
+                    !translation.contains("μετάφραση", ignoreCase = true) &&
+                    !translation.contains("εκκρεμότητα", ignoreCase = true) &&
+                    translation.length > 10) {
+                    translation
+                } else {
+                    "${message.text} [Αρχικά Ρωσικά]"
+                }
+            } ?: "${message.text} [Αρχικά Ρωσικά]"
+            
+            val messageHtml = """
 <div class="$messageClass">
     <div class="timestamp">📅 ${message.date}</div>
     <div class="priority $priorityClass">
@@ -1143,15 +1151,21 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         <div class="text">$greekText</div>
     </div>
 </div>
-                """.trimIndent()
-            }
+            """.trimIndent()
+            
+            println("   • Generated HTML length: ${messageHtml.length} characters")
+            messageHtml
         }
-        
-        val liveHtml = generateLiveHtmlPage(currentDate, currentTime, recentMessages, messagesHtml)
-        
-        File("live_news.html").writeText(liveHtml)
-        println("📄 Live website updated with ${recentMessages.size} recent messages")
     }
+    
+    println("   • Total messages HTML length: ${messagesHtml.length} characters")
+    
+    val liveHtml = generateLiveHtmlPage(currentDate, currentTime, recentMessages, messagesHtml)
+    
+    File("live_news.html").writeText(liveHtml)
+    println("📄 Live website updated with ${recentMessages.size} recent messages")
+    println("   • Generated HTML file size: ${File("live_news.html").length()} bytes")
+}
     
     private fun generateLiveHtmlPage(currentDate: String, currentTime: String, recentMessages: List<TelegramNewsMessage>, messagesHtml: String): String {
         return """<!DOCTYPE html>
