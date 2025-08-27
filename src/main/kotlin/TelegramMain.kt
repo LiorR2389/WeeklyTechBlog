@@ -1527,7 +1527,7 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         }
     }
     
-    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
+private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
         try {
             // Get existing file SHA (if exists)
             val getRequest = Request.Builder()
@@ -1562,10 +1562,15 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
             client.newCall(putRequest).execute().use { response ->
                 if (!response.isSuccessful) {
                     println("Failed to upload $filePath: ${response.code}")
+                    val errorBody = response.body?.string()
+                    println("Error details: $errorBody")
+                } else {
+                    println("Successfully uploaded $filePath")
                 }
             }
-    } catch (e: Exception) {
-        println("Error uploading $filePath: ${e.message}")
+        } catch (e: Exception) {
+            println("Error uploading $filePath: ${e.message}")
+        }
     }
 }
 
