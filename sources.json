@@ -130,18 +130,20 @@
     },
     {
       "country": "CYPRUS",
-      "sourceId": "financial-mirror",
-      "sourceName": "Financial Mirror",
-      "baseUrl": "https://www.financialmirror.com/",
+      "sourceId": "cybc-news",
+      "sourceName": "CyBC News",
+      "baseUrl": "https://www.cybc.com.cy/en/news",
       "linkSelectors": [
-        ".entry-title a",
+        ".news-item h3 a",
+        ".article-title a",
         "h2 a",
-        ".post-title a"
+        ".headline a"
       ],
       "paragraphSelectors": [
-        ".entry-content p:first-of-type",
+        ".article-content p:first-of-type",
+        ".news-content p:first-of-type",
         "article p:first-of-type",
-        ".post-content p:first-of-type"
+        ".content p:first-of-type"
       ],
       "sourceLanguage": "en",
       "timezone": "Europe/Nicosia",
