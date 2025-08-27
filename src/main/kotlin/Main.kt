@@ -1578,9 +1578,6 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
 
             <script>
                 let currentLang = 'en';
-
-            <script>
-                let currentLang = 'en';
                 
                 function setLang(lang) {
                     // Hide all language elements

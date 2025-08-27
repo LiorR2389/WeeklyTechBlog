@@ -1462,54 +1462,54 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
             This page automatically refreshes every 5 minutes<br>
             For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
         </p>
-    </div>
-</div>
-<script>
-    let currentLang = 'en';
-    
-    function setLang(lang) {
-        // Hide all language elements
-        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-        // Show selected language elements
-        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-        // Update button states
-        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-        document.getElementById('btn-' + lang).classList.add('active');
-        currentLang = lang;
-        
-        try {
-            localStorage.setItem('userLanguagePreference', lang);
-        } catch (e) {
-            // Silently fail if localStorage not available
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-        // Load saved language preference
-        let savedLang = 'en'; // default fallback
-        try {
-            savedLang = localStorage.getItem('userLanguagePreference') || 'en';
-        } catch (e) {
-            // Silently fail if localStorage not available
-        }
-        
-        setLang(savedLang); // Use saved preference instead of hardcoded 'en'
-        
-        document.addEventListener('keydown', function(e) {
-            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                e.preventDefault();
-                const langs = ['en', 'he', 'ru', 'el'];
-                const langIndex = parseInt(e.key) - 1;
-                if (langs[langIndex]) {
-                    setLang(langs[langIndex]);
+            </div>
+        </div>
+        <script>
+            let currentLang = 'en';
+            
+            function setLang(lang) {
+                // Hide all language elements
+                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                // Show selected language elements
+                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                // Update button states
+                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                document.getElementById('btn-' + lang).classList.add('active');
+                currentLang = lang;
+                
+                try {
+                    localStorage.setItem('userLanguagePreference', lang);
+                } catch (e) {
+                    // Silently fail if localStorage not available
                 }
             }
-        });
-    });
-</script>
-</body>
-</html>
-    
+
+            document.addEventListener('DOMContentLoaded', function() {
+                // Load saved language preference
+                let savedLang = 'en'; // default fallback
+                try {
+                    savedLang = localStorage.getItem('userLanguagePreference') || 'en';
+                } catch (e) {
+                    // Silently fail if localStorage not available
+                }
+                
+                setLang(savedLang); // Use saved preference instead of hardcoded 'en'
+                
+                document.addEventListener('keydown', function(e) {
+                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                        e.preventDefault();
+                        const langs = ['en', 'he', 'ru', 'el'];
+                        const langIndex = parseInt(e.key) - 1;
+                        if (langs[langIndex]) {
+                            setLang(langs[langIndex]);
+                        }
+                    }
+                });
+            });
+        </script>
+        </body>
+        </html>
+            
     private fun uploadToGitHub() {
         try {
             if (githubToken.isNullOrEmpty()) {
