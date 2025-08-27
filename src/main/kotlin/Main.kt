@@ -646,76 +646,76 @@ class AINewsSystem {
         return translatedText
     }
 
-private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
-    if (openAiApiKey.isNullOrEmpty()) {
-        return getSimpleFallback(text, targetLanguage)
-    }
-
-    val cache = loadTranslationCache()
-    val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
-    
-    if (cache.containsKey(cacheKey)) {
-        val cachedTranslation = cache[cacheKey]!!
-        if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
-            println("✅ Using cached translation for: ${text.take(50)}...")
-            return cachedTranslation
+    private fun translateText(text: String, targetLanguage: String, sourceLanguage: String = "English"): String {
+        if (openAiApiKey.isNullOrEmpty()) {
+            return getSimpleFallback(text, targetLanguage)
         }
-    }
 
-    val lastApiCallFile = File("last_api_call.txt")
-    if (lastApiCallFile.exists()) {
-        try {
-            val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
-            val timeSinceLastCall = System.currentTimeMillis() - lastCall
-            val minimumDelay = 2000L
+        val cache = loadTranslationCache()
+        val cacheKey = generateCacheKey(text + sourceLanguage, targetLanguage)
+        
+        if (cache.containsKey(cacheKey)) {
+            val cachedTranslation = cache[cacheKey]!!
+            if (!isCachedTranslationFailure(cachedTranslation, targetLanguage)) {
+                println("✅ Using cached translation for: ${text.take(50)}...")
+                return cachedTranslation
+            }
+        }
+
+        val lastApiCallFile = File("last_api_call.txt")
+        if (lastApiCallFile.exists()) {
+            try {
+                val lastCall = lastApiCallFile.readText().toLongOrNull() ?: 0
+                val timeSinceLastCall = System.currentTimeMillis() - lastCall
+                val minimumDelay = 2000L
+                
+                if (timeSinceLastCall < minimumDelay) {
+                    val waitTime = minimumDelay - timeSinceLastCall
+                    println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
+                    Thread.sleep(waitTime)
+                }
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
+        }
+
+        var retryCount = 0
+        val maxRetries = 2
+        
+        while (retryCount < maxRetries) {
+            val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
             
-            if (timeSinceLastCall < minimumDelay) {
-                val waitTime = minimumDelay - timeSinceLastCall
-                println("⏰ Rate limiting: waiting ${waitTime}ms before API call...")
-                Thread.sleep(waitTime)
+            if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
+                translation.contains("תרגום נכשל") || translation == text) {
+                retryCount++
+                if (retryCount < maxRetries) {
+                    val backoffDelay = (retryCount * 2000L)
+                    println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
+                    Thread.sleep(backoffDelay)
+                    continue
+                } else {
+                    println("❌ Max retries reached for $targetLanguage translation")
+                    break
+                }
             }
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
-    }
-
-    var retryCount = 0
-    val maxRetries = 2
-    
-    while (retryCount < maxRetries) {
-        val translation = attemptTranslation(text, targetLanguage, sourceLanguage)
-        
-        if (translation.contains("rate limit") || translation.contains("חריגה ממגבלת קצב") || 
-            translation.contains("תרגום נכשל") || translation == text) {
-            retryCount++
-            if (retryCount < maxRetries) {
-                val backoffDelay = (retryCount * 2000L)
-                println("⚠️ Rate limited (attempt $retryCount/$maxRetries), backing off for ${backoffDelay}ms...")
-                Thread.sleep(backoffDelay)
-                continue
-            } else {
-                println("❌ Max retries reached for $targetLanguage translation")
-                break
+            
+            try {
+                lastApiCallFile.writeText(System.currentTimeMillis().toString())
+            } catch (e: Exception) {
+                // Ignore file errors
             }
+            
+            cache[cacheKey] = translation
+            saveTranslationCache(cache)
+            
+            return translation
         }
         
-        try {
-            lastApiCallFile.writeText(System.currentTimeMillis().toString())
-        } catch (e: Exception) {
-            // Ignore file errors
-        }
+        val fallbackResult = getSimpleFallback(text, targetLanguage)
         
-        cache[cacheKey] = translation
-        saveTranslationCache(cache)
-        
-        return translation
+        println("❌ Using fallback translation for $targetLanguage")
+        return fallbackResult
     }
-    
-    val fallbackResult = getSimpleFallback(text, targetLanguage)
-    
-    println("❌ Using fallback translation for $targetLanguage")
-    return fallbackResult
-}
 
 private fun attemptTranslation(text: String, targetLanguage: String, sourceLanguage: String): String {
         return try {
@@ -1018,561 +1018,628 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
         return intersection.toDouble() / union.toDouble()
     }
 
-fun generateCountryWebsite(articles: List<Article>, country: String): String {
-    val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-    val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
-    val countryArticles = articles.filter { it.country == country }
-    val grouped = countryArticles.groupBy { it.category }
+    fun generateCountryWebsite(articles: List<Article>, country: String): String {
+        val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
+        val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())
+        val countryArticles = articles.filter { it.country == country }
+        val grouped = countryArticles.groupBy { it.category }
 
-    val countryDisplayName = when(country) {
-        "CYPRUS" -> "Cyprus"
-        "ISRAEL" -> "Israel"
-        "GREECE" -> "Greece"
-        else -> country
-    }
+        val countryDisplayName = when(country) {
+            "CYPRUS" -> "Cyprus"
+            "ISRAEL" -> "Israel"
+            "GREECE" -> "Greece"
+            else -> country
+        }
 
-    val countryFlag = when(country) {
-        "CYPRUS" -> "🇨🇾"
-        "ISRAEL" -> "🇮🇱"
-        "GREECE" -> "🇬🇷"
-        else -> "🌍"
-    }
+        val countryFlag = when(country) {
+            "CYPRUS" -> "🇨🇾"
+            "ISRAEL" -> "🇮🇱"
+            "GREECE" -> "🇬🇷"
+            else -> "🌍"
+        }
 
-    val articlesHtml = StringBuilder()
-    if (grouped.isEmpty()) {
-        articlesHtml.append("""
-            <div class="no-articles">
-                <h3>No new articles today</h3>
-                <p>Check back tomorrow for fresh news updates.</p>
-            </div>
-        """.trimIndent())
-    } else {
-        grouped.forEach { (category, items) ->
+        val articlesHtml = StringBuilder()
+        if (grouped.isEmpty()) {
             articlesHtml.append("""
-                <h2>
-                    <span class="lang en active">$category</span>
-                    <span class="lang he" dir="rtl">${translateText(category, "Hebrew", "English")}</span>
-                    <span class="lang ru">${translateText(category, "Russian", "English")}</span>
-                    <span class="lang el">${translateText(category, "Greek", "English")}</span>
-                </h2>
+                <div class="no-articles">
+                    <h3>No new articles today</h3>
+                    <p>Check back tomorrow for fresh news updates.</p>
+                </div>
             """.trimIndent())
-
-            items.forEach { article ->
+        } else {
+            grouped.forEach { (category, items) ->
                 articlesHtml.append("""
-                    <div class="article">
-                        <div class="lang en active">
-                            <h3>${article.titleTranslations["en"] ?: article.title}</h3>
-                            <p>${article.summaryTranslations["en"] ?: article.summary}</p>
-                            <a href="${article.url}" target="_blank" rel="noopener noreferrer">Read more</a>
-                        </div>
-                        <div class="lang he" dir="rtl">
-                            <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
-                            <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
-                            <a href="${article.url}" target="_blank" rel="noopener noreferrer" dir="rtl">קרא עוד</a>
-                        </div>
-                        <div class="lang ru">
-                            <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
-                            <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
-                            <a href="${article.url}" target="_blank" rel="noopener noreferrer">Читать далее</a>
-                        </div>
-                        <div class="lang el">
-                            <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
-                            <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
-                            <a href="${article.url}" target="_blank" rel="noopener noreferrer">Διαβάστε περισσότερα</a>
-                        </div>
-                    </div>
+                    <h2>
+                        <span class="lang en active">$category</span>
+                        <span class="lang he" dir="rtl">${translateText(category, "Hebrew", "English")}</span>
+                        <span class="lang ru">${translateText(category, "Russian", "English")}</span>
+                        <span class="lang el">${translateText(category, "Greek", "English")}</span>
+                    </h2>
                 """.trimIndent())
+
+                items.forEach { article ->
+                    articlesHtml.append("""
+                        <div class="article">
+                            <div class="lang en active">
+                                <h3>${article.titleTranslations["en"] ?: article.title}</h3>
+                                <p>${article.summaryTranslations["en"] ?: article.summary}</p>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">Read more</a>
+                            </div>
+                            <div class="lang he" dir="rtl">
+                                <h3 dir="rtl">${article.titleTranslations["he"] ?: "כותרת בעברית"}</h3>
+                                <p dir="rtl">${article.summaryTranslations["he"] ?: "תקציר בעברית"}</p>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer" dir="rtl">קרא עוד</a>
+                            </div>
+                            <div class="lang ru">
+                                <h3>${article.titleTranslations["ru"] ?: "Заголовок на русском"}</h3>
+                                <p>${article.summaryTranslations["ru"] ?: "Краткое изложение на русском"}</p>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">Читать далее</a>
+                            </div>
+                            <div class="lang el">
+                                <h3>${article.titleTranslations["el"] ?: "Τίτλος στα ελληνικά"}</h3>
+                                <p>${article.summaryTranslations["el"] ?: "Περίληψη στα ελληνικά"}</p>
+                                <a href="${article.url}" target="_blank" rel="noopener noreferrer">Διαβάστε περισσότερα</a>
+                            </div>
+                        </div>
+                    """.trimIndent())
+                }
             }
         }
-    }
 
-    return """<!DOCTYPE html>
-        <html>
-        <head>
-        
-        <!-- Google tag (gtag.js) -->
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
-        <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
+        return """<!DOCTYPE html>
+            <html>
+            <head>
+            
+            <!-- Google tag (gtag.js) -->
+            <script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
+            <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
 
-        gtag('config', 'G-C1QY12QWQ0');
-        </script>
+            gtag('config', 'G-C1QY12QWQ0');
+            </script>
 
-        <title>AI News - $countryDisplayName Daily Digest for $dayOfWeek, $currentDate</title>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { 
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; 
-                margin: 0;
-                padding: 20px; 
-                background: #f5f5f5; 
-                line-height: 1.6;
-            }
-            
-            .container { 
-                max-width: 800px; 
-                margin: 0 auto; 
-                background: white; 
-                padding: 20px;
-                border-radius: 12px; 
-                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            }
-            
-            .header { 
-                text-align: center; 
-                margin-bottom: 30px; 
-            }
-            
-            .logo { 
-                font-size: 2.5rem; 
-                font-weight: bold; 
-                color: #667eea; 
-                margin-bottom: 10px;
-            }
-            
-            .country-nav { 
-                text-align: center; 
-                margin: 20px 0; 
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 10px;
-            }
-            
-            .country-nav a { 
-                padding: 12px 16px; 
-                background: #667eea; 
-                color: white; 
-                text-decoration: none; 
-                border-radius: 25px; 
-                font-size: 0.9rem;
-                min-width: 100px;
-                text-align: center;
-                transition: all 0.3s ease;
-            }
-            
-            .country-nav a:hover { 
-                background: #764ba2; 
-                transform: translateY(-2px);
-            }
-            
-            .lang-buttons { 
-                text-align: center; 
-                margin: 30px 0; 
-                display: flex;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 8px;
-            }
-            
-            .lang-buttons button { 
-                padding: 10px 16px; 
-                border: none; 
-                border-radius: 20px; 
-                background: #667eea; 
-                color: white; 
-                cursor: pointer; 
-                font-size: 0.9rem;
-                min-width: 80px;
-                transition: all 0.3s ease;
-            }
-            
-            .lang-buttons button.active { 
-                background: #764ba2; 
-                transform: scale(1.05);
-            }
-            
-            .lang-buttons button:hover { 
-                background: #764ba2; 
-            }
-            
-            .lang { display: none; }
-            .lang.active { display: block; }
-            
-            .lang.he { 
-                direction: rtl; 
-                text-align: right; 
-                font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
-            }
-            
-            .lang.he h2, .lang.he h3 { 
-                text-align: right; 
-                direction: rtl; 
-            }
-            
-            .lang.he p { 
-                text-align: right; 
-                direction: rtl; 
-            }
-            
-            .lang.he a { 
-                direction: rtl;
-                text-align: right;
-                display: inline-block;
-                margin-top: 10px;
-                float: right;
-                clear: both;
-            }
-            
-            .article { 
-                margin: 20px 0; 
-                padding: 24px; 
-                border-left: 4px solid #667eea; 
-                background: #f9f9f9; 
-                border-radius: 8px;
-                transition: all 0.3s ease;
-            }
-            
-            .article:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            }
-            
-            .article.he { 
-                border-right: 4px solid #667eea; 
-                border-left: none; 
-            }
-            
-            .article h3 { 
-                margin: 0 0 15px 0; 
-                color: #2d3748; 
-                font-size: 1.3rem;
-                font-weight: 600;
-                line-height: 1.4;
-            }
-            
-            .article p { 
-                color: #4a5568; 
-                margin: 15px 0; 
-                font-size: 1rem;
-                line-height: 1.6;
-                display: block;
-                word-wrap: break-word;
-                overflow-wrap: break-word;
-            }
-            
-            .article a { 
-                color: #667eea; 
-                text-decoration: none; 
-                font-weight: 600; 
-                display: inline-block;
-                margin-top: 10px;
-                padding: 8px 16px;
-                background: rgba(102, 126, 234, 0.1);
-                border-radius: 20px;
-                transition: all 0.3s ease;
-            }
-            
-            .article a:hover {
-                background: #667eea;
-                color: white;
-                transform: translateY(-1px);
-            }
-            
-            .footer { 
-                text-align: center; 
-                margin-top: 40px; 
-                color: #718096;
-                padding: 20px 0;
-                border-top: 1px solid #e2e8f0;
-            }
-            
-            .subscription { 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                color: white; 
-                padding: 30px; 
-                margin: 40px 0; 
-                border-radius: 12px; 
-                text-align: center; 
-            }
-            
-            .subscription input { 
-                padding: 12px 16px; 
-                margin: 10px; 
-                border: none; 
-                border-radius: 8px; 
-                width: 100%;
-                max-width: 300px;
-                font-size: 1rem;
-            }
-            
-            .subscription button { 
-                background: #FFD700; 
-                color: #333; 
-                border: none; 
-                padding: 12px 24px; 
-                border-radius: 8px; 
-                cursor: pointer; 
-                font-weight: bold; 
-                font-size: 1rem;
-                transition: all 0.3s ease;
-            }
-            
-            .subscription button:hover {
-                background: #FFC700;
-                transform: translateY(-2px);
-            }
-            
-            .subscription .lang.he { 
-                direction: rtl; 
-                text-align: right; 
-            }
-            
-            .subscription .lang.he input { 
-                text-align: right; 
-                direction: rtl; 
-            }
-            
-            .no-articles { 
-                text-align: center; 
-                padding: 60px 20px; 
-                color: #718096; 
-                background: #f7fafc;
-                border-radius: 12px;
-                margin: 20px 0;
-            }
-            
-            h2 {
-                color: #2d3748;
-                font-size: 1.5rem;
-                font-weight: 700;
-                margin: 30px 0 20px 0;
-                padding-bottom: 10px;
-                border-bottom: 2px solid #e2e8f0;
-            }
-            
-            @media (max-width: 768px) {
-                body {
-                    padding: 10px;
+            <title>AI News - $countryDisplayName Daily Digest for $dayOfWeek, $currentDate</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body { 
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; 
+                    margin: 0;
+                    padding: 20px; 
+                    background: #f5f5f5; 
+                    line-height: 1.6;
                 }
                 
-                .container {
-                    padding: 15px;
-                    border-radius: 8px;
-                }
-                
-                .logo {
-                    font-size: 2rem;
-                }
-                
-                .country-nav {
-                    flex-direction: column;
-                    align-items: center;
-                }
-                
-                .country-nav a {
-                    width: 90%;
-                    max-width: 300px;
-                    margin: 5px 0;
-                    padding: 15px;
-                    font-size: 1rem;
-                }
-                
-                .lang-buttons {
-                    flex-direction: column;
-                    align-items: center;
-                }
-                
-                .lang-buttons button {
-                    width: 90%;
-                    max-width: 200px;
-                    margin: 5px 0;
-                    padding: 12px;
-                    font-size: 1rem;
-                }
-                
-                .article {
-                    margin: 15px 0;
+                .container { 
+                    max-width: 800px; 
+                    margin: 0 auto; 
+                    background: white; 
                     padding: 20px;
+                    border-radius: 12px; 
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                 }
                 
-                .article h3 {
-                    font-size: 1.2rem;
+                .header { 
+                    text-align: center; 
+                    margin-bottom: 30px; 
                 }
                 
-                .article p {
-                    font-size: 0.95rem;
+                .logo { 
+                    font-size: 2.5rem; 
+                    font-weight: bold; 
+                    color: #667eea; 
+                    margin-bottom: 10px;
                 }
                 
-                .subscription {
-                    padding: 25px 15px;
-                    margin: 30px 0;
+                .country-nav { 
+                    text-align: center; 
+                    margin: 20px 0; 
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 10px;
                 }
                 
-                .subscription input {
-                    width: 90%;
-                    margin: 8px 0;
-                    font-size: 16px;
+                .country-nav a { 
+                    padding: 12px 16px; 
+                    background: #667eea; 
+                    color: white; 
+                    text-decoration: none; 
+                    border-radius: 25px; 
+                    font-size: 0.9rem;
+                    min-width: 100px;
+                    text-align: center;
+                    transition: all 0.3s ease;
                 }
                 
-                .subscription button {
-                    width: 90%;
-                    padding: 15px;
-                    margin: 10px 0;
+                .country-nav a:hover { 
+                    background: #764ba2; 
+                    transform: translateY(-2px);
+                }
+                
+                .live-news-link {
+                    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%) !important;
+                    animation: pulse 2s infinite;
+                }
+                
+                .live-news-link:hover {
+                    background: linear-gradient(135deg, #ee5a24 0%, #d63031 100%) !important;
+                }
+                
+                @keyframes pulse {
+                    0% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7); }
+                    70% { box-shadow: 0 0 0 10px rgba(255, 107, 107, 0); }
+                    100% { box-shadow: 0 0 0 0 rgba(255, 107, 107, 0); }
+                }
+                
+                .lang-buttons { 
+                    text-align: center; 
+                    margin: 30px 0; 
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 8px;
+                }
+                
+                .lang-buttons button { 
+                    padding: 10px 16px; 
+                    border: none; 
+                    border-radius: 20px; 
+                    background: #667eea; 
+                    color: white; 
+                    cursor: pointer; 
+                    font-size: 0.9rem;
+                    min-width: 80px;
+                    transition: all 0.3s ease;
+                }
+                
+                .lang-buttons button.active { 
+                    background: #764ba2; 
+                    transform: scale(1.05);
+                }
+                
+                .lang-buttons button:hover { 
+                    background: #764ba2; 
+                }
+                
+                .lang { display: none; }
+                .lang.active { display: block; }
+                
+                .lang.he { 
+                    direction: rtl; 
+                    text-align: right; 
+                    font-family: 'Arial', 'Tahoma', 'Noto Sans Hebrew', sans-serif; 
+                }
+                
+                .lang.he h2, .lang.he h3 { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .lang.he p { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .lang.he a { 
+                    direction: rtl;
+                    text-align: right;
+                    display: inline-block;
+                    margin-top: 10px;
+                    float: right;
+                    clear: both;
+                }
+                
+                .article { 
+                    margin: 20px 0; 
+                    padding: 24px; 
+                    border-left: 4px solid #667eea; 
+                    background: #f9f9f9; 
+                    border-radius: 8px;
+                    transition: all 0.3s ease;
+                }
+                
+                .article:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                }
+                
+                .article.he { 
+                    border-right: 4px solid #667eea; 
+                    border-left: none; 
+                }
+                
+                .article h3 { 
+                    margin: 0 0 15px 0; 
+                    color: #2d3748; 
+                    font-size: 1.3rem;
+                    font-weight: 600;
+                    line-height: 1.4;
+                }
+                
+                .article p { 
+                    color: #4a5568; 
+                    margin: 15px 0; 
                     font-size: 1rem;
+                    line-height: 1.6;
+                    display: block;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                
+                .article a { 
+                    color: #667eea; 
+                    text-decoration: none; 
+                    font-weight: 600; 
+                    display: inline-block;
+                    margin-top: 10px;
+                    padding: 8px 16px;
+                    background: rgba(102, 126, 234, 0.1);
+                    border-radius: 20px;
+                    transition: all 0.3s ease;
+                }
+                
+                .article a:hover {
+                    background: #667eea;
+                    color: white;
+                    transform: translateY(-1px);
+                }
+                
+                .footer { 
+                    text-align: center; 
+                    margin-top: 40px; 
+                    color: #718096;
+                    padding: 20px 0;
+                    border-top: 1px solid #e2e8f0;
+                }
+                
+                .subscription { 
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    color: white; 
+                    padding: 30px; 
+                    margin: 40px 0; 
+                    border-radius: 12px; 
+                    text-align: center; 
+                }
+                
+                .subscription input { 
+                    padding: 12px 16px; 
+                    margin: 10px; 
+                    border: none; 
+                    border-radius: 8px; 
+                    width: 100%;
+                    max-width: 300px;
+                    font-size: 1rem;
+                }
+                
+                .subscription button { 
+                    background: #FFD700; 
+                    color: #333; 
+                    border: none; 
+                    padding: 12px 24px; 
+                    border-radius: 8px; 
+                    cursor: pointer; 
+                    font-weight: bold; 
+                    font-size: 1rem;
+                    transition: all 0.3s ease;
+                }
+                
+                .subscription button:hover {
+                    background: #FFC700;
+                    transform: translateY(-2px);
+                }
+                
+                .subscription .lang.he { 
+                    direction: rtl; 
+                    text-align: right; 
+                }
+                
+                .subscription .lang.he input { 
+                    text-align: right; 
+                    direction: rtl; 
+                }
+                
+                .no-articles { 
+                    text-align: center; 
+                    padding: 60px 20px; 
+                    color: #718096; 
+                    background: #f7fafc;
+                    border-radius: 12px;
+                    margin: 20px 0;
+                }
+                
+                .back-to-top {
+                    position: fixed;
+                    bottom: 30px;
+                    right: 30px;
+                    background: #667eea;
+                    color: white;
+                    border: none;
+                    border-radius: 50%;
+                    width: 50px;
+                    height: 50px;
+                    font-size: 20px;
+                    cursor: pointer;
+                    display: none;
+                    z-index: 1000;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                }
+                
+                .back-to-top:hover {
+                    background: #764ba2;
+                    transform: translateY(-3px);
+                }
+                
+                .back-to-top.visible {
+                    display: block;
                 }
                 
                 h2 {
-                    font-size: 1.3rem;
-                    margin: 25px 0 15px 0;
-                }
-            }
-        </style>
-        </head>
-        <body>
-        <div class="container">
-        <div class="header">
-        <div class="logo">🤖 AI News</div>
-        <p>$countryFlag $countryDisplayName Daily Digest • $dayOfWeek, $currentDate</p>
-        </div>
-
-        <div class="country-nav">
-            <a href="../index.html">🏠 Home</a>
-            <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
-            <a href="../israel/index.html">🇮🇱 Israel</a>
-            <a href="../greece/index.html">🇬🇷 Greece</a>
-            <a href="https://ainews.eu.com/live/" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
-        </div>
-
-        <div class="lang-buttons">
-        <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
-        <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
-        <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
-        <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
-        </div>
-
-        $articlesHtml
-
-        <div class="subscription">
-        <div class="lang en active">
-        <h3>🔔 Get Daily $countryDisplayName Notifications</h3>
-        <p>Get email notifications when fresh $countryDisplayName news is published</p>
-        <form action="https://formspree.io/f/xovlajpa" method="POST">
-        <input type="email" name="email" placeholder="your@email.com" required>
-        <input type="text" name="name" placeholder="Your name (optional)">
-        <input type="hidden" name="languages" value="en">
-        <input type="hidden" name="countries" value="$country">
-        <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription">
-        <br>
-        <button type="submit">🔔 Subscribe</button>
-        </form>
-        </div>
-        <div class="lang he">
-        <h3>🔔 קבלו התראות יומיות</h3>
-        <p>קבלו התראות כאשר חדשות $countryDisplayName טריות מתפרסמות</p>
-        <form action="https://formspree.io/f/xovlajpa" method="POST">
-        <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
-        <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
-        <input type="hidden" name="languages" value="he">
-        <input type="hidden" name="countries" value="$country">
-        <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Hebrew)">
-        <br>
-        <button type="submit">🔔 הירשמו</button>
-        </form>
-        </div>
-        <div class="lang ru">
-        <h3>🔔 Получайте уведомления</h3>
-        <p>Получайте уведомления о свежих новостях $countryDisplayName</p>
-        <form action="https://formspree.io/f/xovlajpa" method="POST">
-        <input type="email" name="email" placeholder="ваш@email.com" required>
-        <input type="text" name="name" placeholder="Ваше имя (необязательно)">
-        <input type="hidden" name="languages" value="ru">
-        <input type="hidden" name="countries" value="$country">
-        <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Russian)">
-        <br>
-        <button type="submit">🔔 Подписаться</button>
-        </form>
-        </div>
-        <div class="lang el">
-        <h3>🔔 Λάβετε ειδοποιήσεις</h3>
-        <p>Λάβετε ειδοποιήσεις για φρέσκα νέα $countryDisplayName</p>
-        <form action="https://formspree.io/f/xovlajpa" method="POST">
-        <input type="email" name="email" placeholder="το@email.σας" required>
-        <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
-        <input type="hidden" name="languages" value="el">
-        <input type="hidden" name="countries" value="$country">
-        <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Greek)">
-        <br>
-        <button type="submit">🔔 Εγγραφή</button>
-        </form>
-        </div>
-        </div>
-
-        <div class="footer">
-        <p>Generated automatically • ${countryArticles.map { it.sourceId }.distinct().joinToString(", ")}</p>
-        <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
-        </div>
-        </div>
-
-        <script>
-            let currentLang = 'en';
-            
-            function setLang(lang) {
-                // Hide all language elements
-                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                // Show selected language elements
-                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                // Update button states
-                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-' + lang).classList.add('active');
-                currentLang = lang;
-                
-                try {
-                    localStorage.setItem('userLanguagePreference', lang);
-                } catch (e) {
-                    // Silently fail if localStorage not available
-                }
-            }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                // Load saved language preference
-                let savedLang = 'en'; // default fallback
-                try {
-                    savedLang = localStorage.getItem('userLanguagePreference') || 'en';
-                } catch (e) {
-                    // Silently fail if localStorage not available
+                    color: #2d3748;
+                    font-size: 1.5rem;
+                    font-weight: 700;
+                    margin: 30px 0 20px 0;
+                    padding-bottom: 10px;
+                    border-bottom: 2px solid #e2e8f0;
                 }
                 
-                setLang(savedLang); // Use saved preference instead of hardcoded 'en'
-                
-                document.addEventListener('keydown', function(e) {
-                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                        e.preventDefault();
-                        const langs = ['en', 'he', 'ru', 'el'];
-                        const langIndex = parseInt(e.key) - 1;
-                        if (langs[langIndex]) {
-                            setLang(langs[langIndex]);
-                        }
+                @media (max-width: 768px) {
+                    body {
+                        padding: 10px;
                     }
-                });
-            });
-        </script>
-        </body>
-        </html>""".trimIndent()
-}
-fun addSubscriber(email: String, name: String?, languages: List<String>, countries: List<String> = listOf("CYPRUS")) {
-    val subscribers = loadSubscribers().toMutableList()
-    val existingSubscriber = subscribers.find { it.email == email }
+                    
+                    .container {
+                        padding: 15px;
+                        border-radius: 8px;
+                    }
+                    
+                    .logo {
+                        font-size: 2rem;
+                    }
+                    
+                    .country-nav {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    
+                    .country-nav a {
+                        width: 90%;
+                        max-width: 300px;
+                        margin: 5px 0;
+                        padding: 15px;
+                        font-size: 1rem;
+                    }
+                    
+                    .lang-buttons {
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    
+                    .lang-buttons button {
+                        width: 90%;
+                        max-width: 200px;
+                        margin: 5px 0;
+                        padding: 12px;
+                        font-size: 1rem;
+                    }
+                    
+                    .article {
+                        margin: 15px 0;
+                        padding: 20px;
+                    }
+                    
+                    .article h3 {
+                        font-size: 1.2rem;
+                    }
+                    
+                    .article p {
+                        font-size: 0.95rem;
+                    }
+                    
+                    .subscription {
+                        padding: 25px 15px;
+                        margin: 30px 0;
+                    }
+                    
+                    .subscription input {
+                        width: 90%;
+                        margin: 8px 0;
+                        font-size: 16px;
+                    }
+                    
+                    .subscription button {
+                        width: 90%;
+                        padding: 15px;
+                        margin: 10px 0;
+                        font-size: 1rem;
+                    }
+                    
+                    .back-to-top {
+                        bottom: 20px;
+                        right: 20px;
+                        width: 45px;
+                        height: 45px;
+                    }
+                    
+                    h2 {
+                        font-size: 1.3rem;
+                        margin: 25px 0 15px 0;
+                    }
+                }
+                
+                @media (max-width: 480px) {
+                    .container {
+                        padding: 10px;
+                    }
+                    
+                    .logo {
+                        font-size: 1.8rem;
+                    }
+                    
+                    .article {
+                        padding: 15px;
+                    }
+                    
+                    .subscription {
+                        padding: 20px 10px;
+                    }
+                }
+            </style>
+            </head>
+            <body>
+            <div class="container">
+            <div class="header">
+            <div class="logo">AI News</div>
+            <p>$countryFlag $countryDisplayName Daily Digest • $dayOfWeek, $currentDate</p>
+            </div>
 
-    if (existingSubscriber == null) {
-        val newSubscriber = Subscriber(
-            email = email,
-            name = name,
-            languages = languages,
-            countries = countries,
-            subscribed = true,
-            subscribedDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
-        )
-        subscribers.add(newSubscriber)
-        saveSubscribers(subscribers)
-        println("✅ Added new subscriber: $email for countries: ${countries.joinToString(", ")}")
-    } else {
-        println("⚠️ Subscriber $email already exists")
+            <div class="country-nav">
+                <a href="../index.html">🏠 Home</a>
+                <a href="../cyprus/index.html">🇨🇾 Cyprus</a>
+                <a href="../israel/index.html">🇮🇱 Israel</a>
+                <a href="../greece/index.html">🇬🇷 Greece</a>
+                <a href="https://ainews.eu.com/live/" class="live-news-link" target="_blank" rel="noopener noreferrer">🔴 Live News</a>
+            </div>
+
+            <div class="lang-buttons">
+            <button onclick="setLang('en')" class="active" id="btn-en">🇬🇧 English</button>
+            <button onclick="setLang('he')" id="btn-he">🇮🇱 עברית</button>
+            <button onclick="setLang('ru')" id="btn-ru">🇷🇺 Русский</button>
+            <button onclick="setLang('el')" id="btn-el">🇬🇷 Ελληνικά</button>
+            </div>
+
+            $articlesHtml
+
+            <div class="subscription">
+            <div class="lang en active">
+            <h3>🔔 Get Daily $countryDisplayName Notifications</h3>
+            <p>Get email notifications when fresh $countryDisplayName news is published</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="your@email.com" required>
+            <input type="text" name="name" placeholder="Your name (optional)">
+            <input type="hidden" name="languages" value="en">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription">
+            <br>
+            <button type="submit">🔔 Subscribe</button>
+            </form>
+            </div>
+            <div class="lang he">
+            <h3>🔔 קבלו התראות יומיות</h3>
+            <p>קבלו התראות כאשר חדשות $countryDisplayName טריות מתפרסמות</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="הדוא״ל שלכם" required>
+            <input type="text" name="name" placeholder="השם שלכם (אופציונלי)">
+            <input type="hidden" name="languages" value="he">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Hebrew)">
+            <br>
+            <button type="submit">🔔 הירשמו</button>
+            </form>
+            </div>
+            <div class="lang ru">
+            <h3>🔔 Получайте уведомления</h3>
+            <p>Получайте уведомления о свежих новостях $countryDisplayName</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="ваш@email.com" required>
+            <input type="text" name="name" placeholder="Ваше имя (необязательно)">
+            <input type="hidden" name="languages" value="ru">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Russian)">
+            <br>
+            <button type="submit">🔔 Подписаться</button>
+            </form>
+            </div>
+            <div class="lang el">
+            <h3>🔔 Λάβετε ειδοποιήσεις</h3>
+            <p>Λάβετε ειδοποιήσεις για φρέσκα νέα $countryDisplayName</p>
+            <form action="https://formspree.io/f/xovlajpa" method="POST">
+            <input type="email" name="email" placeholder="το@email.σας" required>
+            <input type="text" name="name" placeholder="Το όνομά σας (προαιρετικό)">
+            <input type="hidden" name="languages" value="el">
+            <input type="hidden" name="countries" value="$country">
+            <input type="hidden" name="_subject" value="AI News $countryDisplayName Subscription (Greek)">
+            <br>
+            <button type="submit">🔔 Εγγραφή</button>
+            </form>
+            </div>
+            </div>
+
+            <div class="footer">
+            <p>Generated automatically • ${countryArticles.map { it.sourceId }.distinct().joinToString(", ")}</p>
+            <p><a href="https://ainews.eu.com">ainews.eu.com</a></p>
+            </div>
+            </div>
+            
+            <button class="back-to-top" id="backToTop" onclick="scrollToTop()" title="Back to top">↑</button>
+
+            <script>
+                let currentLang = 'en';
+
+                function setLang(lang) {
+                    document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                    document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                    document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+                    document.getElementById('btn-' + lang).classList.add('active');
+                    currentLang = lang;
+                }
+
+                function scrollToTop() {
+                    window.scrollTo({
+                        top: 0,
+                        behavior: 'smooth'
+                    });
+                }
+
+                function toggleBackToTopButton() {
+                    const backToTopButton = document.getElementById('backToTop');
+                    if (window.pageYOffset > 300) {
+                        backToTopButton.classList.add('visible');
+                    } else {
+                        backToTopButton.classList.remove('visible');
+                    }
+                }
+
+                document.addEventListener('DOMContentLoaded', function() {
+                    setLang('en');
+                    
+                    window.addEventListener('scroll', toggleBackToTopButton);
+                    
+                    document.querySelectorAll('a[target="_blank"]').forEach(link => {
+                        link.addEventListener('click', function() {
+                            this.style.opacity = '0.7';
+                            setTimeout(() => {
+                                this.style.opacity = '1';
+                            }, 1000);
+                        });
+                    });
+                    
+                    document.addEventListener('keydown', function(e) {
+                        if (e.key === 't' || e.key === 'T') {
+                            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+                                e.preventDefault();
+                                scrollToTop();
+                            }
+                        }
+                        
+                        if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                            e.preventDefault();
+                            const langs = ['en', 'he', 'ru', 'el'];
+                            const langIndex = parseInt(e.key) - 1;
+                            if (langs[langIndex]) {
+                                setLang(langs[langIndex]);
+                            }
+                        }
+                    });
+                });
+            </script>
+            </body>
+            </html>""".trimIndent()
     }
-}
+
     fun generateMainIndexPage(articles: List<Article>): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
         val dayOfWeek = SimpleDateFormat("EEEE", Locale.ENGLISH).format(Date())

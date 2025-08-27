@@ -1462,55 +1462,55 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
             This page automatically refreshes every 5 minutes<br>
             For daily comprehensive news, visit our <a href="../index.html">main homepage</a>
         </p>
-            </div>
-        </div>
-        <script>
-            let currentLang = 'en';
-            
-            function setLang(lang) {
-                // Hide all language elements
-                document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
-                // Show selected language elements
-                document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
-                // Update button states
-                document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
-                document.getElementById('btn-' + lang).classList.add('active');
-                currentLang = lang;
-                
-                try {
-                    localStorage.setItem('userLanguagePreference', lang);
-                } catch (e) {
-                    // Silently fail if localStorage not available
+    </div>
+</div>
+
+<script>
+    let currentLang = 'en';
+
+    function setLang(lang) {
+        // Hide all language elements
+        document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+        // Show selected language elements
+        document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+        // Update button states
+        document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('btn-' + lang).classList.add('active');
+        currentLang = lang;
+        
+        try {
+            localStorage.setItem('liveNewsLang', lang);
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        let savedLang = 'en';
+        try {
+            savedLang = localStorage.getItem('liveNewsLang') || 'en';
+        } catch (e) {
+            // Silently fail if localStorage not available
+        }
+        setLang(savedLang);
+        
+        document.addEventListener('keydown', function(e) {
+            if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                e.preventDefault();
+                const langs = ['en', 'he', 'ru', 'el'];
+                const langIndex = parseInt(e.key) - 1;
+                if (langs[langIndex]) {
+                    setLang(langs[langIndex]);
                 }
             }
-
-            document.addEventListener('DOMContentLoaded', function() {
-                // Load saved language preference
-                let savedLang = 'en'; // default fallback
-                try {
-                    savedLang = localStorage.getItem('userLanguagePreference') || 'en';
-                } catch (e) {
-                    // Silently fail if localStorage not available
-                }
-                
-                setLang(savedLang); // Use saved preference instead of hardcoded 'en'
-                
-                document.addEventListener('keydown', function(e) {
-                    if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-                        e.preventDefault();
-                        const langs = ['en', 'he', 'ru', 'el'];
-                        const langIndex = parseInt(e.key) - 1;
-                        if (langs[langIndex]) {
-                            setLang(langs[langIndex]);
-                        }
-                    }
-                });
-            });
-        </script>
-        </body>
-        </html>
-            
-private fun uploadToGitHub() {
+        });
+    });
+</script>
+</body>
+</html>"""
+    }
+    
+    private fun uploadToGitHub() {
         try {
             if (githubToken.isNullOrEmpty()) {
                 println("⚠️ No GitHub token, skipping upload")
@@ -1562,10 +1562,6 @@ private fun uploadToGitHub() {
             client.newCall(putRequest).execute().use { response ->
                 if (!response.isSuccessful) {
                     println("Failed to upload $filePath: ${response.code}")
-                    val errorBody = response.body?.string()
-                    println("Error details: $errorBody")
-                } else {
-                    println("Successfully uploaded $filePath")
                 }
             }
         } catch (e: Exception) {
