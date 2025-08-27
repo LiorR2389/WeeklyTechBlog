@@ -1564,9 +1564,8 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
                     println("Failed to upload $filePath: ${response.code}")
                 }
             }
-        } catch (e: Exception) {
-            println("Error uploading $filePath: ${e.message}")
-        }
+    } catch (e: Exception) {
+        println("Error uploading $filePath: ${e.message}")
     }
 }
 
