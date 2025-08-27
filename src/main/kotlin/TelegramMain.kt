@@ -1510,7 +1510,7 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         </body>
         </html>
             
-    private fun uploadToGitHub() {
+private fun uploadToGitHub() {
         try {
             if (githubToken.isNullOrEmpty()) {
                 println("⚠️ No GitHub token, skipping upload")
@@ -1527,7 +1527,7 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         }
     }
     
-private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
+    private fun uploadFileToGitHub(repoName: String, filePath: String, content: String) {
         try {
             // Get existing file SHA (if exists)
             val getRequest = Request.Builder()
