@@ -2005,16 +2005,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
                 <html>
                 <head>
                                 
-                <!-- Google tag (gtag.js) -->
-                <script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
-                <script>
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                gtag('js', new Date());
-
-                gtag('config', 'G-C1QY12QWQ0');
-                </script>
-
+                
                     <meta charset="UTF-8">
                     <style>
                         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
