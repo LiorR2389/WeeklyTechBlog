@@ -1464,10 +1464,9 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         </p>
     </div>
 </div>
-
 <script>
     let currentLang = 'en';
-
+    
     function setLang(lang) {
         // Hide all language elements
         document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
@@ -1479,20 +1478,22 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         currentLang = lang;
         
         try {
-            localStorage.setItem('liveNewsLang', lang);
+            localStorage.setItem('userLanguagePreference', lang);
         } catch (e) {
             // Silently fail if localStorage not available
         }
     }
 
     document.addEventListener('DOMContentLoaded', function() {
-        let savedLang = 'en';
+        // Load saved language preference
+        let savedLang = 'en'; // default fallback
         try {
-            savedLang = localStorage.getItem('liveNewsLang') || 'en';
+            savedLang = localStorage.getItem('userLanguagePreference') || 'en';
         } catch (e) {
             // Silently fail if localStorage not available
         }
-        setLang(savedLang);
+        
+        setLang(savedLang); // Use saved preference instead of hardcoded 'en'
         
         document.addEventListener('keydown', function(e) {
             if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1507,8 +1508,7 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
     });
 </script>
 </body>
-</html>"""
-    }
+</html>
     
     private fun uploadToGitHub() {
         try {

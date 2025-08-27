@@ -1579,52 +1579,38 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
             <script>
                 let currentLang = 'en';
 
+            <script>
+                let currentLang = 'en';
+                
                 function setLang(lang) {
+                    // Hide all language elements
                     document.querySelectorAll('.lang').forEach(el => el.classList.remove('active'));
+                    // Show selected language elements
                     document.querySelectorAll('.lang.' + lang).forEach(el => el.classList.add('active'));
+                    // Update button states
                     document.querySelectorAll('.lang-buttons button').forEach(btn => btn.classList.remove('active'));
                     document.getElementById('btn-' + lang).classList.add('active');
                     currentLang = lang;
-                }
-
-                function scrollToTop() {
-                    window.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                    });
-                }
-
-                function toggleBackToTopButton() {
-                    const backToTopButton = document.getElementById('backToTop');
-                    if (window.pageYOffset > 300) {
-                        backToTopButton.classList.add('visible');
-                    } else {
-                        backToTopButton.classList.remove('visible');
+                    
+                    try {
+                        localStorage.setItem('userLanguagePreference', lang);
+                    } catch (e) {
+                        // Silently fail if localStorage not available
                     }
                 }
 
                 document.addEventListener('DOMContentLoaded', function() {
-                    setLang('en');
+                    // Load saved language preference
+                    let savedLang = 'en'; // default fallback
+                    try {
+                        savedLang = localStorage.getItem('userLanguagePreference') || 'en';
+                    } catch (e) {
+                        // Silently fail if localStorage not available
+                    }
                     
-                    window.addEventListener('scroll', toggleBackToTopButton);
-                    
-                    document.querySelectorAll('a[target="_blank"]').forEach(link => {
-                        link.addEventListener('click', function() {
-                            this.style.opacity = '0.7';
-                            setTimeout(() => {
-                                this.style.opacity = '1';
-                            }, 1000);
-                        });
-                    });
+                    setLang(savedLang); // Use saved preference instead of hardcoded 'en'
                     
                     document.addEventListener('keydown', function(e) {
-                        if (e.key === 't' || e.key === 'T') {
-                            if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-                                e.preventDefault();
-                                scrollToTop();
-                            }
-                        }
-                        
                         if (e.key >= '1' && e.key <= '4' && !e.ctrlKey && !e.altKey && !e.metaKey) {
                             e.preventDefault();
                             const langs = ['en', 'he', 'ru', 'el'];
@@ -1637,8 +1623,7 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
                 });
             </script>
             </body>
-            </html>""".trimIndent()
-    }
+            </html>
 
     fun generateMainIndexPage(articles: List<Article>): String {
         val currentDate = SimpleDateFormat("yyyy-MM-dd").format(Date())
