@@ -1089,6 +1089,17 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
         return """<!DOCTYPE html>
             <html>
             <head>
+            
+            <!-- Google tag (gtag.js) -->
+            <script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
+            <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+
+            gtag('config', 'G-C1QY12QWQ0');
+            </script>
+
             <title>AI News - $countryDisplayName Daily Digest for $dayOfWeek, $currentDate</title>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1665,6 +1676,17 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
         return """<!DOCTYPE html>
             <html>
             <head>
+            
+            <!-- Google tag (gtag.js) -->
+            <script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
+            <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+
+            gtag('config', 'G-C1QY12QWQ0');
+            </script>
+
             <title>AI News - Multi-Country Daily Digest for $dayOfWeek, $currentDate</title>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1982,6 +2004,17 @@ private fun attemptTranslation(text: String, targetLanguage: String, sourceLangu
                 <!DOCTYPE html>
                 <html>
                 <head>
+                                
+                <!-- Google tag (gtag.js) -->
+                <script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
+                <script>
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                gtag('js', new Date());
+
+                gtag('config', 'G-C1QY12QWQ0');
+                </script>
+
                     <meta charset="UTF-8">
                     <style>
                         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }

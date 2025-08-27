@@ -1157,6 +1157,17 @@ private fun hasGoodTranslations(message: TelegramNewsMessage): Boolean {
         return """<!DOCTYPE html>
 <html lang="en">
 <head>
+
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-C1QY12QWQ0"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-C1QY12QWQ0');
+</script>
+
     <title>🔴 LIVE: Cyprus Breaking News | AI News</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
